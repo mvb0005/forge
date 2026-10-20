@@ -19,6 +19,7 @@ package forge.game;
 
 import com.google.common.collect.*;
 
+import io.opentelemetry.instrumentation.annotations.WithSpan;
 import forge.GameCommand;
 import forge.StaticData;
 import forge.card.CardStateName;
@@ -1096,6 +1097,7 @@ public class GameAction {
     public final void checkStaticAbilities(final boolean runEvents, final Set<Card> affectedCards, final CardCollectionView preList) {
         checkStaticAbilities(runEvents, affectedCards, preList, null);
     }
+    @WithSpan
     public final void checkStaticAbilities(final boolean runEvents, final Set<Card> affectedCards, final CardCollectionView preList, final Set<Card> enteringWith) {
         if (isCheckingStaticAbilitiesOnHold()) {
             return;
@@ -1420,6 +1422,7 @@ public class GameAction {
     public final boolean checkStateEffects(final boolean runEvents) {
         return checkStateEffects(runEvents, Sets.newHashSet());
     }
+    @WithSpan
     public boolean checkStateEffects(final boolean runEvents, final Set<Card> affectedCards) {
         // check game over early for win conditions such as Platinum Angel + Hurricane lethal for both players
         checkGameOverCondition();
