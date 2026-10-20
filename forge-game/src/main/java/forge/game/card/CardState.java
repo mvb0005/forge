@@ -157,6 +157,7 @@ public class CardState implements GameObject, IHasSVars, ITranslatable {
 
     public void updateTypes() {
         this.changedType = getType().getTypeWithChanges(card.getChangedCardTypes());
+        card.notifyCardsChanged();
     }
     public void updateTypesForView() {
         view.updateType(this);
@@ -387,6 +388,7 @@ public class CardState implements GameObject, IHasSVars, ITranslatable {
 
     public final void setCachedKeywords(final KeywordCollection col) {
         cachedKeywords = col;
+        card.notifyCardsChanged();
     }
 
     public final boolean hasKeyword(Keyword key) {
@@ -716,6 +718,7 @@ public class CardState implements GameObject, IHasSVars, ITranslatable {
 
     public final boolean addTrigger(final Trigger t) {
         traitListsVersion++;
+        card.notifyCardsChanged();
         return triggers.add(t);
     }
 
@@ -735,10 +738,12 @@ public class CardState implements GameObject, IHasSVars, ITranslatable {
     }
     public final boolean addStaticAbility(StaticAbility stab) {
         traitListsVersion++;
+        card.notifyCardsChanged();
         return staticAbilities.add(stab);
     }
     public final boolean removeStaticAbility(StaticAbility stab) {
         traitListsVersion++;
+        card.notifyCardsChanged();
         return staticAbilities.remove(stab);
     }
 
@@ -750,7 +755,7 @@ public class CardState implements GameObject, IHasSVars, ITranslatable {
             return (replacementCacheNoRules = cachedTraits(replacementCacheNoRules, 0, () -> buildReplacementEffects(false))).list();
         }
         // the rules-host extras below also come from these counters
-        int flags = (card.getCounters(CounterEnumType.SHIELD) > 0 ? 1 : 0)
+        int flags = !card.hasCounters() ? 0 : (card.getCounters(CounterEnumType.SHIELD) > 0 ? 1 : 0)
                 | (card.getCounters(CounterEnumType.STUN) > 0 ? 2 : 0)
                 | (card.getCounters(CounterEnumType.FINALITY) > 0 ? 4 : 0);
         return (replacementCache = cachedTraits(replacementCache, flags, () -> buildReplacementEffects(true))).list();
@@ -789,6 +794,7 @@ public class CardState implements GameObject, IHasSVars, ITranslatable {
     }
     public boolean addReplacementEffect(final ReplacementEffect replacementEffect) {
         traitListsVersion++;
+        card.notifyCardsChanged();
         return replacementEffects.add(replacementEffect);
     }
 
@@ -990,6 +996,7 @@ public class CardState implements GameObject, IHasSVars, ITranslatable {
         }
 
         traitListsVersion++;
+        card.notifyCardsChanged();
         replacementEffects.clear();
         for (ReplacementEffect re : source.replacementEffects) {
             if (re.isIntrinsic()) {
@@ -1043,6 +1050,7 @@ public class CardState implements GameObject, IHasSVars, ITranslatable {
 
     public final void addAbilitiesFrom(final CardState source, final boolean lki) {
         traitListsVersion++;
+        card.notifyCardsChanged();
         for (SpellAbility sa : source.abilities) {
             if (sa.isIntrinsic() && sa.getApi() != ApiType.PermanentCreature && sa.getApi() != ApiType.PermanentNoncreature) {
                 abilities.add(sa.copy(card, lki));

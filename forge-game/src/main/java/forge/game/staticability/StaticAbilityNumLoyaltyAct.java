@@ -3,7 +3,6 @@ package forge.game.staticability;
 import forge.game.ability.AbilityUtils;
 import forge.game.card.Card;
 import forge.game.spellability.SpellAbility;
-import forge.game.zone.ZoneType;
 
 /**
  * The Class StaticAbility_NumLoyaltyAct.
@@ -12,7 +11,7 @@ import forge.game.zone.ZoneType;
 public class StaticAbilityNumLoyaltyAct {
 
     public static boolean limitIncrease(final Card card) {
-        for (final Card ca : card.getGame().getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : card.getGame().getCardsWithStaticAbility(StaticAbilityMode.NumLoyaltyAct)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.NumLoyaltyAct)) {
                     continue;
@@ -40,7 +39,7 @@ public class StaticAbilityNumLoyaltyAct {
 
     public static int additionalActivations(final Card card, final SpellAbility sa) {
         int addl = 0;
-        for (final Card ca : card.getGame().getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : card.getGame().getCardsWithStaticAbility(StaticAbilityMode.NumLoyaltyAct)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.NumLoyaltyAct)) {
                     continue;

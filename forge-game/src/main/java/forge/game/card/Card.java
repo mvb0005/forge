@@ -1949,7 +1949,14 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     }
 
     @Override
+    public void setCounters(final CounterType counterType, final Integer num) {
+        super.setCounters(counterType, num);
+        notifyCardsChanged();
+    }
+
+    @Override
     public final void setCounters(final Multiset<CounterType> allCounters) {
+        notifyCardsChanged();
         boolean changed = counters.contains(CounterEnumType.MANABOND) || counters.elementSet().stream().anyMatch(CounterType::isKeywordCounter);
         counters = allCounters;
         view.updateCounters(this);
@@ -1972,6 +1979,7 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
         boolean changed = counters.contains(CounterEnumType.MANABOND) || counters.elementSet().stream().anyMatch(CounterType::isKeywordCounter);
 
         counters.clear();
+        notifyCardsChanged();
         view.updateCounters(this);
 
         if (changed) {
@@ -4163,7 +4171,7 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
 
     public final void updateTypeCache() {
         // changed types can add or remove traits (land types, Saga, removed intrinsic abilities)
-        changedTraitsVersion++;
+        traitsChanged();
         this.getCurrentState().updateTypes();
     }
 
@@ -5001,7 +5009,7 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
         return changedCardTraitsByText;
     }
     public final void setChangedCardTraitsByText(Table<Long, Long, CardTraitChanges> changes) {
-        changedTraitsVersion++;
+        traitsChanged();
         changedCardTraitsByText.clear();
         for (Table.Cell<Long, Long, CardTraitChanges> e : changes.cellSet()) {
             changedCardTraitsByText.put(e.getRowKey(), e.getColumnKey(), e.getValue().copy(this, true));
@@ -5009,7 +5017,7 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     }
     public final void addChangedCardTraitsByText(Collection<SpellAbility> spells,
             Collection<Trigger> trigger, Collection<ReplacementEffect> replacements, Collection<StaticAbility> statics, long timestamp, long staticId) {
-        changedTraitsVersion++;
+        traitsChanged();
         changedCardTraitsByText.put(timestamp, staticId, new CardTraitChanges(
             spells, trigger, replacements, statics, e -> true
         ));
@@ -5034,7 +5042,7 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
         return addChangedCardTraits(result, timestamp, staticId, updateView);
     }
     public final ICardTraitChanges addChangedCardTraits(ICardTraitChanges changes, long timestamp, long staticId, boolean updateView) {
-        changedTraitsVersion++;
+        traitsChanged();
         changedCardTraits.put(timestamp, staticId, changes);
         if (updateView) {
             updateAbilityTextForView();
@@ -5043,16 +5051,27 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     }
 
     public final boolean removeChangedCardTraits(long timestamp, long staticId) {
-        changedTraitsVersion++;
+        traitsChanged();
         return changedCardTraits.remove(timestamp, staticId) != null;
     }
     public final boolean removeChangedCardTraitsByText(long timestamp, long staticId) {
-        changedTraitsVersion++;
+        traitsChanged();
         return changedCardTraitsByText.remove(timestamp, staticId) != null;
     }
 
     public final long getChangedTraitsVersion() {
         return changedTraitsVersion;
+    }
+    private void traitsChanged() {
+        changedTraitsVersion++;
+        notifyCardsChanged();
+    }
+    // tells the game this card's traits, keywords, types or counters changed. LKI copies (no zone) don't count; a
+    // copy that claims a zone it isn't in only costs a needless rebuild of game-wide lookups.
+    final void notifyCardsChanged() {
+        if (game != null && currentZone != null && !isLKI()) {
+            game.cardsChanged();
+        }
     }
 
     public Iterable<? extends ICardTraitChanges> getChangedCardTraitsList(CardState state) {
@@ -5071,7 +5090,7 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     }
 
     public final void setChangedCardTraits(Table<Long, Long, ICardTraitChanges> changes) {
-        changedTraitsVersion++;
+        traitsChanged();
         changedCardTraits.clear();
         for (Table.Cell<Long, Long, ICardTraitChanges> e : changes.cellSet()) {
             changedCardTraits.put(e.getRowKey(), e.getColumnKey(), e.getValue().copy(this, true));
@@ -5079,7 +5098,7 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     }
 
     public boolean clearChangedCardTraits() {
-        changedTraitsVersion++;
+        traitsChanged();
         boolean changed = false;
         if (!changedCardTraitsByText.isEmpty()) {
             changed = true;
@@ -5556,7 +5575,7 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     public final void addChangedTextTypeWord(final String originalWord, final String newWord, final Long timestamp, final long staticId) {
         changedTextTypes.add(timestamp, staticId, originalWord, newWord);
         changedCardTypesByText.put(timestamp, staticId, new WordChangedType(originalWord, newWord));
-        changedTraitsVersion++;
+        traitsChanged();
         updateChangedText();
     }
 
@@ -5729,6 +5748,8 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     public final void setPhasedOut(final Player phasedOut0) {
         if (phasedOut == phasedOut0) { return; }
         phasedOut = phasedOut0;
+        // phased-out cards drop out of getCardsIn(Battlefield)
+        notifyCardsChanged();
         view.updatePhasedOut(this);
     }
 
@@ -6255,52 +6276,53 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     public final int staticReplaceDamage(final int damage, final Card source, final boolean isCombat) {
         int restDamage = damage;
         for (Card c : getGame().getCardsIn(ZoneType.Battlefield)) {
-            if (c.getName().equals("Sulfuric Vapors")) {
+            final String name = c.getName();
+            if (name.equals("Sulfuric Vapors")) {
                 if (source.isSpell() && source.isRed()) {
                     restDamage += 1;
                 }
-            } else if (c.getName().equals("Pyromancer's Swath")) {
+            } else if (name.equals("Pyromancer's Swath")) {
                 if (c.getController().equals(source.getController()) && (source.isInstant() || source.isSorcery())
                         && isCreature()) {
                     restDamage += 2;
                 }
-            } else if (c.getName().equals("Furnace of Rath")) {
+            } else if (name.equals("Furnace of Rath")) {
                 if (isCreature()) {
                     restDamage *= 2;
                 }
-            } else if (c.getName().equals("Dictate of the Twin Gods")) {
+            } else if (name.equals("Dictate of the Twin Gods")) {
                 restDamage += restDamage;
-            } else if (c.getName().equals("Gratuitous Violence")) {
+            } else if (name.equals("Gratuitous Violence")) {
                 if (c.getController().equals(source.getController()) && source.isCreature() && isCreature()) {
                     restDamage *= 2;
                 }
-            } else if (c.getName().equals("Fire Servant")) {
+            } else if (name.equals("Fire Servant")) {
                 if (c.getController().equals(source.getController()) && source.isRed()
                         && (source.isInstant() || source.isSorcery())) {
                     restDamage *= 2;
                 }
-            } else if (c.getName().equals("Gisela, Blade of Goldnight")) {
+            } else if (name.equals("Gisela, Blade of Goldnight")) {
                 if (!c.getController().equals(getController())) {
                     restDamage *= 2;
                 }
-            } else if (c.getName().equals("Inquisitor's Flail")) {
+            } else if (name.equals("Inquisitor's Flail")) {
                 if (isCombat && c.getEquipping() != null
                         && (c.getEquipping().equals(this) || c.getEquipping().equals(source))) {
                     restDamage *= 2;
                 }
-            } else if (c.getName().equals("Ghosts of the Innocent")) {
+            } else if (name.equals("Ghosts of the Innocent")) {
                 if (isCreature()) {
                     restDamage = restDamage / 2;
                 }
-            } else if (c.getName().equals("Benevolent Unicorn")) {
+            } else if (name.equals("Benevolent Unicorn")) {
                 if (source.isSpell() && isCreature()) {
                    restDamage -= 1;
                 }
-            } else if (c.getName().equals("Divine Presence")) {
+            } else if (name.equals("Divine Presence")) {
                 if (restDamage > 3 && isCreature()) {
                     restDamage = 3;
                 }
-            } else if (c.getName().equals("Lashknife Barrier")) {
+            } else if (name.equals("Lashknife Barrier")) {
                 if (c.getController().equals(getController()) && isCreature()) {
                     restDamage -= 1;
                 }
@@ -6310,11 +6332,12 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
         // TODO: improve such that this can be predicted from the replacement effect itself
         // (+ move this function out into ComputerUtilCombat?)
         for (Card c : getGame().getCardsIn(ZoneType.Command)) {
-            if (c.getName().equals("Insult Effect")) {
+            final String name = c.getName();
+            if (name.equals("Insult Effect")) {
                 if (c.getController().equals(source.getController())) {
                     restDamage *= 2;
                 }
-            } else if (c.getName().equals("Mishra")) {
+            } else if (name.equals("Mishra")) {
                 if (c.isCreature() && c.getController().equals(source.getController())) {
                     restDamage *= 2;
                 }

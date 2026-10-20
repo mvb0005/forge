@@ -3,13 +3,12 @@ package forge.game.staticability;
 import forge.game.Game;
 import forge.game.card.Card;
 import forge.game.keyword.KeywordInterface;
-import forge.game.zone.ZoneType;
 
 public class StaticAbilityIgnoreLandwalk {
 
     public static boolean ignoreLandWalk(Card attacker, Card blocker, KeywordInterface k) {
         final Game game = attacker.getGame();
-        for (final Card ca : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : game.getCardsWithStaticAbility(StaticAbilityMode.IgnoreLandwalk)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.IgnoreLandwalk)) {
                     continue;

@@ -4,13 +4,12 @@ import forge.game.Game;
 import forge.game.card.Card;
 import forge.game.card.CounterType;
 import forge.game.player.Player;
-import forge.game.zone.ZoneType;
 
 public class StaticAbilityCantPutCounter {
 
     public static boolean anyCantPutCounter(final Card card, final CounterType type) {
         final Game game = card.getGame();
-        for (final Card ca : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : game.getCardsWithStaticAbility(StaticAbilityMode.CantPutCounter)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.CantPutCounter)) {
                     continue;
@@ -25,7 +24,7 @@ public class StaticAbilityCantPutCounter {
 
     public static boolean anyCantPutCounter(final Player player, final CounterType type) {
         final Game game = player.getGame();
-        for (final Card ca : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : game.getCardsWithStaticAbility(StaticAbilityMode.CantPutCounter)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.CantPutCounter)) {
                     continue;

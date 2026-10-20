@@ -57,7 +57,7 @@ public class StaticAbilityCantBeCast {
             return false;
         }
         final Game game = activator.getGame();
-        for (final Card ca : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : game.getCardsWithStaticAbility(StaticAbilityMode.CantBeActivated)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.CantBeActivated)) {
                     continue;
@@ -72,7 +72,7 @@ public class StaticAbilityCantBeCast {
 
     public static boolean cantPlayLandAbility(final SpellAbility spell, final Card card, final Player activator) {
         final Game game = activator.getGame();
-        for (final Card ca : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : game.getCardsWithStaticAbility(StaticAbilityMode.CantPlayLand)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.CantPlayLand)) {
                     continue;

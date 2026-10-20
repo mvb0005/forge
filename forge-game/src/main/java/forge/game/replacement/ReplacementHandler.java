@@ -108,54 +108,21 @@ public class ReplacementHandler {
         final List<ReplacementEffect> possibleReplacers = Lists.newArrayList();
 
         // Round up Static replacement effects
-        game.forEachCardInGame(crd -> {
-            Card c = preList.get(crd);
-            Zone cardZone = game.getZoneOf(c);
-
-            // all tap/untap/produce mana replacements are active from the battlefield or the
-            // command zone (e.g. Ood Sphere); skip other zones - this is a major hot path, as
-            // canTap/canUntap run a cantHappenCheck per mana source per AI cost check, and
-            // groupSourcesByManaColor runs a ProduceMana check per mana ability on top of that
-            // (performance mode only, in case a custom card wants one active from elsewhere)
-            if (Spell.isPerformanceMode()
-                    && (event == ReplacementType.Tap || event == ReplacementType.Untap
-                            || event == ReplacementType.ProduceMana)
-                    && cardZone != null
-                    && cardZone.getZoneType() != ZoneType.Battlefield
-                    && cardZone.getZoneType() != ZoneType.Command) {
-                return true;
-            }
-
-            // only when not prelist
-            boolean noLKIstate = c != crd || event != ReplacementType.Moved || c.isImmutable() || runParams.get(AbilityKey.LastStateBattlefield) == null;
-            if (!noLKIstate) {
-                Card lastState = ((CardCollectionView) runParams.get(AbilityKey.LastStateBattlefield)).get(c);
-                if (lastState != c) {
-                    // use LKI because it has the right RE from the state before the effect started
-                    c = lastState;
-                    cardZone = lastState.getLastKnownZone();
-                } else if (cardZone != null && cardZone.is(ZoneType.Battlefield)) {
-                    // no LKI found so it shouldn't apply, this can happen during simultaneous zone changes
-                    return true;
+        final boolean withSideboard = affectedCard != null && affectedCard.isInZone(ZoneType.Sideboard);
+        // Moved keeps the full scan: LKI states stand in for cards there, and ReplaceAddCounter answers it too
+        if (preList.isEmpty() && !withSideboard && event != ReplacementType.Moved) {
+            Visitor<Card> collect = crd -> collectReplacers(crd, preList, event, runParams, layer, possibleReplacers);
+            collect.visitAll(cardsWithEffects(event));
+            if (VERIFY_INDEX) {
+                final List<ReplacementEffect> scanned = Lists.newArrayList();
+                game.forEachCardInGame(crd -> collectReplacers(crd, preList, event, runParams, layer, scanned), false);
+                if (!Iterables.elementsEqual(scanned, possibleReplacers)) {
+                    throw new IllegalStateException("Replacement index for " + event + " found " + possibleReplacers + ", full scan " + scanned);
                 }
             }
-
-            for (final ReplacementEffect replacementEffect : c.getReplacementEffects()) {
-                if (!replacementEffect.hasRun() && !hasRun.contains(replacementEffect)
-                        && (layer == null || replacementEffect.getLayer() == layer)
-                        && replacementEffect.modeCheck(event, runParams)
-                        && !possibleReplacers.contains(replacementEffect)
-                        && replacementEffect.zonesCheck(cardZone)
-                        && replacementEffect.requirementsCheck(game)
-                        && replacementEffect.canReplace(runParams)) {
-                    possibleReplacers.add(replacementEffect);
-                    if (layer == ReplacementLayer.CantHappen) {
-                        return false;
-                    }
-                }
-            }
-            return true;
-        }, affectedCard != null && affectedCard.isInZone(ZoneType.Sideboard));
+        } else {
+            game.forEachCardInGame(crd -> collectReplacers(crd, preList, event, runParams, layer, possibleReplacers), withSideboard);
+        }
 
         if (affectedLKI != null) {
             // need to set the Host Card there so it is not connected to LKI anymore?
@@ -177,6 +144,88 @@ public class ReplacementHandler {
         }
 
         return possibleReplacers;
+    }
+
+    // one card's part of getReplacementList: adds its matching effects; false stops the search (CantHappen found one)
+    private boolean collectReplacers(final Card crd, final CardCollectionView preList, final ReplacementType event,
+            final Map<AbilityKey, Object> runParams, final ReplacementLayer layer, final List<ReplacementEffect> possibleReplacers) {
+        Card c = preList.get(crd);
+        Zone cardZone = game.getZoneOf(c);
+
+        // all tap/untap/produce mana replacements are active from the battlefield or the
+        // command zone (e.g. Ood Sphere); skip other zones - this is a major hot path, as
+        // canTap/canUntap run a cantHappenCheck per mana source per AI cost check, and
+        // groupSourcesByManaColor runs a ProduceMana check per mana ability on top of that
+        // (performance mode only, in case a custom card wants one active from elsewhere)
+        if (Spell.isPerformanceMode()
+                && (event == ReplacementType.Tap || event == ReplacementType.Untap
+                        || event == ReplacementType.ProduceMana)
+                && cardZone != null
+                && cardZone.getZoneType() != ZoneType.Battlefield
+                && cardZone.getZoneType() != ZoneType.Command) {
+            return true;
+        }
+
+        // only when not prelist
+        boolean noLKIstate = c != crd || event != ReplacementType.Moved || c.isImmutable() || runParams.get(AbilityKey.LastStateBattlefield) == null;
+        if (!noLKIstate) {
+            Card lastState = ((CardCollectionView) runParams.get(AbilityKey.LastStateBattlefield)).get(c);
+            if (lastState != c) {
+                // use LKI because it has the right RE from the state before the effect started
+                c = lastState;
+                cardZone = lastState.getLastKnownZone();
+            } else if (cardZone != null && cardZone.is(ZoneType.Battlefield)) {
+                // no LKI found so it shouldn't apply, this can happen during simultaneous zone changes
+                return true;
+            }
+        }
+
+        for (final ReplacementEffect replacementEffect : c.getReplacementEffects()) {
+            if (!replacementEffect.hasRun() && !hasRun.contains(replacementEffect)
+                    && (layer == null || replacementEffect.getLayer() == layer)
+                    && replacementEffect.modeCheck(event, runParams)
+                    && !possibleReplacers.contains(replacementEffect)
+                    && replacementEffect.zonesCheck(cardZone)
+                    && replacementEffect.requirementsCheck(game)
+                    && replacementEffect.canReplace(runParams)) {
+                possibleReplacers.add(replacementEffect);
+                if (layer == ReplacementLayer.CantHappen) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    // Cards that have a replacement effect of each event type, in forEachCardInGame order. getReplacementList used to
+    // ask every card in the game (about 400 in Commander) and the AI asks thousands of times per decision, while only a
+    // few cards have effects of any one type. Rebuilt whenever Game.getCardsVersion() moves; immutable, because the AI
+    // asks from parallel threads. -Dforge.verifyReplacementIndex=true also runs the full scan and throws on a difference.
+    private static final boolean VERIFY_INDEX = Boolean.getBoolean("forge.verifyReplacementIndex");
+
+    private record CardIndex(long cardsVersion, Map<ReplacementType, List<Card>> byEvent) {
+    }
+
+    private CardIndex cardIndex;
+
+    private List<Card> cardsWithEffects(final ReplacementType event) {
+        CardIndex index = cardIndex;
+        final long version = game.getCardsVersion();
+        if (index == null || index.cardsVersion() != version) {
+            final Map<ReplacementType, List<Card>> byEvent = new EnumMap<>(ReplacementType.class);
+            game.forEachCardInGame(c -> {
+                final Set<ReplacementType> added = EnumSet.noneOf(ReplacementType.class);
+                for (final ReplacementEffect re : c.getReplacementEffects()) {
+                    if (added.add(re.getMode())) {
+                        byEvent.computeIfAbsent(re.getMode(), k -> new ArrayList<>()).add(c);
+                    }
+                }
+                return true;
+            }, false);
+            index = new CardIndex(version, byEvent);
+            cardIndex = index;
+        }
+        return index.byEvent().getOrDefault(event, List.of());
     }
 
     public boolean cantHappenCheck(final ReplacementType event, final Map<AbilityKey, Object> runParams) {
