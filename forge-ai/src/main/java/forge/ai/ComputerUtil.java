@@ -19,6 +19,7 @@ package forge.ai;
 
 import com.google.common.collect.*;
 
+import io.opentelemetry.instrumentation.annotations.WithSpan;
 import forge.ai.AiCardMemory.MemorySet;
 import forge.ai.ability.ProtectAi;
 import forge.ai.ability.TokenAi;
@@ -3211,6 +3212,7 @@ public class ComputerUtil {
     public static int predictNextCombatsRemainingLife(Player ai, boolean serious, boolean checkDiff, int payment, final CardCollection excludedBlockers) {
         return predictNextCombatsRemainingLife(ai, serious, checkDiff, payment, excludedBlockers, ai.getOpponents());
     }
+    @WithSpan
     public static int predictNextCombatsRemainingLife(Player ai, boolean serious, boolean checkDiff, int payment, final CardCollection excludedBlockers, final List<Player> opps) {
         // life won't change
         int remainingLife = Integer.MAX_VALUE;

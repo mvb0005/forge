@@ -7,6 +7,13 @@ import java.util.concurrent.TimeoutException;
 
 import org.apache.commons.lang3.time.StopWatch;
 
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.metrics.DoubleHistogram;
+import io.opentelemetry.api.metrics.LongHistogram;
+import io.opentelemetry.api.metrics.Meter;
+
 import forge.LobbyPlayer;
 import forge.ai.AiProfileUtil;
 import forge.deck.Deck;
@@ -26,6 +33,7 @@ import forge.gamemodes.tournament.system.TournamentPairing;
 import forge.gamemodes.tournament.system.TournamentPlayer;
 import forge.gamemodes.tournament.system.TournamentRoundRobin;
 import forge.gamemodes.tournament.system.TournamentSwiss;
+import forge.item.PaperCard;
 import forge.localinstance.properties.ForgeConstants;
 import forge.model.FModel;
 import forge.player.GamePlayerUtil;
@@ -36,6 +44,23 @@ import forge.util.WordUtil;
 import forge.util.storage.IStorage;
 
 public class SimulateMatch {
+    // exported only when the OpenTelemetry Java agent is attached (see bench/)
+    private static final Meter METER = GlobalOpenTelemetry.getMeter("forge.sim");
+    private static final DoubleHistogram GAME_DURATION = METER.histogramBuilder("forge.game.duration")
+            .setUnit("s").setDescription("Wall time of one simulated game")
+            .setExplicitBucketBoundariesAdvice(List.of(1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0))
+            .build();
+    private static final LongHistogram GAME_TURNS = METER.histogramBuilder("forge.game.turns")
+            .ofLongs().setDescription("Turns played in one simulated game")
+            .setExplicitBucketBoundariesAdvice(List.of(4L, 6L, 8L, 10L, 12L, 15L, 20L, 30L, 50L))
+            .build();
+    // decks in turn order, e.g. "Inalla, Archmage Ritualist > Atraxa, Praetors' Voice > ..."
+    private static final AttributeKey<String> MATCHUP = AttributeKey.stringKey("forge.matchup");
+    // the same decks sorted, so every turn order of one pod groups together
+    private static final AttributeKey<String> POD = AttributeKey.stringKey("forge.pod");
+    // the winning deck, or draw / timeout / error
+    private static final AttributeKey<String> OUTCOME = AttributeKey.stringKey("forge.outcome");
+
     public static void simulate(String[] args) {
         FModel.initialize(null, null);
 
@@ -190,6 +215,16 @@ public class SimulateMatch {
         System.out.flush();
     }
 
+    // commander names for commander decks, otherwise the deck name
+    private static String seatLabel(Match mc, int seat) {
+        Deck deck = mc.getPlayers().get(seat).getDeck();
+        List<String> names = new ArrayList<>();
+        for (PaperCard c : deck.getCommanders()) {
+            names.add(c.getName());
+        }
+        return names.isEmpty() ? deck.getName() : String.join(" + ", names);
+    }
+
     private static void argumentHelp() {
         System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -q");
         System.out.println("\tsim - stands for simulation mode");
@@ -213,6 +248,7 @@ public class SimulateMatch {
 
         final Game g1 = mc.createGame();
         g1.setNoGUIUser();
+        String outcome = null;
         // will run match in the same thread
         try {
             TimeLimitedCodeBlock.runWithTimeout(() -> {
@@ -221,14 +257,31 @@ public class SimulateMatch {
             }, mc.getRules().getSimTimeout(), TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             System.out.println("Stopping slow match as draw");
+            outcome = "timeout";
         } catch (Exception | StackOverflowError e) {
             e.printStackTrace();
+            outcome = "error";
         } finally {
             if (sw.isStarted()) {
                 sw.stop();
             }
             g1.setGameOver(GameEndReason.Draw);
         }
+        if (outcome == null) {
+            RegisteredPlayer winner = g1.getOutcome().getWinningPlayer();
+            outcome = winner == null ? "draw" : seatLabel(mc, mc.getPlayers().indexOf(winner));
+        }
+        int seats = mc.getPlayers().size();
+        int first = Math.max(0, g1.getRegisteredPlayers().indexOf(g1.getStartingPlayer()));
+        List<String> turnOrder = new ArrayList<>();
+        for (int i = 0; i < seats; i++) {
+            turnOrder.add(seatLabel(mc, (first + i) % seats));
+        }
+        List<String> pod = new ArrayList<>(turnOrder);
+        Collections.sort(pod);
+        Attributes attrs = Attributes.of(MATCHUP, String.join(" > ", turnOrder), POD, String.join(", ", pod), OUTCOME, outcome);
+        GAME_DURATION.record(sw.getTime() / 1000.0, attrs);
+        GAME_TURNS.record(g1.getPhaseHandler().getTurn(), attrs);
 
         List<GameLogEntry> log;
         if (outputGamelog) {

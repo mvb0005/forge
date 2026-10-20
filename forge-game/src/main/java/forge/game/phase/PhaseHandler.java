@@ -23,6 +23,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.MultimapBuilder;
 
+import io.opentelemetry.instrumentation.annotations.WithSpan;
 import forge.game.*;
 import forge.game.ability.AbilityKey;
 import forge.game.ability.effects.AddTurnEffect;
@@ -1036,6 +1037,7 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
         }
     }
 
+    @WithSpan
     public void mainLoopStep() {
         if (givePriorityToPlayer) {
             if (DEBUG_PHASES) {

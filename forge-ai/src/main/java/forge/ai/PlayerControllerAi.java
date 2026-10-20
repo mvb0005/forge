@@ -1,6 +1,7 @@
 package forge.ai;
 
 import com.google.common.collect.*;
+import io.opentelemetry.instrumentation.annotations.WithSpan;
 import forge.LobbyPlayer;
 import forge.StaticData;
 import forge.ai.ability.ProtectAi;
@@ -836,16 +837,19 @@ public class PlayerControllerAi extends PlayerController {
     }
 
     @Override
+    @WithSpan
     public void declareAttackers(Player attacker, Combat combat) {
         brains.declareAttackers(attacker, combat);
     }
 
     @Override
+    @WithSpan
     public void declareBlockers(Player defender, Combat combat) {
         brains.declareBlockersFor(defender, combat);
     }
 
     @Override
+    @WithSpan
     public List<SpellAbility> chooseSpellAbilityToPlay() {
         return brains.chooseSpellAbilityToPlay();
     }

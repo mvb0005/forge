@@ -20,6 +20,8 @@ package forge.ai;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import io.opentelemetry.instrumentation.annotations.SpanAttribute;
+import io.opentelemetry.instrumentation.annotations.WithSpan;
 import forge.ai.AiCardMemory.MemorySet;
 import forge.ai.ability.ChangeZoneAi;
 import forge.ai.ability.LearnAi;
@@ -1352,6 +1354,11 @@ public class AiController {
         return Lists.newArrayList(sa);
     }
 
+    // zero-length span: the benchmark counts these (spanmetrics) and groups them by where the eval thread was stuck
+    @WithSpan("AiController.decisionTimeout")
+    static void recordDecisionTimeout(@SpanAttribute("forge.ai.stuck_at") String stuckAt) {
+    }
+
     public List<SpellAbility> chooseSpellAbilityToPlay() {
         AiCache.clear();
         // Reset cached predicted combat, as it may be stale. It will be
@@ -1694,6 +1701,14 @@ public class AiController {
                 // profiler sample for diagnosing remaining AI slowdowns from user logs
                 StringBuilder sb = new StringBuilder("AI eval thread at timeout:");
                 StackTraceElement[] evalStack = t.getStackTrace();
+                // innermost AI frame (which AI logic was too slow), without line number so it groups well as a metric label
+                String stuckAt = "unknown";
+                for (int i = evalStack.length - 1; i >= 0; i--) {
+                    if (evalStack[i].getClassName().startsWith("forge.ai.")) {
+                        stuckAt = evalStack[i].getClassName() + "." + evalStack[i].getMethodName();
+                    }
+                }
+                recordDecisionTimeout(stuckAt);
                 for (int i = 0; i < Math.min(30, evalStack.length); i++) {
                     sb.append("\n\tat ").append(evalStack[i]);
                 }

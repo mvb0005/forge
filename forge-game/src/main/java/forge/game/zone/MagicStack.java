@@ -20,6 +20,7 @@ package forge.game.zone;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import io.opentelemetry.instrumentation.annotations.WithSpan;
 import forge.game.*;
 import forge.game.ability.AbilityKey;
 import forge.game.ability.AbilityUtils;
@@ -594,6 +595,7 @@ public class MagicStack /* extends MyObservable */ implements Iterable<SpellAbil
         return stack.isEmpty();
     }
 
+    @WithSpan
     public final void resolveStack() {
         // freeze the stack while we're in the middle of resolving
         freezeStack(null);
