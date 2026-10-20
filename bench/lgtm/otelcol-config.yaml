@@ -1,5 +1,6 @@
 # Replaces the collector config shipped in grafana/otel-lgtm. Same pipelines, plus a spanmetrics
-# connector so every span (all of them, before any sampling) becomes call-count and latency metrics.
+# connector so every span (all of them, before any sampling) becomes call-count and latency metrics,
+# and tail sampling on what goes to Tempo.
 receivers:
   otlp:
     protocols:
@@ -34,6 +35,20 @@ connectors:
 
 processors:
   batch:
+  # what Tempo stores: every trace with a slow span (the slow-decision table and exemplars need those) and 5% of
+  # the rest. Span metrics come from the unsampled pipeline, so call counts and latencies stay exact.
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 200000
+    policies:
+      - name: slow
+        type: latency
+        latency:
+          threshold_ms: 250
+      - name: sample-of-the-rest
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 5
 
 exporters:
   otlp_http/metrics:
@@ -58,8 +73,11 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [batch]
-      exporters: [otlp_http/traces, spanmetrics]
+      exporters: [spanmetrics]
+    traces/stored:
+      receivers: [otlp]
+      processors: [tail_sampling, batch]
+      exporters: [otlp_http/traces]
     metrics:
       receivers: [otlp, prometheus/collector, spanmetrics]
       processors: [batch]

@@ -33,13 +33,16 @@ services:
     depends_on:
       lgtm:
         condition: service_healthy
+    deploy:
+      replicas: ${SIM_REPLICAS:-1}
     cpus: ${SIM_CPUS:-4}
     environment:
       JAVA_OPTS: ${JAVA_OPTS:--Xmx3g}
+      # empty: each replica picks a random starting seed (printed in its log), so replicas play different games
       FORMAT: ${FORMAT:-commander}
       GAMES_PER_RUN: ${GAMES_PER_RUN:-3}
       GAME_TIMEOUT: ${GAME_TIMEOUT:-1800}
-      SEED: ${SEED:-1}
+      SEED: ${SEED:-}
       ROUNDS: ${ROUNDS:-0}
       OTEL_SERVICE_NAME: forge-sim
       OTEL_RESOURCE_ATTRIBUTES: service.version=${FORGE_VERSION:-dev},forge.commit=${FORGE_COMMIT:-unknown}
