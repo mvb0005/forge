@@ -1,7 +1,9 @@
 package forge.ai;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 
@@ -727,8 +729,10 @@ public class ComputerUtilCost {
                     final CardCollection typeList = CardLists.getValidCards(ai.getCardsIn(ZoneType.Battlefield), part.getType().split(";"), source.getController(), source, sa);
 
                     int count = 0;
+                    // each pass asks about every remaining card again, on the same board
+                    final Map<Card, Boolean> threatened = new HashMap<>();
                     while (count < val) {
-                        Card prefCard = ComputerUtil.getCardPreference(ai, source, "SacCost", typeList);
+                        Card prefCard = ComputerUtil.getCardPreference(ai, source, "SacCost", typeList, null, threatened);
                         if (prefCard == null) {
                             break;
                         }
