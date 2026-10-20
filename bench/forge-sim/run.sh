@@ -11,7 +11,8 @@ FORMAT=${FORMAT:-commander}
 DECK_DIR=${DECK_DIR:-/opt/forge-gui/res/quest/commanderprecons}
 GAMES_PER_RUN=${GAMES_PER_RUN:-3}
 GAME_TIMEOUT=${GAME_TIMEOUT:-1800}
-SEED=${SEED:-1}
+# no SEED: start from a random one, so replicas play different games; every line logs its seed for replays
+SEED=${SEED:-$(( $(od -An -N3 -tu4 /dev/urandom) ))}
 ROUNDS=${ROUNDS:-0} # 0 = loop forever
 
 sim() {

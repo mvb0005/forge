@@ -18,7 +18,9 @@ Both containers restart on their own (`restart: unless-stopped`), so the loop ke
 
 `bench.sh` needs `mvn` on PATH (or `MVN=/path/to/mvn`) and JDK 17. Each `up` is labelled `<VERSION>-<build#>-<change>`, e.g. `v1.0.0-3-cache-combat-predictions`. That label is the Version filter in Grafana. The exact code is kept as `forge.commit` (`<commit>[-dirty-<diff hash>]`). Bump `VERSION` by hand for milestones.
 
-Run variables, set in the environment of `bench.sh` (see `docker-compose.yml`): `GAMES_PER_RUN` (3), `GAME_TIMEOUT` seconds (1800), `SEED` (1), `ROUNDS` (0 = forever), `SIM_CPUS` (4), `JAVA_OPTS` (-Xmx3g).
+Run variables: defaults are in `.env`, and any of them can be overridden in the environment of `bench.sh` (see `docker-compose.yml`). They are `SIM_REPLICAS` (8 parallel sims), `SIM_CPUS` per sim (1.5), `JAVA_OPTS` (-Xmx2g), `GAMES_PER_RUN` (3), `GAME_TIMEOUT` seconds (1800), `ROUNDS` (0 = forever) and `SEED`.
+
+Without `SEED`, each replica starts from a random seed and logs the seed of every pod it plays (`round N seed S: ...`). To replay one of those runs: `SEED=S SIM_REPLICAS=1 ROUNDS=1 ./bench.sh up`. Replicas share the CPU, and the AI's time cap is wall-clock, so use `SIM_REPLICAS=1` when comparing timings between versions.
 
 ## Dashboards (Forge folder)
 
@@ -34,7 +36,8 @@ The dashboards are generated: edit `grafana/gen_dashboards.py`, then run
 Everything Grafana shows is in the Docker volume `forge-bench-data`, mounted at `/data` in the lgtm container: Prometheus metrics, Tempo traces and Grafana's own state.
 - **Kept when** containers are removed, rebuilt or upgraded, including `docker compose down -v`. The volume is declared `external`, so compose never deletes it.
 - **Lost when** someone runs `docker volume rm forge-bench-data` or `docker volume prune -a`, or resets or uninstalls Docker Desktop. Run `./bench.sh backup` for a copy outside Docker. To restore, untar the copy into a new `forge-bench-data` volume.
-- **Retention:** metrics 1 year (`--storage.tsdb.retention.time`), traces 14 days (Tempo's default block retention). Metrics are small (MBs per day). Traces are about 1 GB per 12 hours of sims.
+- **Sampling:** Tempo stores every trace with a span of 250 ms or more, plus 5% of the rest (`lgtm/otelcol-config.yaml`). Span metrics are computed before sampling, so counts and latencies cover every call. Exemplar links to unsampled fast calls won't open.
+- **Retention:** metrics 1 year (`--storage.tsdb.retention.time`), traces 14 days (Tempo's default block retention). Metrics are small (MBs per day). Traces are about 100 MB per sim-hour before sampling.
 - The dashboards themselves are files in `grafana/dashboards`, not data.
 
 ## Saved boards
