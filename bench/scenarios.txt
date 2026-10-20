@@ -1,0 +1,4 @@
+# Benchmarks that start from a saved board instead of turn 1, one per line: state file in bench/states/
+# State files come from `sim ... -dump <turn> <dir>` or the desktop dev mode's Dump Game State.
+# Every game of a scenario starts from the same board; GAMES_PER_RUN games per line, seed as for matchups.
+token-pod-turn12.txt
