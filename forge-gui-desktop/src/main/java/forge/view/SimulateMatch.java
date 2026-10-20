@@ -1,11 +1,17 @@
 package forge.view;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import org.apache.commons.lang3.time.StopWatch;
+
+import com.google.common.eventbus.Subscribe;
 
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
@@ -24,8 +30,12 @@ import forge.game.GameEndReason;
 import forge.game.GameLogEntry;
 import forge.game.GameLogEntryType;
 import forge.game.GameRules;
+import forge.game.GameState;
 import forge.game.GameType;
 import forge.game.Match;
+import forge.game.card.Card;
+import forge.game.event.GameEventTurnPhase;
+import forge.game.phase.PhaseType;
 import forge.game.player.RegisteredPlayer;
 import forge.gamemodes.tournament.system.AbstractTournament;
 import forge.gamemodes.tournament.system.TournamentBracket;
@@ -44,6 +54,12 @@ import forge.util.WordUtil;
 import forge.util.storage.IStorage;
 
 public class SimulateMatch {
+    // state: board to start every game from (-state)
+    // dumpTurn/dumpDir: write the board at main phase 1 of that turn, or right after the state loads when 0 (-dump)
+    private record SimOptions(GameState state, String scenario, int dumpTurn, File dumpDir, Long seed) {
+        static final SimOptions NONE = new SimOptions(null, "full-game", -1, null, null);
+    }
+
     // exported only when the OpenTelemetry Java agent is attached (see bench/)
     private static final Meter METER = GlobalOpenTelemetry.getMeter("forge.sim");
     private static final DoubleHistogram GAME_DURATION = METER.histogramBuilder("forge.game.duration")
@@ -58,6 +74,8 @@ public class SimulateMatch {
     private static final AttributeKey<String> MATCHUP = AttributeKey.stringKey("forge.matchup");
     // the same decks sorted, so every turn order of one pod groups together
     private static final AttributeKey<String> POD = AttributeKey.stringKey("forge.pod");
+    // the state file a game started from, or full-game
+    private static final AttributeKey<String> SCENARIO = AttributeKey.stringKey("forge.scenario");
     // the winning deck, or draw / timeout / error
     private static final AttributeKey<String> OUTCOME = AttributeKey.stringKey("forge.outcome");
 
@@ -156,6 +174,43 @@ public class SimulateMatch {
             }
         }
 
+        GameState state = null;
+        String scenario = "full-game";
+        if (params.containsKey("state")) {
+            File stateFile = new File(params.get("state").get(0));
+            state = new GameState();
+            try (InputStream in = new FileInputStream(stateFile)) {
+                state.parse(in);
+            } catch (Exception e) {
+                System.out.println("Could not read state file " + stateFile + ": " + e.getMessage());
+                return;
+            }
+            scenario = stateFile.getName();
+            List<String> decks = params.get("d");
+            if (decks != null && decks.size() != state.getPlayerCount()) {
+                System.out.println(TextUtil.concatNoSpace("State has ", String.valueOf(state.getPlayerCount()), " players but ",
+                        String.valueOf(decks.size()), " decks were given"));
+                return;
+            }
+            if (decks == null) {
+                // the state sets every zone, so players don't need decks
+                for (int p = 1; p <= state.getPlayerCount(); p++) {
+                    RegisteredPlayer rp = new RegisteredPlayer(new Deck());
+                    rp.setPlayer(GamePlayerUtil.createAiPlayer("Ai(" + p + ")", p - 1, ""));
+                    pp.add(rp);
+                }
+                sb.append(state.getPlayerCount()).append(" players from ").append(scenario);
+            }
+        }
+        int dumpTurn = -1;
+        File dumpDir = null;
+        if (params.containsKey("dump")) {
+            dumpTurn = Integer.parseInt(params.get("dump").get(0));
+            dumpDir = new File(params.get("dump").size() > 1 ? params.get("dump").get(1) : ".");
+            dumpDir.mkdirs();
+        }
+        SimOptions opts = new SimOptions(state, scenario, dumpTurn, dumpDir, seed);
+
         if (params.containsKey("d")) {
             for (String deck : params.get("d")) {
                 Deck d = deckFromCommandLineParameter(deck, type, deckDir);
@@ -197,32 +252,76 @@ public class SimulateMatch {
 
         System.out.println(sb);
 
+        if (state != null) {
+            for (RegisteredPlayer rp : pp) {
+                rp.setStartingHand(0);
+            }
+        }
         Match mc = new Match(rules, pp, "Test");
 
         if (matchSize != 0) {
             int iGame = 0;
             while (!mc.isMatchOver()) {
                 // play games until the match ends
-                simulateSingleMatch(mc, iGame, outputGamelog);
+                simulateSingleMatch(mc, iGame, outputGamelog, opts);
                 iGame++;
             }
         } else {
             for (int iGame = 0; iGame < nGames; iGame++) {
-                simulateSingleMatch(mc, iGame, outputGamelog);
+                simulateSingleMatch(mc, iGame, outputGamelog, opts);
             }
         }
 
         System.out.flush();
     }
 
-    // commander names for commander decks, otherwise the deck name
-    private static String seatLabel(Match mc, int seat) {
-        Deck deck = mc.getPlayers().get(seat).getDeck();
+    // commander names when the seat has commanders (from its deck or a loaded state), otherwise the deck name
+    private static String seatLabel(Game game, Match mc, int seat) {
         List<String> names = new ArrayList<>();
-        for (PaperCard c : deck.getCommanders()) {
+        for (Card c : game.getRegisteredPlayers().get(seat).getCommanders()) {
             names.add(c.getName());
         }
-        return names.isEmpty() ? deck.getName() : String.join(" + ", names);
+        Deck deck = mc.getPlayers().get(seat).getDeck();
+        if (names.isEmpty()) {
+            for (PaperCard c : deck.getCommanders()) {
+                names.add(c.getName());
+            }
+        }
+        if (!names.isEmpty()) {
+            return String.join(" + ", names);
+        }
+        return deck.getName() == null || deck.getName().isEmpty() ? "p" + seat : deck.getName();
+    }
+
+    // writes the board at the first main phase of the given turn, so a later run can start from it with -state
+    private static void dumpStateAt(final Game game, final int iGame, final SimOptions opts) {
+        game.subscribeToEvents(new Object() {
+            boolean done;
+
+            @Subscribe
+            public void onPhase(GameEventTurnPhase e) {
+                // "dev" is the phase change made while a state is being loaded, before its cards are in place
+                if (done || e.phase() != PhaseType.MAIN1 || "dev".equals(e.phaseDesc())
+                        || game.getPhaseHandler().getTurn() != opts.dumpTurn()) {
+                    return;
+                }
+                done = true;
+                writeState(game, iGame, opts, "-turn" + opts.dumpTurn());
+            }
+        });
+    }
+
+    private static void writeState(final Game game, final int iGame, final SimOptions opts, final String suffix) {
+        GameState dump = new GameState();
+        dump.initFromGame(game);
+        File out = new File(opts.dumpDir(), TextUtil.concatNoSpace("seed", String.valueOf(opts.seed()), "-game",
+                String.valueOf(iGame + 1), suffix, ".txt"));
+        try {
+            Files.writeString(out.toPath(), dump.toString());
+            System.out.println("Dumped state to " + out);
+        } catch (IOException ex) {
+            System.out.println("Could not write " + out + ": " + ex.getMessage());
+        }
     }
 
     private static void argumentHelp() {
@@ -240,19 +339,38 @@ public class SimulateMatch {
         System.out.println("\tA - AI profile per player, in the same order as the decks (e.g. -a Default Experimental)");
         System.out.println("\tc - Clock flag. Set the maximum time in seconds before calling the match a draw, defaults to 120.");
         System.out.println("\tq - Quiet flag. Output just the game result, not the entire game log.");
+        System.out.println("\tstate - start every game from this game state file (as written by -dump or Dump Game State); -d is optional");
+        System.out.println("\tdump - <turn> [dir]: write the board at main phase 1 of that turn to dir as a state file; with -state, 0 writes it right after loading");
     }
 
     public static void simulateSingleMatch(final Match mc, int iGame, boolean outputGamelog) {
+        simulateSingleMatch(mc, iGame, outputGamelog, SimOptions.NONE);
+    }
+
+    private static void simulateSingleMatch(final Match mc, int iGame, boolean outputGamelog, final SimOptions opts) {
         final StopWatch sw = new StopWatch();
         sw.start();
 
         final Game g1 = mc.createGame();
         g1.setNoGUIUser();
+        if (opts.dumpTurn() > 0) {
+            dumpStateAt(g1, iGame, opts);
+        }
+        Runnable startGameHook = null;
+        if (opts.state() != null) {
+            startGameHook = () -> {
+                opts.state().applyToGameNow(g1);
+                if (opts.dumpTurn() == 0) {
+                    writeState(g1, iGame, opts, "-loaded");
+                }
+            };
+        }
+        final Runnable hook = startGameHook;
         String outcome = null;
         // will run match in the same thread
         try {
             TimeLimitedCodeBlock.runWithTimeout(() -> {
-                mc.startGame(g1);
+                mc.startGame(g1, hook);
                 sw.stop();
             }, mc.getRules().getSimTimeout(), TimeUnit.SECONDS);
         } catch (TimeoutException e) {
@@ -269,17 +387,18 @@ public class SimulateMatch {
         }
         if (outcome == null) {
             RegisteredPlayer winner = g1.getOutcome().getWinningPlayer();
-            outcome = winner == null ? "draw" : seatLabel(mc, mc.getPlayers().indexOf(winner));
+            outcome = winner == null ? "draw" : seatLabel(g1, mc, mc.getPlayers().indexOf(winner));
         }
         int seats = mc.getPlayers().size();
         int first = Math.max(0, g1.getRegisteredPlayers().indexOf(g1.getStartingPlayer()));
         List<String> turnOrder = new ArrayList<>();
         for (int i = 0; i < seats; i++) {
-            turnOrder.add(seatLabel(mc, (first + i) % seats));
+            turnOrder.add(seatLabel(g1, mc, (first + i) % seats));
         }
         List<String> pod = new ArrayList<>(turnOrder);
         Collections.sort(pod);
-        Attributes attrs = Attributes.of(MATCHUP, String.join(" > ", turnOrder), POD, String.join(", ", pod), OUTCOME, outcome);
+        Attributes attrs = Attributes.builder().put(MATCHUP, String.join(" > ", turnOrder)).put(POD, String.join(", ", pod))
+                .put(OUTCOME, outcome).put(SCENARIO, opts.scenario()).build();
         GAME_DURATION.record(sw.getTime() / 1000.0, attrs);
         GAME_TURNS.record(g1.getPhaseHandler().getTurn(), attrs);
 

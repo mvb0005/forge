@@ -612,6 +612,15 @@ public class GameState {
         game.getAction().invoke(() -> applyGameOnThread(game));
     }
 
+    // for callers already on the thread running the game loop, such as sim mode's start game hook
+    public void applyToGameNow(final Game game) {
+        applyGameOnThread(game);
+    }
+
+    public int getPlayerCount() {
+        return playerStates.size();
+    }
+
     protected void applyGameOnThread(final Game game) {
         if (game.getPlayers().size() != playerStates.size()) {
             throw new RuntimeException("Non-matching number of players, (" +
@@ -637,6 +646,10 @@ public class GameState {
         Player newPlayerTurn = game.getPlayers().get(playerTurn);
         PhaseType newPhase = tChangePhase.equalsIgnoreCase("none") ? null : PhaseType.smartValueOf(tChangePhase);
         PhaseType advPhase = tAdvancePhase.equalsIgnoreCase("none") ? null : PhaseType.smartValueOf(tAdvancePhase);
+        // combat setup below uses getSingleOpponent()
+        if ((newPhase == PhaseType.COMBAT_DECLARE_ATTACKERS || newPhase == PhaseType.COMBAT_DECLARE_BLOCKERS) && playerStates.size() > 2) {
+            throw new RuntimeException("Combat steps can only be loaded with 2 players, not " + playerStates.size());
+        }
 
         // Set stack to resolving so things won't trigger/effects be checked right away
         game.getStack().setResolving(true);
@@ -729,7 +742,7 @@ public class GameState {
                 produced.put("PersistentMana", "True");
             }
             final AbilityManaPart abMana = new AbilityManaPart(dummy, produced);
-            game.getAction().invoke(() -> abMana.produceMana(null));
+            abMana.produceMana(null);
         }
     }
 
