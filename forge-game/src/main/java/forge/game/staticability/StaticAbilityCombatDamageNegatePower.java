@@ -2,12 +2,11 @@ package forge.game.staticability;
 
 import forge.game.Game;
 import forge.game.card.Card;
-import forge.game.zone.ZoneType;
 
 public class StaticAbilityCombatDamageNegatePower {
     public static boolean combatDamageNegatePower(final Card card)  {
         final Game game = card.getGame();
-        for (final Card ca : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : game.getCardsWithStaticAbility(StaticAbilityMode.CombatDamageNegatePower)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.CombatDamageNegatePower)) {
                     continue;

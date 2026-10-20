@@ -62,6 +62,7 @@ public class Zone implements java.io.Serializable, Iterable<Card> {
 
     protected void sort() {
         cardList.sort(COMPARATOR);
+        cardsChanged();
     }
 
     public Zone(final ZoneType zone0, Game game0) {
@@ -70,6 +71,14 @@ public class Zone implements java.io.Serializable, Iterable<Card> {
     }
 
     protected void onChanged() {
+    }
+
+    // tells the game its set or order of cards changed, unless this is an LKI copy of a zone
+    private void cardsChanged() {
+        Player p = getPlayer();
+        if (p != null ? p.getZone(zoneType) == this : game.getStackZone() == this) {
+            game.cardsChanged();
+        }
     }
 
     public Player getPlayer() { // generic zones like stack have no player associated
@@ -83,6 +92,7 @@ public class Zone implements java.io.Serializable, Iterable<Card> {
     public final void reorder(final Card c, final int index) {
         cardList.remove(c);
         cardList.add(index, c);
+        cardsChanged();
     }
 
     public final void add(final Card c) {
@@ -146,6 +156,7 @@ public class Zone implements java.io.Serializable, Iterable<Card> {
                 cardList.add(index, c);
             }
         }
+        cardsChanged();
         onChanged();
 
         game.fireEvent(new GameEventZone(zoneType, getPlayer(), EventValueChangeType.Added, c));
@@ -161,6 +172,7 @@ public class Zone implements java.io.Serializable, Iterable<Card> {
 
     public void remove(final Card c) {
         if (cardList.remove(c)) {
+            cardsChanged();
             onChanged();
             game.fireEvent(new GameEventZone(zoneType, getPlayer(), EventValueChangeType.Removed, c));
         }
@@ -172,6 +184,7 @@ public class Zone implements java.io.Serializable, Iterable<Card> {
             c.setZone(this);
             cardList.add(c);
         }
+        cardsChanged();
         onChanged();
         game.fireEvent(new GameEventZone(zoneType, getPlayer(), EventValueChangeType.ComplexUpdate, null));
     }
@@ -179,6 +192,7 @@ public class Zone implements java.io.Serializable, Iterable<Card> {
     public final void removeAllCards(boolean forcedWithoutEvents) {
         if (forcedWithoutEvents) {
             cardList.clear();
+            cardsChanged();
         } else {
             for (Card c : cardList) {
                 remove(c);
@@ -260,6 +274,7 @@ public class Zone implements java.io.Serializable, Iterable<Card> {
 
     public void shuffle() {
         Collections.shuffle(cardList, MyRandom.getRandom());
+        cardsChanged();
         onChanged();
     }
 

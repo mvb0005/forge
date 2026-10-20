@@ -4,7 +4,6 @@ import forge.game.ability.AbilityUtils;
 import forge.game.card.Card;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
-import forge.game.zone.ZoneType;
 
 public class StaticAbilityAdditionalActivations {
 
@@ -15,7 +14,7 @@ public class StaticAbilityAdditionalActivations {
     public static int getLimit(final Card card, final SpellAbility sa, Player activator, int def) {
         int result = def;
         int additional = 0;
-        for (final Card ca : card.getGame().getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : card.getGame().getCardsWithStaticAbility(StaticAbilityMode.Activations)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.Activations)) {
                     continue;

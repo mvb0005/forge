@@ -3,13 +3,12 @@ package forge.game.staticability;
 import forge.game.CardTraitBase;
 import forge.game.Game;
 import forge.game.card.Card;
-import forge.game.zone.ZoneType;
 
 public class StaticAbilityTapPowerValue {
 
     public static boolean withToughness(final Card card, final CardTraitBase ctb) {
         final Game game = card.getGame();
-        for (final Card ca : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : game.getCardsWithStaticAbility(StaticAbilityMode.TapPowerValue)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.TapPowerValue)) {
                     continue;
@@ -38,7 +37,7 @@ public class StaticAbilityTapPowerValue {
     public static int getMod(final Card card, final CardTraitBase ctb) {
         int i = 0;
         final Game game = card.getGame();
-        for (final Card ca : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : game.getCardsWithStaticAbility(StaticAbilityMode.TapPowerValue)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.TapPowerValue)) {
                     continue;

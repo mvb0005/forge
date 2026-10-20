@@ -725,65 +725,66 @@ public class Player extends GameEntity implements Comparable<Player> {
         // TODO handle life loss replacement
 
         for (Card c : game.getCardsIn(ZoneType.Battlefield)) {
-            if (c.getName().equals("Sulfuric Vapors")) {
+            final String name = c.getName();
+            if (name.equals("Sulfuric Vapors")) {
                 if (source.isSpell() && source.isRed()) {
                     restDamage += 1;
                 }
-            } else if (c.getName().equals("Pyromancer's Swath")) {
+            } else if (name.equals("Pyromancer's Swath")) {
                 if (c.getController().equals(source.getController()) && (source.isInstant() || source.isSorcery())) {
                     restDamage += 2;
                 }
-            } else if (c.getName().equals("Pyromancer's Gauntlet")) {
+            } else if (name.equals("Pyromancer's Gauntlet")) {
                 if (c.getController().equals(source.getController()) && source.isRed()
                         && (source.isInstant() || source.isSorcery() || source.isPlaneswalker())) {
                     restDamage += 2;
                 }
-            } else if (c.getName().equals("Furnace of Rath") || c.getName().equals("Dictate of the Twin Gods")) {
+            } else if (name.equals("Furnace of Rath") || name.equals("Dictate of the Twin Gods")) {
                 restDamage *= 2;
-            } else if (c.getName().equals("Gratuitous Violence")) {
+            } else if (name.equals("Gratuitous Violence")) {
                 if (c.getController().equals(source.getController()) && source.isCreature()) {
                     restDamage *= 2;
                 }
-            } else if (c.getName().equals("Fire Servant")) {
+            } else if (name.equals("Fire Servant")) {
                 if (c.getController().equals(source.getController()) && source.isRed()
                         && (source.isInstant() || source.isSorcery())) {
                     restDamage *= 2;
                 }
-            } else if (c.getName().equals("Curse of Bloodletting")) {
+            } else if (name.equals("Curse of Bloodletting")) {
                 if (c.getEntityAttachedTo().equals(this)) {
                     restDamage *= 2;
                 }
-            } else if (c.getName().equals("Gisela, Blade of Goldnight")) {
+            } else if (name.equals("Gisela, Blade of Goldnight")) {
                 if (!c.getController().equals(this)) {
                     restDamage *= 2;
                 }
-            } else if (c.getName().equals("Inquisitor's Flail")) {
+            } else if (name.equals("Inquisitor's Flail")) {
                 if (isCombat && c.getEquipping() != null && c.getEquipping().equals(source)) {
                     restDamage *= 2;
                 }
-            } else if (c.getName().equals("Ghosts of the Innocent")) {
+            } else if (name.equals("Ghosts of the Innocent")) {
                 restDamage = restDamage / 2;
-            } else if (c.getName().equals("Benevolent Unicorn")) {
+            } else if (name.equals("Benevolent Unicorn")) {
                 if (source.isSpell()) {
                     restDamage -= 1;
                 }
-            } else if (c.getName().equals("Divine Presence")) {
+            } else if (name.equals("Divine Presence")) {
                 if (restDamage > 3) {
                     restDamage = 3;
                 }
-            } else if (c.getName().equals("Forethought Amulet")) {
+            } else if (name.equals("Forethought Amulet")) {
                 if (c.getController().equals(this) && (source.isInstant() || source.isSorcery())
                         && restDamage > 2) {
                     restDamage = 2;
                 }
-            } else if (c.getName().equals("Elderscale Wurm")) {
+            } else if (name.equals("Elderscale Wurm")) {
                 if (c.getController().equals(this) && getLife() >= 7 && getLife() - restDamage < 7) {
                     restDamage = getLife() - 7;
                     if (restDamage < 0) {
                         restDamage = 0;
                     }
                 }
-            } else if (c.getName().equals("Obosh, the Preypiercer")) {
+            } else if (name.equals("Obosh, the Preypiercer")) {
                 if (c.getController().equals(source.getController()) && source.getCMC() % 2 != 0) {
                     restDamage *= 2;
                 }
@@ -793,11 +794,12 @@ public class Player extends GameEntity implements Comparable<Player> {
         // TODO: improve such that this can be predicted from the replacement effect itself
         // (+ move this function out into ComputerUtilCombat?)
         for (Card c : game.getCardsIn(ZoneType.Command)) {
-            if (c.getName().equals("Insult Effect")) {
+            final String name = c.getName();
+            if (name.equals("Insult Effect")) {
                 if (c.getController().equals(source.getController())) {
                     restDamage *= 2;
                 }
-            } else if (c.getName().equals("Mishra")) {
+            } else if (name.equals("Mishra")) {
                 if (c.isCreature() && c.getController().equals(source.getController())) {
                     restDamage *= 2;
                 }
@@ -2730,9 +2732,11 @@ public class Player extends GameEntity implements Comparable<Player> {
     }
     public void addInboundToken(Card c) {
         inboundTokens.add(c);
+        game.cardsChanged();
     }
     public void removeInboundToken(Card c) {
         inboundTokens.remove(c);
+        game.cardsChanged();
     }
 
     public void onMulliganned() {

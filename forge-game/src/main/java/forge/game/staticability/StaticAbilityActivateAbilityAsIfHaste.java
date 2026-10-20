@@ -18,7 +18,6 @@
 package forge.game.staticability;
 
 import forge.game.card.Card;
-import forge.game.zone.ZoneType;
 
 /**
  * The Class StaticAbility_ActivateAbilityAsIfHaste.
@@ -27,7 +26,7 @@ import forge.game.zone.ZoneType;
 public class StaticAbilityActivateAbilityAsIfHaste {
 
     public static boolean canActivate(final Card card) {
-        for (final Card ca : card.getGame().getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : card.getGame().getCardsWithStaticAbility(StaticAbilityMode.ActivateAbilityAsIfHaste)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.ActivateAbilityAsIfHaste)) {
                     continue;

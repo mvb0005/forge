@@ -36,7 +36,7 @@ public class StaticAbilityCantTarget {
 
     public static StaticAbility cantTarget(final GameEntity entity, final SpellAbility spellAbility)  {
         final Game game = entity.getGame();
-        for (final Card ca : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : game.getCardsWithStaticAbility(StaticAbilityMode.CantTarget)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.CantTarget)) {
                     continue;

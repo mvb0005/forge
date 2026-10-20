@@ -46,7 +46,7 @@ public class StaticAbilityCantAttackBlock {
             return true;
         }
 
-        for (final Card ca : attacker.getGame().getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : attacker.getGame().getCardsWithStaticAbility(StaticAbilityMode.CantAttack)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.CantAttack)) {
                     continue;
@@ -125,7 +125,7 @@ public class StaticAbilityCantAttackBlock {
     }
 
     public static boolean canAttackDefender(final Card card, final GameEntity target) {
-        for (final Card ca : card.getGame().getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : card.getGame().getCardsWithStaticAbility(StaticAbilityMode.CanAttackDefender)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.CanAttackDefender)) {
                     continue;
@@ -183,7 +183,7 @@ public class StaticAbilityCantAttackBlock {
 
     public static boolean canBlockTapped(final Card card)  {
         final Game game = card.getGame();
-        for (final Card ca : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : game.getCardsWithStaticAbility(StaticAbilityMode.BlockTapped)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.BlockTapped)) {
                     continue;
@@ -278,7 +278,7 @@ public class StaticAbilityCantAttackBlock {
     }
 
     public static boolean canBlockIfReach(final Card attacker, final Card blocker) {
-        for (final Card ca : attacker.getGame().getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : attacker.getGame().getCardsWithStaticAbility(StaticAbilityMode.CanBlockIfReach)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.CanBlockIfReach)) {
                     continue;
@@ -302,7 +302,7 @@ public class StaticAbilityCantAttackBlock {
     }
 
     public static boolean canBlockIfShadow(final Card attacker, final Card blocker) {
-        for (final Card ca : attacker.getGame().getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : attacker.getGame().getCardsWithStaticAbility(StaticAbilityMode.CanBlockIfShadow)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.CanBlockIfShadow)) {
                     continue;
@@ -402,7 +402,7 @@ public class StaticAbilityCantAttackBlock {
         if (!attacker.isSick()) {
             return true;
         }
-        for (final Card ca : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : game.getCardsWithStaticAbility(StaticAbilityMode.CanAttackIfHaste)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.CanAttackIfHaste)) {
                     continue;
@@ -435,7 +435,7 @@ public class StaticAbilityCantAttackBlock {
         }
 
         final Game game = attacker.getGame();
-        for (final Card ca : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : game.getCardsWithStaticAbility(StaticAbilityMode.MinMaxBlocker)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.MinMaxBlocker)) {
                     continue;
@@ -469,7 +469,7 @@ public class StaticAbilityCantAttackBlock {
 
     public static boolean attackVigilance(final Card card)  {
         final Game game = card.getGame();
-        for (final Card ca : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : game.getCardsWithStaticAbility(StaticAbilityMode.AttackVigilance)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.AttackVigilance)) {
                     continue;

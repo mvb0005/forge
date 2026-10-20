@@ -3,14 +3,13 @@ package forge.game.staticability;
 import forge.game.Game;
 import forge.game.card.Card;
 import forge.game.player.Player;
-import forge.game.zone.ZoneType;
 
 public class StaticAbilitySurveilNum {
 
     public static int surveilNumMod(Player p) {
         final Game game = p.getGame();
         int mod = 0;
-        for (final Card ca : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : game.getCardsWithStaticAbility(StaticAbilityMode.SurveilNum)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.SurveilNum)) {
                     continue;

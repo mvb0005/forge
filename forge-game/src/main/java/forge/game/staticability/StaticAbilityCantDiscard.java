@@ -4,13 +4,12 @@ import forge.game.Game;
 import forge.game.card.Card;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
-import forge.game.zone.ZoneType;
 
 public class StaticAbilityCantDiscard {
 
     public static boolean cantDiscard(final Player player, final SpellAbility cause, final boolean effect)  {
         final Game game = player.getGame();
-        for (final Card ca : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+        for (final Card ca : game.getCardsWithStaticAbility(StaticAbilityMode.CantDiscard)) {
             for (final StaticAbility stAb : ca.getStaticAbilities()) {
                 if (!stAb.checkConditions(StaticAbilityMode.CantDiscard)) {
                     continue;

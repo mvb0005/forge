@@ -19,6 +19,7 @@ package forge.game;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -43,7 +44,9 @@ import forge.game.player.*;
 import forge.game.replacement.ReplacementHandler;
 import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityStackInstance;
+import forge.game.staticability.StaticAbility;
 import forge.game.staticability.StaticAbilityCantChangeDayTime;
+import forge.game.staticability.StaticAbilityMode;
 import forge.game.trigger.TriggerHandler;
 import forge.game.trigger.TriggerType;
 import forge.game.zone.*;
@@ -343,6 +346,7 @@ public class Game {
             Player pl = factory.createIngamePlayer(this, id == null ? plId++ : id);
             allPlayers.add(pl);
             ingamePlayers.add(pl);
+            cardsChanged();
             playerCache.put(pl);
             if (startingLife != -1) {
                 pl.setStartingLife(startingLife);
@@ -757,6 +761,59 @@ public class Game {
     public void forEachCardInGame(Visitor<Card> visitor) {
         forEachCardInGame(visitor, false);
     }
+
+    // Bumped by every change that can alter which cards forEachCardInGame visits, in what order, or which traits they
+    // have: zone contents, players, inbound tokens, and each real card's traits, keywords, types, counters and state.
+    // Lets lookups over all cards (ReplacementHandler's index) keep their result until something actually changed.
+    private long cardsVersion;
+    public long getCardsVersion() {
+        return cardsVersion;
+    }
+    public void cardsChanged() {
+        cardsVersion++;
+    }
+
+    // Cards in STATIC_ABILITIES_SOURCE_ZONES, in getCardsIn order, that have a static ability of the given mode. The
+    // static ability checks (cant attack, cant be targeted, ...) loop over these instead of every card in those zones;
+    // each check is asked many times per action. Rebuilt when getCardsVersion() moves; immutable for the AI's threads.
+    // -Dforge.verifyStaticIndex=true also rebuilds the list on every call and throws if the kept one differs.
+    private static final boolean VERIFY_STATIC_INDEX = Boolean.getBoolean("forge.verifyStaticIndex");
+
+    private record StaticIndex(long cardsVersion, Map<StaticAbilityMode, CardCollectionView> byMode) {
+    }
+
+    private StaticIndex staticIndex;
+
+    public CardCollectionView getCardsWithStaticAbility(final StaticAbilityMode mode) {
+        StaticIndex index = staticIndex;
+        if (index == null || index.cardsVersion() != cardsVersion) {
+            index = new StaticIndex(cardsVersion, buildStaticIndex());
+            staticIndex = index;
+        }
+        final CardCollectionView cards = index.byMode().getOrDefault(mode, CardCollection.EMPTY);
+        if (VERIFY_STATIC_INDEX) {
+            final CardCollectionView fresh = buildStaticIndex().getOrDefault(mode, CardCollection.EMPTY);
+            if (!Iterables.elementsEqual(fresh, cards) || fresh.size() != cards.size()) {
+                throw new IllegalStateException("Static ability index for " + mode + " kept " + cards + ", now " + fresh);
+            }
+        }
+        return cards;
+    }
+
+    private Map<StaticAbilityMode, CardCollectionView> buildStaticIndex() {
+        final Map<StaticAbilityMode, CardCollectionView> byMode = new EnumMap<>(StaticAbilityMode.class);
+        for (final Card c : getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+            for (final StaticAbility stAb : c.getStaticAbilities()) {
+                for (final StaticAbilityMode m : stAb.getMode()) {
+                    final CardCollection cards = (CardCollection) byMode.computeIfAbsent(m, k -> new CardCollection());
+                    if (cards.isEmpty() || cards.getLast() != c) {
+                        cards.add(c);
+                    }
+                }
+            }
+        }
+        return byMode;
+    }
     // Allows visiting cards in game without allocating a temporary list.
     public void forEachCardInGame(Visitor<Card> visitor, boolean withSideboard) {
         for (final Player player : getPlayers()) {
@@ -1009,6 +1066,7 @@ public class Game {
         getStack().removeInstancesControlledBy(p);
 
         ingamePlayers.remove(p);
+        cardsChanged();
         lostPlayers.add(p);
 
         // free any mindslaves
