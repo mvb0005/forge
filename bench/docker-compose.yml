@@ -22,7 +22,7 @@ services:
       interval: 5s
       retries: 60
 
-  forge-sim:
+  forge-sim: &forge-sim
     build:
       context: ./forge-sim
       additional_contexts:
@@ -36,7 +36,7 @@ services:
     deploy:
       replicas: ${SIM_REPLICAS:-1}
     cpus: ${SIM_CPUS:-4}
-    environment:
+    environment: &sim-env
       JAVA_OPTS: ${JAVA_OPTS:--Xmx3g}
       # empty: each replica picks a random starting seed (printed in its log), so replicas play different games
       FORMAT: ${FORMAT:-commander}
@@ -59,6 +59,20 @@ services:
       - ./matchups.txt:/bench/matchups.txt:ro
       - ./scenarios.txt:/bench/scenarios.txt:ro
       - ./states:/bench/states:ro
+
+  # `bench.sh compare`: the same sim built from another commit (a git worktree in .baseline), on the same seeds
+  forge-sim-baseline:
+    <<: *forge-sim
+    profiles: [compare]
+    build:
+      context: ./forge-sim
+      additional_contexts:
+        res: ./.baseline/forge-gui/res
+        jar: ./.baseline/forge-gui-desktop/target
+    image: forge-sim:${BASELINE_VERSION:-baseline}
+    environment:
+      <<: *sim-env
+      OTEL_RESOURCE_ATTRIBUTES: service.version=${BASELINE_VERSION:-baseline},forge.commit=${BASELINE_COMMIT:-unknown}
 
 volumes:
   # external: created by bench.sh and never deleted by `docker compose down -v`; see README "Data"
