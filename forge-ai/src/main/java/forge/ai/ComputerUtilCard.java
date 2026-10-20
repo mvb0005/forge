@@ -1,8 +1,11 @@
 package forge.ai;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +21,7 @@ import org.apache.commons.lang3.mutable.MutableBoolean;
 import org.apache.commons.lang3.tuple.MutablePair;
 import org.apache.commons.lang3.tuple.Pair;
 
+import com.google.common.collect.ImmutableMultiset;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -63,6 +67,8 @@ import forge.game.player.Player;
 import forge.game.replacement.ReplacementEffect;
 import forge.game.replacement.ReplacementLayer;
 import forge.game.spellability.SpellAbility;
+import forge.game.spellability.SpellAbilityStackInstance;
+import forge.game.spellability.TargetChoices;
 import forge.game.staticability.StaticAbility;
 import forge.game.staticability.StaticAbilityMode;
 import forge.game.trigger.Trigger;
@@ -2316,5 +2322,55 @@ public class ComputerUtilCard {
         public Integer apply(Card card) {
             return GameStateEvaluator.evaluateLand(card);
         }
+    }
+
+    /**
+     * Groups creatures that combat predictions can't tell apart, such as token copies of the same card.
+     * Each card maps to a shared class key, or to itself when it shouldn't be grouped with anything.
+     */
+    public static Map<Card, Object> getCombatClasses(final Iterable<Card> cards) {
+        Map<Card, Object> classes = new HashMap<>();
+        if (Iterables.isEmpty(cards)) {
+            return classes;
+        }
+        Game game = cards.iterator().next().getGame();
+        // effects that refer to specific cards (e.g. "target creature can't block this turn") aren't visible on the card itself
+        Set<Card> referenced = new HashSet<>();
+        for (Card c : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+            for (Object o : c.getRemembered()) {
+                if (o instanceof Card) {
+                    referenced.add((Card) o);
+                }
+            }
+            Iterables.addAll(referenced, c.getImprintedCards());
+            Iterables.addAll(referenced, c.getChosenCards());
+            Iterables.addAll(referenced, c.getGainControlTargets());
+            Iterables.addAll(referenced, c.getUntilLeavesBattlefield());
+            Iterables.addAll(referenced, c.getEncodedCards());
+        }
+        for (SpellAbilityStackInstance si : game.getStack()) {
+            for (TargetChoices tc : si.getSpellAbility().getAllTargetChoices()) {
+                Iterables.addAll(referenced, tc.getTargetCards());
+            }
+        }
+        for (Card c : cards) {
+            if (referenced.contains(c) || !c.isInPlay() || c.isFaceDown() || c.isPhasedOut() || c.isAttachedToEntity()
+                    || c.hasCardAttachments() || c.getPairedWith() != null || !c.getMergedCards().isEmpty()
+                    || !c.getMustBlockCards().isEmpty() || !c.getBlockedThisTurn().isEmpty() || c.hasPerpetual()
+                    || !c.getChangedCardTraitsByText().isEmpty()) {
+                classes.put(c, c);
+                continue;
+            }
+            List<String> keywords = new ArrayList<>();
+            for (KeywordInterface kw : c.getKeywords()) {
+                keywords.add(kw.getOriginal());
+            }
+            classes.put(c, Arrays.asList(c.getName(), c.getCurrentStateName(), c.getController(), c.isToken(), c.isCommander(),
+                    c.getType().toString(), c.getColor().getColor(), c.isTapped(), c.hasSickness(), c.getNetPower(), c.getNetToughness(),
+                    c.getDamage(), ImmutableMultiset.copyOf(c.getCounters()), keywords, Lists.newArrayList(c.getHiddenExtrinsicKeywords()),
+                    c.getChangedCardTraits().cellSet().stream().map(e -> e.getRowKey() + "/" + e.getColumnKey()).collect(Collectors.toList()),
+                    Lists.newArrayList(c.getGoaded())));
+        }
+        return classes;
     }
 }

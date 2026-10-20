@@ -415,9 +415,16 @@ public class AiAttackController {
             // try to use strongest as attacker first
             CardLists.sortByPowerDesc(blockers);
 
+            // once a creature is rejected, identical copies would be rejected the same way
+            final Map<Card, Object> classes = ComputerUtilCard.getCombatClasses(blockers);
+            final Set<Object> rejected = new HashSet<>();
+
             for (Card c : blockers) {
                 if (vigilantes.contains(c)) {
                     // TODO predict the chance it might die if attacking
+                    continue;
+                }
+                if (rejected.contains(classes.get(c))) {
                     continue;
                 }
                 notNeededAsBlockers.add(c);
@@ -444,6 +451,7 @@ public class AiAttackController {
                     // bail if it would cause AI more life loss from counterattack than the damage it provides as attacker
                     if (Math.abs(currentBaselineLife - lastAcceptableBaselineLife) > ownAttackerDmg) {
                         notNeededAsBlockers.remove(c);
+                        rejected.add(classes.get(c));
                         // try find more
                         continue;
                     } else if (Math.abs(currentBaselineLife - lastAcceptableBaselineLife) == ownAttackerDmg) {

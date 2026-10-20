@@ -49,6 +49,7 @@ import forge.util.MyRandom;
 import forge.util.TextUtil;
 import forge.util.collect.FCollection;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -241,12 +242,15 @@ public class ComputerUtilCombat {
     }
     public static int sumDamageIfUnblocked(final Iterable<Card> attackers, final Player attacked, boolean onlyPreventable) {
         int sum = 0;
+        // identical attackers (e.g. token copies) deal the same damage
+        final Map<Card, Object> classes = ComputerUtilCard.getCombatClasses(attackers);
+        final Map<Object, Integer> damage = new HashMap<>();
         for (final Card attacker : attackers) {
             if (onlyPreventable && !attacker.canDamagePrevented(true)) {
                 continue;
             }
             // TODO always applies full prevention shields for each, so this might wrongly lower the result
-            sum += damageIfUnblocked(attacker, attacked, null, false);
+            sum += damage.computeIfAbsent(classes.get(attacker), k -> damageIfUnblocked(attacker, attacked, null, false));
         }
         return sum;
     }
@@ -264,8 +268,10 @@ public class ComputerUtilCombat {
      */
     public static int sumPoisonIfUnblocked(final List<Card> attackers, final Player attacked) {
         int sum = 0;
+        final Map<Card, Object> classes = ComputerUtilCard.getCombatClasses(attackers);
+        final Map<Object, Integer> poison = new HashMap<>();
         for (final Card attacker : attackers) {
-            sum += poisonIfUnblocked(attacker, attacked);
+            sum += poison.computeIfAbsent(classes.get(attacker), k -> poisonIfUnblocked(attacker, attacked));
         }
         return sum;
     }
