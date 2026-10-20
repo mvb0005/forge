@@ -1,0 +1,1835 @@
+{
+  "uid": "forge-version-compare",
+  "title": "Forge version compare",
+  "description": "Baseline vs candidate build: speed per turn, per pod and per span, AI timeouts, and whether the games changed.",
+  "tags": [
+    "forge"
+  ],
+  "editable": true,
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "baseline",
+        "label": "Baseline",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(forge_game_duration_seconds_count, service_version)",
+          "refId": "v"
+        },
+        "definition": "label_values(forge_game_duration_seconds_count, service_version)",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "v1.0.0-6-baseline",
+          "value": "v1.0.0-6-baseline"
+        },
+        "sort": 1
+      },
+      {
+        "name": "candidate",
+        "label": "Candidate",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(forge_game_duration_seconds_count, service_version)",
+          "refId": "v"
+        },
+        "definition": "label_values(forge_game_duration_seconds_count, service_version)",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "v1.0.0-6-trait-cache",
+          "value": "v1.0.0-6-trait-cache"
+        },
+        "sort": 1
+      },
+      {
+        "name": "scenario",
+        "label": "Scenario",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(forge_game_duration_seconds_count{service_version=~\"$baseline|$candidate\"}, forge_scenario)",
+          "refId": "v"
+        },
+        "definition": "label_values(forge_game_duration_seconds_count{service_version=~\"$baseline|$candidate\"}, forge_scenario)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "sort": 1
+      },
+      {
+        "name": "pod",
+        "label": "Pod",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(forge_game_duration_seconds_count{service_version=~\"$baseline|$candidate\"}, forge_pod)",
+          "refId": "v"
+        },
+        "definition": "label_values(forge_game_duration_seconds_count{service_version=~\"$baseline|$candidate\"}, forge_pod)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Pick **Baseline** and **Candidate** above. `./bench.sh compare` runs both on the same seeds, so they play the same games until an AI decision hits its 5 s cap. **Speedup** = baseline / candidate: green above 1.05, red below 0.95. Trust it only with tens of games per pod; single games vary a lot."
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Seconds per turn",
+      "description": "Game wall time divided by turns played, over the whole time range.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 2,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum (increase(forge_game_duration_seconds_sum{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])) / sum (increase(forge_game_turns_sum{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])))",
+          "legendFormat": "Baseline",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum (increase(forge_game_duration_seconds_sum{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])) / sum (increase(forge_game_turns_sum{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])))",
+          "legendFormat": "Candidate",
+          "refId": "B",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Speedup per turn",
+      "description": "Baseline / candidate. Above 1: the candidate is faster.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 2,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "((sum (increase(forge_game_duration_seconds_sum{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])) / sum (increase(forge_game_turns_sum{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])))) / ((sum (increase(forge_game_duration_seconds_sum{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])) / sum (increase(forge_game_turns_sum{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range]))))",
+          "legendFormat": "__auto",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:\u00d7",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "text",
+                "value": 0.95
+              },
+              {
+                "color": "green",
+                "value": 1.05
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "AI spell choice, mean",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 2,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum (increase(traces_span_metrics_duration_milliseconds_sum{service_name=\"forge-sim\",service_version=\"$baseline\",span_name=\"PlayerControllerAi.chooseSpellAbilityToPlay\"}[$__range])) / sum (increase(traces_span_metrics_duration_milliseconds_count{service_name=\"forge-sim\",service_version=\"$baseline\",span_name=\"PlayerControllerAi.chooseSpellAbilityToPlay\"}[$__range])))",
+          "legendFormat": "Baseline",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum (increase(traces_span_metrics_duration_milliseconds_sum{service_name=\"forge-sim\",service_version=\"$candidate\",span_name=\"PlayerControllerAi.chooseSpellAbilityToPlay\"}[$__range])) / sum (increase(traces_span_metrics_duration_milliseconds_count{service_name=\"forge-sim\",service_version=\"$candidate\",span_name=\"PlayerControllerAi.chooseSpellAbilityToPlay\"}[$__range])))",
+          "legendFormat": "Candidate",
+          "refId": "B",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "AI speedup",
+      "description": "Baseline / candidate. Above 1: the candidate is faster.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 2,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "((sum (increase(traces_span_metrics_duration_milliseconds_sum{service_name=\"forge-sim\",service_version=\"$baseline\",span_name=\"PlayerControllerAi.chooseSpellAbilityToPlay\"}[$__range])) / sum (increase(traces_span_metrics_duration_milliseconds_count{service_name=\"forge-sim\",service_version=\"$baseline\",span_name=\"PlayerControllerAi.chooseSpellAbilityToPlay\"}[$__range])))) / ((sum (increase(traces_span_metrics_duration_milliseconds_sum{service_name=\"forge-sim\",service_version=\"$candidate\",span_name=\"PlayerControllerAi.chooseSpellAbilityToPlay\"}[$__range])) / sum (increase(traces_span_metrics_duration_milliseconds_count{service_name=\"forge-sim\",service_version=\"$candidate\",span_name=\"PlayerControllerAi.chooseSpellAbilityToPlay\"}[$__range]))))",
+          "legendFormat": "__auto",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:\u00d7",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "text",
+                "value": 0.95
+              },
+              {
+                "color": "green",
+                "value": 1.05
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Games played",
+      "description": "Sample size. A faster build plays more games in the same time.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 2,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum(increase(forge_game_duration_seconds_count{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])))",
+          "legendFormat": "Baseline",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum(increase(forge_game_duration_seconds_count{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])))",
+          "legendFormat": "Candidate",
+          "refId": "B",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "AI timeouts per 1000 decisions",
+      "description": "Spell choices that hit the 5 s cap and were skipped. Faster engine code should push this toward 0.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(1000 * (sum(increase(traces_span_metrics_calls_total{service_name=\"forge-sim\",service_version=\"$baseline\",span_name=\"AiController.decisionTimeout\"}[$__range])) or vector(0)) / sum(increase(traces_span_metrics_calls_total{service_name=\"forge-sim\",service_version=\"$baseline\",span_name=\"PlayerControllerAi.chooseSpellAbilityToPlay\"}[$__range])))",
+          "legendFormat": "Baseline",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(1000 * (sum(increase(traces_span_metrics_calls_total{service_name=\"forge-sim\",service_version=\"$candidate\",span_name=\"AiController.decisionTimeout\"}[$__range])) or vector(0)) / sum(increase(traces_span_metrics_calls_total{service_name=\"forge-sim\",service_version=\"$candidate\",span_name=\"PlayerControllerAi.chooseSpellAbilityToPlay\"}[$__range])))",
+          "legendFormat": "Candidate",
+          "refId": "B",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Avg turns per game",
+      "description": "Should match when the candidate only changes speed. A big gap means the AI plays differently.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 7,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(forge_game_turns_sum{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])) / sum(increase(forge_game_turns_count{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range]))",
+          "legendFormat": "Baseline",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(forge_game_turns_sum{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])) / sum(increase(forge_game_turns_count{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range]))",
+          "legendFormat": "Candidate",
+          "refId": "B",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Static passes per priority step",
+      "description": "Full continuous-effect recomputes per priority step. A delta-based engine should lower this.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 7,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(traces_span_metrics_calls_total{service_name=\"forge-sim\",service_version=\"$baseline\",span_name=\"GameAction.checkStaticAbilities\"}[$__range])) / sum(increase(traces_span_metrics_calls_total{service_name=\"forge-sim\",service_version=\"$baseline\",span_name=\"PhaseHandler.mainLoopStep\"}[$__range]))",
+          "legendFormat": "Baseline",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(traces_span_metrics_calls_total{service_name=\"forge-sim\",service_version=\"$candidate\",span_name=\"GameAction.checkStaticAbilities\"}[$__range])) / sum(increase(traces_span_metrics_calls_total{service_name=\"forge-sim\",service_version=\"$candidate\",span_name=\"PhaseHandler.mainLoopStep\"}[$__range]))",
+          "legendFormat": "Candidate",
+          "refId": "B",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Game timeouts + errors",
+      "description": "Games stopped by the sim clock (GAME_TIMEOUT) or an exception.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 7,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum(increase(forge_game_duration_seconds_count{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\",forge_outcome=~\"timeout|error\"}[$__range]))) or vector(0)",
+          "legendFormat": "Baseline",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum(increase(forge_game_duration_seconds_count{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\",forge_outcome=~\"timeout|error\"}[$__range]))) or vector(0)",
+          "legendFormat": "Candidate",
+          "refId": "B",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "By pod (whole time range)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "Pods",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 6
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (forge_pod) (increase(forge_game_duration_seconds_count{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])))",
+          "legendFormat": "__auto",
+          "refId": "A",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (forge_pod) (increase(forge_game_duration_seconds_count{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])))",
+          "legendFormat": "__auto",
+          "refId": "B",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum by (forge_pod) (increase(forge_game_duration_seconds_sum{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])) / sum by (forge_pod) (increase(forge_game_turns_sum{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])))",
+          "legendFormat": "__auto",
+          "refId": "C",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum by (forge_pod) (increase(forge_game_duration_seconds_sum{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])) / sum by (forge_pod) (increase(forge_game_turns_sum{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])))",
+          "legendFormat": "__auto",
+          "refId": "D",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum by (forge_pod) (increase(forge_game_duration_seconds_sum{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])) / sum by (forge_pod) (increase(forge_game_turns_sum{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range]))) / (sum by (forge_pod) (increase(forge_game_duration_seconds_sum{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])) / sum by (forge_pod) (increase(forge_game_turns_sum{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])))",
+          "legendFormat": "__auto",
+          "refId": "E",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "forge_pod": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4,
+              "Value #E": 5
+            },
+            "renameByName": {
+              "forge_pod": "Pod",
+              "Value #A": "Games (baseline)",
+              "Value #B": "Games (candidate)",
+              "Value #C": "Sec per turn (baseline)",
+              "Value #D": "Sec per turn (candidate)",
+              "Value #E": "Speedup"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Games (baseline)"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Games (candidate)"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sec per turn (baseline)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sec per turn (candidate)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Speedup"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:\u00d7"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "text",
+                      "value": 0.95
+                    },
+                    {
+                      "color": "green",
+                      "value": 1.05
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pod"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 560
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Speedup",
+            "desc": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "type": "row",
+      "title": "Engine and AI spans (whole time range)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 14,
+      "type": "table",
+      "title": "Spans",
+      "description": "Mean time per call (children included) and calls per priority step. Calls per step should match unless the candidate skips or adds work; a change there with the same games means the engine does less (or more) per action.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum by (span_name) (increase(traces_span_metrics_duration_milliseconds_sum{service_name=\"forge-sim\",service_version=\"$baseline\",span_name!=\"AiController.decisionTimeout\"}[$__range])) / sum by (span_name) (increase(traces_span_metrics_duration_milliseconds_count{service_name=\"forge-sim\",service_version=\"$baseline\",span_name!=\"AiController.decisionTimeout\"}[$__range])))",
+          "legendFormat": "__auto",
+          "refId": "A",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum by (span_name) (increase(traces_span_metrics_duration_milliseconds_sum{service_name=\"forge-sim\",service_version=\"$candidate\",span_name!=\"AiController.decisionTimeout\"}[$__range])) / sum by (span_name) (increase(traces_span_metrics_duration_milliseconds_count{service_name=\"forge-sim\",service_version=\"$candidate\",span_name!=\"AiController.decisionTimeout\"}[$__range])))",
+          "legendFormat": "__auto",
+          "refId": "B",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum by (span_name) (increase(traces_span_metrics_duration_milliseconds_sum{service_name=\"forge-sim\",service_version=\"$baseline\",span_name!=\"AiController.decisionTimeout\"}[$__range])) / sum by (span_name) (increase(traces_span_metrics_duration_milliseconds_count{service_name=\"forge-sim\",service_version=\"$baseline\",span_name!=\"AiController.decisionTimeout\"}[$__range]))) / (sum by (span_name) (increase(traces_span_metrics_duration_milliseconds_sum{service_name=\"forge-sim\",service_version=\"$candidate\",span_name!=\"AiController.decisionTimeout\"}[$__range])) / sum by (span_name) (increase(traces_span_metrics_duration_milliseconds_count{service_name=\"forge-sim\",service_version=\"$candidate\",span_name!=\"AiController.decisionTimeout\"}[$__range])))",
+          "legendFormat": "__auto",
+          "refId": "C",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (span_name) (increase(traces_span_metrics_calls_total{service_name=\"forge-sim\",service_version=\"$baseline\",span_name!=\"AiController.decisionTimeout\"}[$__range])) / scalar(sum(increase(traces_span_metrics_calls_total{service_name=\"forge-sim\",service_version=\"$baseline\",span_name=\"PhaseHandler.mainLoopStep\"}[$__range])))",
+          "legendFormat": "__auto",
+          "refId": "D",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (span_name) (increase(traces_span_metrics_calls_total{service_name=\"forge-sim\",service_version=\"$candidate\",span_name!=\"AiController.decisionTimeout\"}[$__range])) / scalar(sum(increase(traces_span_metrics_calls_total{service_name=\"forge-sim\",service_version=\"$candidate\",span_name=\"PhaseHandler.mainLoopStep\"}[$__range])))",
+          "legendFormat": "__auto",
+          "refId": "E",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "span_name": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4,
+              "Value #E": 5
+            },
+            "renameByName": {
+              "span_name": "Span",
+              "Value #A": "Mean (baseline)",
+              "Value #B": "Mean (candidate)",
+              "Value #C": "Speedup",
+              "Value #D": "Calls per step (baseline)",
+              "Value #E": "Calls per step (candidate)"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mean (baseline)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mean (candidate)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Speedup"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:\u00d7"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "text",
+                      "value": 0.95
+                    },
+                    {
+                      "color": "green",
+                      "value": 1.05
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Calls per step (baseline)"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Calls per step (candidate)"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Span"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 380
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Speedup",
+            "desc": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 15,
+      "type": "row",
+      "title": "Over time (1 h rolling)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Seconds per turn",
+      "description": "Over the hour before each point, so it is smooth even though games finish minutes apart.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(forge_game_duration_seconds_sum{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[1h])) / sum(increase(forge_game_turns_sum{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[1h]))",
+          "legendFormat": "Baseline",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(forge_game_duration_seconds_sum{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[1h])) / sum(increase(forge_game_turns_sum{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[1h]))",
+          "legendFormat": "Candidate",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Baseline"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8e8e8e"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Candidate"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "AI spell choice, mean",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(traces_span_metrics_duration_milliseconds_sum{service_name=\"forge-sim\",service_version=\"$baseline\",span_name=\"PlayerControllerAi.chooseSpellAbilityToPlay\"}[1h])) / sum(increase(traces_span_metrics_duration_milliseconds_count{service_name=\"forge-sim\",service_version=\"$baseline\",span_name=\"PlayerControllerAi.chooseSpellAbilityToPlay\"}[1h]))",
+          "legendFormat": "Baseline",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(traces_span_metrics_duration_milliseconds_sum{service_name=\"forge-sim\",service_version=\"$candidate\",span_name=\"PlayerControllerAi.chooseSpellAbilityToPlay\"}[1h])) / sum(increase(traces_span_metrics_duration_milliseconds_count{service_name=\"forge-sim\",service_version=\"$candidate\",span_name=\"PlayerControllerAi.chooseSpellAbilityToPlay\"}[1h]))",
+          "legendFormat": "Candidate",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Baseline"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8e8e8e"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Candidate"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Games per hour",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(forge_game_duration_seconds_count{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[1h]))",
+          "legendFormat": "Baseline",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(forge_game_duration_seconds_count{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[1h]))",
+          "legendFormat": "Candidate",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Baseline"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8e8e8e"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Candidate"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "AI timeouts per 1000 decisions",
+      "description": "Per decision, not per hour: a faster build makes more decisions per hour, so raw counts would rise.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "1000 * (sum(increase(traces_span_metrics_calls_total{service_name=\"forge-sim\",service_version=\"$baseline\",span_name=\"AiController.decisionTimeout\"}[1h])) or vector(0)) / sum(increase(traces_span_metrics_calls_total{service_name=\"forge-sim\",service_version=\"$baseline\",span_name=\"PlayerControllerAi.chooseSpellAbilityToPlay\"}[1h]))",
+          "legendFormat": "Baseline",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "1000 * (sum(increase(traces_span_metrics_calls_total{service_name=\"forge-sim\",service_version=\"$candidate\",span_name=\"AiController.decisionTimeout\"}[1h])) or vector(0)) / sum(increase(traces_span_metrics_calls_total{service_name=\"forge-sim\",service_version=\"$candidate\",span_name=\"PlayerControllerAi.chooseSpellAbilityToPlay\"}[1h]))",
+          "legendFormat": "Candidate",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Baseline"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8e8e8e"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Candidate"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Did the games change? (whole time range)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "table",
+      "title": "Winners",
+      "description": "How often each commander won its pod, per build. Same seeds: a speed-only change should give similar shares. Games diverge after an AI timeout, and the faster build plays more games, so expect some drift, not a different story.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (forge_pod, forge_outcome) (increase(forge_game_duration_seconds_count{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range]))) / ignoring (forge_outcome) group_left sum by (forge_pod) (round(sum by (forge_pod, forge_outcome) (increase(forge_game_duration_seconds_count{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range]))))",
+          "legendFormat": "__auto",
+          "refId": "A",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (forge_pod, forge_outcome) (increase(forge_game_duration_seconds_count{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range]))) / ignoring (forge_outcome) group_left sum by (forge_pod) (round(sum by (forge_pod, forge_outcome) (increase(forge_game_duration_seconds_count{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range]))))",
+          "legendFormat": "__auto",
+          "refId": "B",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (forge_pod, forge_outcome) (increase(forge_game_duration_seconds_count{service_version=\"$baseline\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])))",
+          "legendFormat": "__auto",
+          "refId": "C",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (forge_pod, forge_outcome) (increase(forge_game_duration_seconds_count{service_version=\"$candidate\",forge_scenario=~\"$scenario\",forge_pod=~\"$pod\"}[$__range])))",
+          "legendFormat": "__auto",
+          "refId": "D",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "forge_pod": 0,
+              "forge_outcome": 1,
+              "Value #A": 2,
+              "Value #B": 3,
+              "Value #C": 4,
+              "Value #D": 5
+            },
+            "renameByName": {
+              "forge_pod": "Pod",
+              "forge_outcome": "Winner",
+              "Value #A": "Share of pod's games (baseline)",
+              "Value #B": "Share of pod's games (candidate)",
+              "Value #C": "Games (baseline)",
+              "Value #D": "Games (candidate)"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Share of pod's games (baseline)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Share of pod's games (candidate)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Games (baseline)"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Games (candidate)"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pod"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 520
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Winner"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 260
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Share of pod's games (baseline)",
+            "desc": true
+          }
+        ]
+      }
+    }
+  ],
+  "annotations": {
+    "list": []
+  }
+}
