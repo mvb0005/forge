@@ -896,8 +896,14 @@ public class AiAttackController {
                 }
             );
             List<Callable<Integer>> tasks = new ArrayList<>();
+            // each task only records its decision; the attackers join combat afterwards in list order, so the
+            // result doesn't depend on thread timing and every task sees the same combat
+            final List<Card> candidates = new ArrayList<>(this.attackers);
+            final GameEntity[] forcedDefenders = new GameEntity[candidates.size()];
 
-            for (final Card attacker : this.attackers) {
+            for (int i = 0; i < candidates.size(); i++) {
+                final Card attacker = candidates.get(i);
+                final int index = i;
                 final GameEntity finalDefender = defender;
                 tasks.add(() -> {
                     GameEntity mustAttackDef = null;
@@ -946,16 +952,7 @@ public class AiAttackController {
                             }
                         }
                     }
-                    if (mustAttackDef != null) {
-                        // combat is shared across these parallel futures and its attacker
-                        // multimap is not thread-safe; unsynchronized addAttacker calls
-                        // collide (ConcurrentModificationException, dropped attackers)
-                        synchronized (combat) {
-                            combat.addAttacker(attacker, mustAttackDef);
-                        }
-                        attackersLeft.remove(attacker);
-                        numForcedAttackers.incrementAndGet();
-                    }
+                    forcedDefenders[index] = mustAttackDef;
                     return 0;
                 });
             }
@@ -966,6 +963,13 @@ public class AiAttackController {
                 Thread.currentThread().interrupt();
             } finally {
                 executor.shutdownNow();
+            }
+            for (int i = 0; i < candidates.size(); i++) {
+                if (forcedDefenders[i] != null) {
+                    combat.addAttacker(candidates.get(i), forcedDefenders[i]);
+                    attackersLeft.remove(candidates.get(i));
+                    numForcedAttackers.incrementAndGet();
+                }
             }
 
             if (attackersLeft.isEmpty()) {
