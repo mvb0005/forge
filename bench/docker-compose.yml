@@ -1,0 +1,64 @@
+name: forge-bench
+
+services:
+  lgtm:
+    image: grafana/otel-lgtm:0.34.0
+    restart: unless-stopped
+    ports:
+      - "3000:3000" # Grafana
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+    volumes:
+      - ./lgtm/otelcol-config.yaml:/otel-lgtm/otelcol-config.yaml:ro
+      - ./lgtm/tempo-config.yaml:/otel-lgtm/tempo-config.yaml:ro
+      - ./grafana/forge-dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/forge-dashboards.yaml:ro
+      - ./grafana/dashboards:/otel-lgtm/forge-dashboards:ro
+      - lgtm-data:/data
+    environment:
+      # each sim JVM is short-lived; without zero samples at series start, rate()/increase() miss its first games
+      PROMETHEUS_EXTRA_ARGS: --enable-feature=created-timestamp-zero-ingestion --storage.tsdb.retention.time=1y
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/ready"]
+      interval: 5s
+      retries: 60
+
+  forge-sim:
+    build:
+      context: ./forge-sim
+      additional_contexts:
+        res: ../forge-gui/res
+        jar: ../forge-gui-desktop/target
+    image: forge-sim:${FORGE_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      lgtm:
+        condition: service_healthy
+    cpus: ${SIM_CPUS:-4}
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS:--Xmx3g}
+      FORMAT: ${FORMAT:-commander}
+      GAMES_PER_RUN: ${GAMES_PER_RUN:-3}
+      GAME_TIMEOUT: ${GAME_TIMEOUT:-1800}
+      SEED: ${SEED:-1}
+      ROUNDS: ${ROUNDS:-0}
+      OTEL_SERVICE_NAME: forge-sim
+      OTEL_RESOURCE_ATTRIBUTES: service.version=${FORGE_VERSION:-dev},forge.commit=${FORGE_COMMIT:-unknown}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+      OTEL_METRIC_EXPORT_INTERVAL: "10000"
+      OTEL_LOGS_EXPORTER: none
+      # only what the benchmark needs: our @WithSpan markers, the metrics API, context across executors, JVM metrics
+      OTEL_INSTRUMENTATION_COMMON_DEFAULT_ENABLED: "false"
+      OTEL_INSTRUMENTATION_OPENTELEMETRY_API_ENABLED: "true"
+      OTEL_INSTRUMENTATION_OPENTELEMETRY_INSTRUMENTATION_ANNOTATIONS_ENABLED: "true"
+      OTEL_INSTRUMENTATION_EXECUTORS_ENABLED: "true"
+      OTEL_INSTRUMENTATION_RUNTIME_TELEMETRY_ENABLED: "true"
+    volumes:
+      - ./matchups.txt:/bench/matchups.txt:ro
+      - ./scenarios.txt:/bench/scenarios.txt:ro
+      - ./states:/bench/states:ro
+
+volumes:
+  # external: created by bench.sh and never deleted by `docker compose down -v`; see README "Data"
+  lgtm-data:
+    external: true
+    name: forge-bench-data

@@ -1,0 +1,5 @@
+# One pod per line: deck files from res/quest/commanderprecons, separated by |
+# token-heavy boards
+Token Triumph [SCD] [2022].dck|Squirreled Away [BLC] [2024].dck|Tyranid Swarm [40K] [2022].dck|Sliver Swarm [CMM] [2023].dck
+Arcane Wizardry [C17] [2017].dck|Draconic Domination [C17] [2017].dck|Elven Empire [KHC] [2021].dck|Vampiric Bloodlust [C17] [2017].dck
+Science! [PIP] [2024].dck|Riders of Rohan [LTC] [2023].dck|Most Wanted [OTC] [2024].dck|Veloci-Ramp-Tor [LCC] [2023].dck
