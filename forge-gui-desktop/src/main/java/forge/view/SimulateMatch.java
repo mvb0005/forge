@@ -56,8 +56,9 @@ import forge.util.storage.IStorage;
 public class SimulateMatch {
     // state: board to start every game from (-state)
     // dumpTurn/dumpDir: write the board at main phase 1 of that turn, or right after the state loads when 0 (-dump)
-    private record SimOptions(GameState state, String scenario, int dumpTurn, File dumpDir, Long seed) {
-        static final SimOptions NONE = new SimOptions(null, "full-game", -1, null, null);
+    // aiTimeout: seconds per AI decision, 0 = the game default (-aitimeout)
+    private record SimOptions(GameState state, String scenario, int dumpTurn, File dumpDir, Long seed, int aiTimeout) {
+        static final SimOptions NONE = new SimOptions(null, "full-game", -1, null, null, 0);
     }
 
     // exported only when the OpenTelemetry Java agent is attached (see bench/)
@@ -209,7 +210,8 @@ public class SimulateMatch {
             dumpDir = new File(params.get("dump").size() > 1 ? params.get("dump").get(1) : ".");
             dumpDir.mkdirs();
         }
-        SimOptions opts = new SimOptions(state, scenario, dumpTurn, dumpDir, seed);
+        int aiTimeout = params.containsKey("aitimeout") ? Integer.parseInt(params.get("aitimeout").get(0)) : 0;
+        SimOptions opts = new SimOptions(state, scenario, dumpTurn, dumpDir, seed, aiTimeout);
 
         if (params.containsKey("d")) {
             for (String deck : params.get("d")) {
@@ -341,6 +343,7 @@ public class SimulateMatch {
         System.out.println("\tq - Quiet flag. Output just the game result, not the entire game log.");
         System.out.println("\tstate - start every game from this game state file (as written by -dump or Dump Game State); -d is optional");
         System.out.println("\tdump - <turn> [dir]: write the board at main phase 1 of that turn to dir as a state file; with -state, 0 writes it right after loading");
+        System.out.println("\taitimeout - seconds the AI may think per decision (default 5); set it high so a seed replays the same game exactly");
     }
 
     public static void simulateSingleMatch(final Match mc, int iGame, boolean outputGamelog) {
@@ -353,6 +356,9 @@ public class SimulateMatch {
 
         final Game g1 = mc.createGame();
         g1.setNoGUIUser();
+        if (opts.aiTimeout() > 0) {
+            g1.AI_TIMEOUT = opts.aiTimeout();
+        }
         if (opts.dumpTurn() > 0) {
             dumpStateAt(g1, iGame, opts);
         }
