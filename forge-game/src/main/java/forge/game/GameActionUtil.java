@@ -247,7 +247,7 @@ public final class GameActionUtil {
                 }
 
                 // some needs to check after ability was put on the stack
-                if (game.getAction().hasStaticAbilityAffectingZone(ZoneType.Stack, StaticAbilityLayer.ABILITIES)) {
+                if (mayGrantSpellOnStack(game, source)) {
                     Map<StaticAbility, CardPlayOption> oldMayPlay = source.getMayPlay();
                     Zone oldZone = source.getLastKnownZone();
                     Card stackCopy = source;
@@ -305,6 +305,66 @@ public final class GameActionUtil {
         }
 
         return alternatives;
+    }
+
+    // ABILITIES statics that change spells on the stack make getAlternativeCosts recompute every static ability in the
+    // game twice, only to find spells added by the keywords they grant (e.g. Blitz). Most of them grant keywords that
+    // add no spell (Cascade, Convoke, Affinity...), so look at what they grant first. Like hasStaticAbilityAffectingZone,
+    // this doesn't check layers or whether the static would affect source.
+    private static boolean mayGrantSpellOnStack(final Game game, final Card source) {
+        for (final Card ca : game.getCardsIn(ZoneType.STATIC_ABILITIES_SOURCE_ZONES)) {
+            for (final StaticAbility stAb : ca.getStaticAbilities()) {
+                if (!stAb.checkConditions(StaticAbilityMode.Continuous) || !stAb.getLayers().contains(StaticAbilityLayer.ABILITIES)) {
+                    continue;
+                }
+                if (ZoneType.listValueOf(stAb.getParamOrDefault("AffectedZone", ZoneType.Battlefield.toString())).contains(ZoneType.Stack)
+                        && mayGrantSpell(stAb, source)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // params that can give the spell keywords other than the ones listed in AddKeyword
+    private static final List<String> GRANTS_UNLISTED_KEYWORDS = List.of("AddStaticAbility", "ShareRememberedKeywords",
+            "SharedKeywordsZone", "FromDraftNotes", "GainsAbilitiesOf", "GainsAbilitiesOfDefined", "GainsTriggerAbsOf",
+            "GainsStickerAbilitiesOf", "GainsStickerAbilitiesOfDefined", "GainTextOf", "Incorporate");
+
+    private static boolean mayGrantSpell(final StaticAbility stAb, final Card source) {
+        for (final String param : GRANTS_UNLISTED_KEYWORDS) {
+            if (stAb.hasParam(param)) {
+                return true;
+            }
+        }
+        if (!stAb.hasParam("AddKeyword")) {
+            return false;
+        }
+        for (String k : stAb.getParam("AddKeyword").split(" & ")) {
+            // Aftermath changes the card's own spell instead of adding one
+            if (k.startsWith("Aftermath")) {
+                return true;
+            }
+            // same substitution as StaticAbilityContinuous does before granting the keyword
+            if (k.contains("CardManaCost")) {
+                k = k.replace("CardManaCost", source.getManaCost().getShortString());
+            } else if (k.contains("ConvertedManaCost")) {
+                k = k.replace("ConvertedManaCost", Integer.toString(source.getCMC()));
+            }
+            try {
+                final KeywordInterface inst = Keyword.getInstance(k);
+                CardFactoryUtil.addSpellAbility(inst, source.getCurrentState(), false);
+                for (final SpellAbility granted : inst.getAbilities()) {
+                    if (granted.isSpell()) {
+                        return true;
+                    }
+                }
+            } catch (RuntimeException e) {
+                // e.g. an unresolved placeholder: assume the worst
+                return true;
+            }
+        }
+        return false;
     }
 
     public static SpellAbility getGraveyardSpellByKeyword(KeywordInterface inst, SpellAbility sa, Player activator, AlternativeCost altCost) {
