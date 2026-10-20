@@ -1,5 +1,6 @@
-# Replaces the Tempo config shipped in grafana/otel-lgtm 0.34.0. Changes: retention is explicit,
-# and Tempo's own span metrics are off (the collector's spanmetrics connector already makes them, unsampled).
+# Replaces the Tempo config shipped in grafana/otel-lgtm 0.34.0 (Tempo 3.0.3). Only change: Tempo's own span
+# metrics are off, since the collector's spanmetrics connector already makes them from all spans.
+# Traces are kept for Tempo's default block retention, 336h (14 days); see `tempo -help-all | grep block-retention`.
 server:
   http_listen_port: 3200
   grpc_listen_port: 9096
@@ -28,8 +29,3 @@ storage:
       path: /data/tempo/wal
     local:
       path: /data/tempo/blocks
-
-compactor:
-  compaction:
-    # traces are large (about 1 GB per 12 h of sims); metrics in Prometheus are kept for a year
-    block_retention: 336h

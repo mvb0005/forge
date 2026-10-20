@@ -34,7 +34,7 @@ The dashboards are generated: edit `grafana/gen_dashboards.py`, then run
 Everything Grafana shows is in the Docker volume `forge-bench-data`, mounted at `/data` in the lgtm container: Prometheus metrics, Tempo traces and Grafana's own state.
 - **Kept when** containers are removed, rebuilt or upgraded, including `docker compose down -v`. The volume is declared `external`, so compose never deletes it.
 - **Lost when** someone runs `docker volume rm forge-bench-data` or `docker volume prune -a`, or resets or uninstalls Docker Desktop. Run `./bench.sh backup` for a copy outside Docker. To restore, untar the copy into a new `forge-bench-data` volume.
-- **Retention:** metrics 1 year (`--storage.tsdb.retention.time`), traces 14 days (`lgtm/tempo-config.yaml`). Metrics are small (MBs per day). Traces are about 1 GB per 12 hours of sims.
+- **Retention:** metrics 1 year (`--storage.tsdb.retention.time`), traces 14 days (Tempo's default block retention). Metrics are small (MBs per day). Traces are about 1 GB per 12 hours of sims.
 - The dashboards themselves are files in `grafana/dashboards`, not data.
 
 ## Saved boards
