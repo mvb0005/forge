@@ -145,6 +145,8 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     // x=timestamp y=StaticAbility id
     private final Table<Long, Long, CardTraitChanges> changedCardTraitsByText = TreeBasedTable.create(); // Layer 3 by Text Change
     private final Table<Long, Long, ICardTraitChanges> changedCardTraits = TreeBasedTable.create(); // Layer 6
+    // bumped whenever changed traits or changed types change, so CardState can keep merged trait lists
+    private long changedTraitsVersion;
 
     // stores the card traits created by static abilities
     private final Table<StaticAbility, String, SpellAbility> storedSpellAbility = TreeBasedTable.create();
@@ -4160,6 +4162,8 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     }
 
     public final void updateTypeCache() {
+        // changed types can add or remove traits (land types, Saga, removed intrinsic abilities)
+        changedTraitsVersion++;
         this.getCurrentState().updateTypes();
     }
 
@@ -4997,6 +5001,7 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
         return changedCardTraitsByText;
     }
     public final void setChangedCardTraitsByText(Table<Long, Long, CardTraitChanges> changes) {
+        changedTraitsVersion++;
         changedCardTraitsByText.clear();
         for (Table.Cell<Long, Long, CardTraitChanges> e : changes.cellSet()) {
             changedCardTraitsByText.put(e.getRowKey(), e.getColumnKey(), e.getValue().copy(this, true));
@@ -5004,6 +5009,7 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     }
     public final void addChangedCardTraitsByText(Collection<SpellAbility> spells,
             Collection<Trigger> trigger, Collection<ReplacementEffect> replacements, Collection<StaticAbility> statics, long timestamp, long staticId) {
+        changedTraitsVersion++;
         changedCardTraitsByText.put(timestamp, staticId, new CardTraitChanges(
             spells, trigger, replacements, statics, e -> true
         ));
@@ -5028,6 +5034,7 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
         return addChangedCardTraits(result, timestamp, staticId, updateView);
     }
     public final ICardTraitChanges addChangedCardTraits(ICardTraitChanges changes, long timestamp, long staticId, boolean updateView) {
+        changedTraitsVersion++;
         changedCardTraits.put(timestamp, staticId, changes);
         if (updateView) {
             updateAbilityTextForView();
@@ -5036,10 +5043,16 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     }
 
     public final boolean removeChangedCardTraits(long timestamp, long staticId) {
+        changedTraitsVersion++;
         return changedCardTraits.remove(timestamp, staticId) != null;
     }
     public final boolean removeChangedCardTraitsByText(long timestamp, long staticId) {
+        changedTraitsVersion++;
         return changedCardTraitsByText.remove(timestamp, staticId) != null;
+    }
+
+    public final long getChangedTraitsVersion() {
+        return changedTraitsVersion;
     }
 
     public Iterable<? extends ICardTraitChanges> getChangedCardTraitsList(CardState state) {
@@ -5058,6 +5071,7 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     }
 
     public final void setChangedCardTraits(Table<Long, Long, ICardTraitChanges> changes) {
+        changedTraitsVersion++;
         changedCardTraits.clear();
         for (Table.Cell<Long, Long, ICardTraitChanges> e : changes.cellSet()) {
             changedCardTraits.put(e.getRowKey(), e.getColumnKey(), e.getValue().copy(this, true));
@@ -5065,6 +5079,7 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     }
 
     public boolean clearChangedCardTraits() {
+        changedTraitsVersion++;
         boolean changed = false;
         if (!changedCardTraitsByText.isEmpty()) {
             changed = true;
@@ -5541,6 +5556,7 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     public final void addChangedTextTypeWord(final String originalWord, final String newWord, final Long timestamp, final long staticId) {
         changedTextTypes.add(timestamp, staticId, originalWord, newWord);
         changedCardTypesByText.put(timestamp, staticId, new WordChangedType(originalWord, newWord));
+        changedTraitsVersion++;
         updateChangedText();
     }
 

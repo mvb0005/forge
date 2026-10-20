@@ -59,6 +59,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 public class CardState implements GameObject, IHasSVars, ITranslatable {
     private String name = "";
@@ -686,6 +687,9 @@ public class CardState implements GameObject, IHasSVars, ITranslatable {
     }
 
     public final FCollectionView<Trigger> getTriggers() {
+        return (triggerCache = cachedTraits(triggerCache, 0, this::buildTriggers)).list();
+    }
+    private FCollectionView<Trigger> buildTriggers() {
         FCollection<Trigger> result = new FCollection<>(triggers);
         if (getStateName().equals(CardStateName.Original)) {
             if (getCard().hasState(CardStateName.LeftSplit))
@@ -711,10 +715,14 @@ public class CardState implements GameObject, IHasSVars, ITranslatable {
     }
 
     public final boolean addTrigger(final Trigger t) {
+        traitListsVersion++;
         return triggers.add(t);
     }
 
     public final FCollectionView<StaticAbility> getStaticAbilities() {
+        return (staticAbilityCache = cachedTraits(staticAbilityCache, 0, this::buildStaticAbilities)).list();
+    }
+    private FCollectionView<StaticAbility> buildStaticAbilities() {
         FCollection<StaticAbility> result = new FCollection<>(staticAbilities);
         if (getStateName().equals(CardStateName.Original)) {
             if (getCard().hasState(CardStateName.LeftSplit))
@@ -726,9 +734,11 @@ public class CardState implements GameObject, IHasSVars, ITranslatable {
         return result;
     }
     public final boolean addStaticAbility(StaticAbility stab) {
+        traitListsVersion++;
         return staticAbilities.add(stab);
     }
     public final boolean removeStaticAbility(StaticAbility stab) {
+        traitListsVersion++;
         return staticAbilities.remove(stab);
     }
 
@@ -736,6 +746,16 @@ public class CardState implements GameObject, IHasSVars, ITranslatable {
         return getReplacementEffects(true);
     }
     public FCollectionView<ReplacementEffect> getReplacementEffects(boolean rulesHost) {
+        if (!rulesHost) {
+            return (replacementCacheNoRules = cachedTraits(replacementCacheNoRules, 0, () -> buildReplacementEffects(false))).list();
+        }
+        // the rules-host extras below also come from these counters
+        int flags = (card.getCounters(CounterEnumType.SHIELD) > 0 ? 1 : 0)
+                | (card.getCounters(CounterEnumType.STUN) > 0 ? 2 : 0)
+                | (card.getCounters(CounterEnumType.FINALITY) > 0 ? 4 : 0);
+        return (replacementCache = cachedTraits(replacementCache, flags, () -> buildReplacementEffects(true))).list();
+    }
+    private FCollectionView<ReplacementEffect> buildReplacementEffects(boolean rulesHost) {
         FCollection<ReplacementEffect> result = new FCollection<>(replacementEffects);
         // add Split to Original
         if (getStateName().equals(CardStateName.Original)) {
@@ -768,7 +788,62 @@ public class CardState implements GameObject, IHasSVars, ITranslatable {
         return result;
     }
     public boolean addReplacementEffect(final ReplacementEffect replacementEffect) {
+        traitListsVersion++;
         return replacementEffects.add(replacementEffect);
+    }
+
+    // getStaticAbilities, getTriggers and getReplacementEffects merge the printed traits, changed traits and keywords
+    // into a new list, and all three are asked for every card in the game several times per game action (static
+    // ability passes, trigger and replacement checks, AI predictions). So each list is kept until one of its inputs
+    // changes: this state's own trait lists or its split halves', the card's changed traits and types, the keywords
+    // and this state's type (both cached objects that are replaced when they change), and the caller's flags.
+    // -Dforge.verifyTraitCache=true rebuilds the list on every call anyway and throws if the kept one differs.
+    private static final boolean VERIFY_TRAIT_CACHE = Boolean.getBoolean("forge.verifyTraitCache");
+
+    // one immutable entry per list, swapped in whole: the AI asks for traits from parallel threads, and a reader must
+    // never see a new key next to an old list. Final fields make a racy read safe; at worst it rebuilds an old entry.
+    private record TraitCache<T>(FCollectionView<T> list, long ownVersion, long splitVersion, long cardVersion,
+            Object keywords, Object type, int flags) {
+    }
+
+    private long traitListsVersion;
+    private TraitCache<StaticAbility> staticAbilityCache;
+    private TraitCache<Trigger> triggerCache;
+    private TraitCache<ReplacementEffect> replacementCache;
+    private TraitCache<ReplacementEffect> replacementCacheNoRules;
+
+    private <T> TraitCache<T> cachedTraits(final TraitCache<T> cached, final int flags, final Supplier<FCollectionView<T>> build) {
+        long splitVersion = 0;
+        if (getStateName().equals(CardStateName.Original)) {
+            if (card.hasState(CardStateName.LeftSplit)) {
+                splitVersion += card.getState(CardStateName.LeftSplit).traitListsVersion;
+            }
+            if (card.hasState(CardStateName.RightSplit)) {
+                splitVersion += card.getState(CardStateName.RightSplit).traitListsVersion;
+            }
+        }
+        final long cardVersion = card.getChangedTraitsVersion();
+        final CardTypeView typeNow = getTypeWithChanges();
+        if (cached != null && cached.ownVersion() == traitListsVersion && cached.splitVersion() == splitVersion
+                && cached.cardVersion() == cardVersion && cached.keywords() == cachedKeywords && cached.type() == typeNow
+                && cached.flags() == flags) {
+            if (VERIFY_TRAIT_CACHE) {
+                verifyTraitCache(cached.list(), build.get());
+            }
+            return cached;
+        }
+        return new TraitCache<>(build.get(), traitListsVersion, splitVersion, cardVersion, cachedKeywords, typeNow, flags);
+    }
+
+    private <T> void verifyTraitCache(final FCollectionView<T> kept, final FCollectionView<T> fresh) {
+        // by identity: some traits compare equal by id alone
+        boolean same = kept.size() == fresh.size();
+        for (int i = 0; same && i < kept.size(); i++) {
+            same = kept.get(i) == fresh.get(i);
+        }
+        if (!same) {
+            throw new IllegalStateException("Stale trait cache on " + card + " (" + getStateName() + "): kept " + kept + ", now " + fresh);
+        }
     }
 
     public final boolean hasReplacementEffect(final ReplacementEffect re) {
@@ -914,6 +989,7 @@ public class CardState implements GameObject, IHasSVars, ITranslatable {
             runRE = sp.getReplacementEffect();
         }
 
+        traitListsVersion++;
         replacementEffects.clear();
         for (ReplacementEffect re : source.replacementEffects) {
             if (re.isIntrinsic()) {
@@ -966,6 +1042,7 @@ public class CardState implements GameObject, IHasSVars, ITranslatable {
     }
 
     public final void addAbilitiesFrom(final CardState source, final boolean lki) {
+        traitListsVersion++;
         for (SpellAbility sa : source.abilities) {
             if (sa.isIntrinsic() && sa.getApi() != ApiType.PermanentCreature && sa.getApi() != ApiType.PermanentNoncreature) {
                 abilities.add(sa.copy(card, lki));
