@@ -262,8 +262,161 @@ hot = dashboard("forge-engine-hotpaths", "Forge engine hot paths",
                 [var_query("version", "Version", 'label_values(traces_span_metrics_calls_total{service_name="forge-sim"}, service_version)'),
                  var_query("span", "Span", 'label_values(traces_span_metrics_calls_total{service_name="forge-sim"}, span_name)')])
 
+# ---------------------------------------------------------------- version compare
+# Two single versions side by side (bench.sh compare runs them together on the same seeds). Every panel shows
+# baseline, candidate and, where lower is better, speedup = baseline / candidate (above 1 = candidate is faster).
+_id[0] = 0
+GA = 'service_version="$baseline",forge_scenario=~"$scenario",forge_pod=~"$pod"'
+GB = 'service_version="$candidate",forge_scenario=~"$scenario",forge_pod=~"$pod"'
+SA = 'service_name="forge-sim",service_version="$baseline"'
+SB = 'service_name="forge-sim",service_version="$candidate"'
+game = lambda m, g, extra="": f'forge_game_{m}{{{g}{extra}}}'
+span = lambda m, s, name: f'traces_span_metrics_{m}{{{s},span_name="{name}"}}'
+inc = lambda q: f'increase({q}[$__range])'
+sec_per_turn = lambda g, by="": f'(sum{by} ({inc(game("duration_seconds_sum", g))}) / sum{by} ({inc(game("turns_sum", g))}))'
+mean_ms = lambda s, name, by="": f'(sum{by} ({inc(span("duration_milliseconds_sum", s, name))}) / sum{by} ({inc(span("duration_milliseconds_count", s, name))}))'
+timeout_rate = lambda s: (f'(1000 * (sum({inc(span("calls_total", s, "AiController.decisionTimeout"))}) or vector(0))'
+                          f' / sum({inc(span("calls_total", s, "PlayerControllerAi.chooseSpellAbilityToPlay"))}))')
+speed = {"mode": "absolute", "steps": [{"color": "red", "value": None}, {"color": "text", "value": 0.95}, {"color": "green", "value": 1.05}]}
+TIMES = "suffix:×"
+
+def pair(title, a, b, x, y, w=6, h=5, unit="none", decimals=2, desc=""):
+    p = stat(title, a, x, y, w=w, h=h, unit=unit, decimals=decimals, desc=desc)
+    p["targets"] = [target(a, "Baseline", instant=True, ref="A"), target(b, "Candidate", instant=True, ref="B")]
+    p["options"]["textMode"] = "value_and_name"
+    return p
+
+def speedup(title, a, b, x, y, w=4, h=5, desc=""):
+    return stat(title, f'({a}) / ({b})', x, y, w=w, h=h, unit=TIMES, decimals=2, thresholds=speed,
+                desc=desc or "Baseline / candidate. Above 1: the candidate is faster.")
+
+p = []
+p.append({"id": nid(), "type": "text", "title": "", "gridPos": {"x": 0, "y": 0, "w": 24, "h": 2},
+          "options": {"mode": "markdown", "content":
+              "Pick **Baseline** and **Candidate** above. `./bench.sh compare` runs both on the same seeds, so they play the same "
+              "games until an AI decision hits its 5 s cap. **Speedup** = baseline / candidate: green above 1.05, red below 0.95. "
+              "Trust it only with tens of games per pod; single games vary a lot."}})
+p.append(pair("Seconds per turn", sec_per_turn(GA), sec_per_turn(GB), 0, 2, unit="s",
+              desc="Game wall time divided by turns played, over the whole time range."))
+p.append(speedup("Speedup per turn", sec_per_turn(GA), sec_per_turn(GB), 6, 2))
+p.append(pair("AI spell choice, mean", mean_ms(SA, "PlayerControllerAi.chooseSpellAbilityToPlay"),
+              mean_ms(SB, "PlayerControllerAi.chooseSpellAbilityToPlay"), 10, 2, unit="ms", decimals=1))
+p.append(speedup("AI speedup", mean_ms(SA, "PlayerControllerAi.chooseSpellAbilityToPlay"),
+                 mean_ms(SB, "PlayerControllerAi.chooseSpellAbilityToPlay"), 16, 2))
+p.append(pair("Games played", f'round(sum({inc(game("duration_seconds_count", GA))}))',
+              f'round(sum({inc(game("duration_seconds_count", GB))}))', 20, 2, w=4, decimals=0,
+              desc="Sample size. A faster build plays more games in the same time."))
+p.append(pair("AI timeouts per 1000 decisions", timeout_rate(SA), timeout_rate(SB), 0, 7,
+              desc="Spell choices that hit the 5 s cap and were skipped. Faster engine code should push this toward 0."))
+p.append(pair("Avg turns per game", f'sum({inc(game("turns_sum", GA))}) / sum({inc(game("turns_count", GA))})',
+              f'sum({inc(game("turns_sum", GB))}) / sum({inc(game("turns_count", GB))})', 6, 7, decimals=1,
+              desc="Should match when the candidate only changes speed. A big gap means the AI plays differently."))
+static_per_step = lambda s: (f'sum({inc(span("calls_total", s, "GameAction.checkStaticAbilities"))})'
+                             f' / sum({inc(span("calls_total", s, "PhaseHandler.mainLoopStep"))})')
+p.append(pair("Static passes per priority step", static_per_step(SA), static_per_step(SB), 12, 7,
+              desc="Full continuous-effect recomputes per priority step. A delta-based engine should lower this."))
+STOPPED = ',forge_outcome=~"timeout|error"'
+bad = lambda g: f'round(sum({inc(game("duration_seconds_count", g, STOPPED))})) or vector(0)'
+p.append(pair("Game timeouts + errors", bad(GA), bad(GB), 18, 7, decimals=0,
+              desc="Games stopped by the sim clock (GAME_TIMEOUT) or an exception."))
+
+p.append(row("By pod (whole time range)", 12))
+byp = " by (forge_pod)"
+cntp = lambda g: f'round(sum{byp} ({inc(game("duration_seconds_count", g))}))'
+p.append(table("Pods", [
+    target(cntp(GA), instant=True, ref="A", fmt="table"),
+    target(cntp(GB), instant=True, ref="B", fmt="table"),
+    target(sec_per_turn(GA, byp), instant=True, ref="C", fmt="table"),
+    target(sec_per_turn(GB, byp), instant=True, ref="D", fmt="table"),
+    target(f'{sec_per_turn(GA, byp)} / {sec_per_turn(GB, byp)}', instant=True, ref="E", fmt="table")],
+    0, 13, 24, 6,
+    {"forge_pod": "Pod", "Value #A": "Games (baseline)", "Value #B": "Games (candidate)",
+     "Value #C": "Sec per turn (baseline)", "Value #D": "Sec per turn (candidate)", "Value #E": "Speedup"},
+    {"Games (baseline)": "count", "Games (candidate)": "count", "Sec per turn (baseline)": "s", "Sec per turn (candidate)": "s",
+     "Speedup": {"unit": TIMES, "thresholds": speed, "custom.cellOptions": {"type": "color-text"}},
+     "Pod": {"custom.width": 560}}, sort="Speedup"))
+
+p.append(row("Engine and AI spans (whole time range)", 19))
+bys = " by (span_name)"
+# the timeout marker has no duration worth comparing; its counts are in the timeout panels
+NOMARK = ',span_name!="AiController.decisionTimeout"'
+calls_all = lambda s: f'traces_span_metrics_calls_total{{{s}{NOMARK}}}'
+per_step = lambda s: f'sum{bys} ({inc(calls_all(s))}) / scalar(sum({inc(span("calls_total", s, "PhaseHandler.mainLoopStep"))}))'
+mean_all = lambda s: (f'(sum{bys} ({inc(f"traces_span_metrics_duration_milliseconds_sum{{{s}{NOMARK}}}")})'
+                      f' / sum{bys} ({inc(f"traces_span_metrics_duration_milliseconds_count{{{s}{NOMARK}}}")}))')
+p.append(table("Spans", [
+    target(mean_all(SA), instant=True, ref="A", fmt="table"),
+    target(mean_all(SB), instant=True, ref="B", fmt="table"),
+    target(f'{mean_all(SA)} / {mean_all(SB)}', instant=True, ref="C", fmt="table"),
+    target(per_step(SA), instant=True, ref="D", fmt="table"),
+    target(per_step(SB), instant=True, ref="E", fmt="table")],
+    0, 20, 24, 10,
+    {"span_name": "Span", "Value #A": "Mean (baseline)", "Value #B": "Mean (candidate)", "Value #C": "Speedup",
+     "Value #D": "Calls per step (baseline)", "Value #E": "Calls per step (candidate)"},
+    {"Mean (baseline)": "ms", "Mean (candidate)": "ms",
+     "Speedup": {"unit": TIMES, "thresholds": speed, "custom.cellOptions": {"type": "color-text"}},
+     "Calls per step (baseline)": {"decimals": 3}, "Calls per step (candidate)": {"decimals": 3},
+     "Span": {"custom.width": 380}},
+    desc="Mean time per call (children included) and calls per priority step. Calls per step should match unless the "
+         "candidate skips or adds work; a change there with the same games means the engine does less (or more) per action.",
+    sort="Speedup"))
+
+p.append(row("Over time (1 h rolling)", 29))
+roll = lambda q: f'increase({q}[1h])'
+spt_roll = lambda g: f'sum({roll(game("duration_seconds_sum", g))}) / sum({roll(game("turns_sum", g))})'
+p.append(ts("Seconds per turn", [target(spt_roll(GA), "Baseline", ref="A"), target(spt_roll(GB), "Candidate", ref="B")],
+            0, 30, unit="s", desc="Over the hour before each point, so it is smooth even though games finish minutes apart."))
+ai_roll = lambda s: (f'sum({roll(span("duration_milliseconds_sum", s, "PlayerControllerAi.chooseSpellAbilityToPlay"))})'
+                     f' / sum({roll(span("duration_milliseconds_count", s, "PlayerControllerAi.chooseSpellAbilityToPlay"))})')
+p.append(ts("AI spell choice, mean", [target(ai_roll(SA), "Baseline", ref="A"), target(ai_roll(SB), "Candidate", ref="B")],
+            12, 30, unit="ms"))
+games_roll = lambda g: f'sum({roll(game("duration_seconds_count", g))})'
+p.append(ts("Games per hour", [target(games_roll(GA), "Baseline", ref="A"), target(games_roll(GB), "Candidate", ref="B")],
+            0, 38, unit="none"))
+to_roll = lambda s: (f'1000 * (sum({roll(span("calls_total", s, "AiController.decisionTimeout"))}) or vector(0))'
+                     f' / sum({roll(span("calls_total", s, "PlayerControllerAi.chooseSpellAbilityToPlay"))})')
+p.append(ts("AI timeouts per 1000 decisions", [target(to_roll(SA), "Baseline", ref="A"), target(to_roll(SB), "Candidate", ref="B")],
+            12, 38, unit="none", desc="Per decision, not per hour: a faster build makes more decisions per hour, so raw counts would rise."))
+
+p.append(row("Did the games change? (whole time range)", 46))
+won = lambda g: f'round(sum by (forge_pod, forge_outcome) ({inc(game("duration_seconds_count", g))}))'
+# whole games first: increase() extrapolates each series a little differently, so shares of raw values don't add up
+share = lambda g: f'{won(g)} / ignoring (forge_outcome) group_left sum by (forge_pod) ({won(g)})'
+p.append(table("Winners", [
+    target(share(GA), instant=True, ref="A", fmt="table"),
+    target(share(GB), instant=True, ref="B", fmt="table"),
+    target(won(GA), instant=True, ref="C", fmt="table"),
+    target(won(GB), instant=True, ref="D", fmt="table")],
+    0, 47, 24, 10,
+    {"forge_pod": "Pod", "forge_outcome": "Winner", "Value #A": "Share of pod's games (baseline)",
+     "Value #B": "Share of pod's games (candidate)", "Value #C": "Games (baseline)", "Value #D": "Games (candidate)"},
+    {"Share of pod's games (baseline)": "percentunit", "Share of pod's games (candidate)": "percentunit",
+     "Games (baseline)": "count", "Games (candidate)": "count", "Pod": {"custom.width": 520}, "Winner": {"custom.width": 260}},
+    desc="How often each commander won its pod, per build. Same seeds: a speed-only change should give similar shares. "
+         "Games diverge after an AI timeout, and the faster build plays more games, so expect some drift, not a different story.",
+    sort="Share of pod's games (baseline)"))
+
+def single_var(name, label, default):
+    v = var_query(name, label, 'label_values(forge_game_duration_seconds_count, service_version)', include_all=False, multi=False)
+    v["current"] = {"selected": True, "text": default, "value": default}
+    return v
+
+for panel in p:
+    if panel["type"] == "timeseries":
+        panel["fieldConfig"]["overrides"] = [
+            {"matcher": {"id": "byName", "options": name}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": color}}]}
+            for name, color in (("Baseline", "#8e8e8e"), ("Candidate", "green"))]
+
+compare = dashboard("forge-version-compare", "Forge version compare",
+                    "Baseline vs candidate build: speed per turn, per pod and per span, AI timeouts, and whether the games changed.", p,
+                    [single_var("baseline", "Baseline", "v1.0.0-6-baseline"),
+                     single_var("candidate", "Candidate", "v1.0.0-6-trait-cache"),
+                     var_query("scenario", "Scenario", 'label_values(forge_game_duration_seconds_count{service_version=~"$baseline|$candidate"}, forge_scenario)'),
+                     var_query("pod", "Pod", 'label_values(forge_game_duration_seconds_count{service_version=~"$baseline|$candidate"}, forge_pod)')])
+compare["time"] = {"from": "now-6h", "to": "now"}
+
 os.makedirs(OUT, exist_ok=True)
-for d, name in ((overview, "forge-sim-overview.json"), (hot, "forge-engine-hotpaths.json")):
+for d, name in ((overview, "forge-sim-overview.json"), (hot, "forge-engine-hotpaths.json"), (compare, "forge-version-compare.json")):
     with open(os.path.join(OUT, name), "w", encoding="utf-8", newline="\n") as f:
         json.dump(d, f, indent=2)
         f.write("\n")

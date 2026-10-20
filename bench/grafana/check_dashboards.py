@@ -1,7 +1,8 @@
 import base64, json, math, re, sys, urllib.request
 
 # Usage: python check_dashboards.py [range, default 30m]
-# Runs every panel query of the Forge dashboards through Grafana's /api/ds/query, as the panels would,
+# Runs every panel query of the Forge dashboards through Grafana's /api/ds/query, as the panels would (with each
+# variable's default, or .* for "All"),
 # and reports per query: error, how many series came back, and whether any value is real (not empty/NaN).
 GRAFANA = "http://127.0.0.1:3000"
 AUTH = "Basic " + base64.b64encode(b"admin:admin").decode()
@@ -17,17 +18,22 @@ def call(path, body=None):
         return {"http_error": e.code, "body": e.read().decode()[:300]}
 
 bad = 0
-for uid in ("forge-sim-overview", "forge-engine-hotpaths"):
+for uid in ("forge-sim-overview", "forge-engine-hotpaths", "forge-version-compare"):
     dash = call(f"/api/dashboards/uid/{uid}")["dashboard"]
     print(f"=== {dash['title']}")
+    # a single-valued variable keeps its default; "All" variables become .*
+    values = {}
+    for v in dash.get("templating", {}).get("list", []):
+        cur = v.get("current", {}).get("value")
+        values[v["name"]] = cur if isinstance(cur, str) and cur != "$__all" else ".*"
     for panel in dash["panels"]:
-        if panel["type"] == "row":
+        if panel["type"] in ("row", "text"):
             continue
         for t in panel["targets"]:
             q = dict(t)
             if "expr" in q:
-                # every dashboard variable as "All"; $__range etc. are left for Grafana
-                q["expr"] = re.sub(r"\$(?!__)[a-z_]+", ".*", q["expr"])
+                # $__range etc. are left for Grafana
+                q["expr"] = re.sub(r"\$(?!__)([a-z_]+)", lambda m: values.get(m.group(1), ".*"), q["expr"])
             q["intervalMs"] = 60000
             q["maxDataPoints"] = 200
             res = call("/api/ds/query", {"from": f"now-{RANGE}", "to": "now", "queries": [q]})
