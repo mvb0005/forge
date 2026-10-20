@@ -279,6 +279,11 @@ public class ComputerUtil {
         return getCardPreference(ai, activate, pref, typeList, null);
     }
     public static Card getCardPreference(final Player ai, final Card activate, final String pref, final CardCollection typeList, SpellAbility sa) {
+        return getCardPreference(ai, activate, pref, typeList, sa, null);
+    }
+    // threatened: answers of shouldSacrificeThreatenedCard to reuse, for callers that ask again on an unchanged board
+    public static Card getCardPreference(final Player ai, final Card activate, final String pref, final CardCollection typeList, SpellAbility sa,
+            final Map<Card, Boolean> threatened) {
         final Game game = ai.getGame();
         String prefDef = "";
         if (activate != null) {
@@ -340,7 +345,8 @@ public class ComputerUtil {
                     }
                 }
                 final CardCollection sacMeList = CardLists.filter(typeList, c -> (c.hasSVar("SacMe") && Integer.parseInt(c.getSVar("SacMe")) == priority)
-                        || (priority == 1 && shouldSacrificeThreatenedCard(ai, c, sa))
+                        || (priority == 1 && (threatened == null ? shouldSacrificeThreatenedCard(ai, c, sa)
+                                : threatened.computeIfAbsent(c, k -> shouldSacrificeThreatenedCard(ai, k, sa))))
                 );
                 if (!sacMeList.isEmpty()) {
                     CardLists.shuffle(sacMeList);
