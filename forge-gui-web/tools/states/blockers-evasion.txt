@@ -1,0 +1,11 @@
+turn=3
+activeplayer=p1
+activephase=COMBAT_DECLARE_BLOCKERS
+p0life=20
+p0hand=
+p0library=Forest;Forest;Forest
+p0battlefield=Giant Spider;Wind Drake;Hill Giant;Sightless Ghoul;Grizzly Bears|Tapped;Forest;Forest
+p1life=20
+p1hand=
+p1library=Island;Island;Island
+p1battlefield=Serra Angel|Attacking;Boggart Brute|Attacking;Grizzly Bears|Attacking;Island

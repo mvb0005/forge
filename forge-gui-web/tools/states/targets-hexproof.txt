@@ -1,0 +1,15 @@
+turn=3
+activeplayer=p0
+activephase=MAIN1
+p0life=20
+p0hand=Lightning Bolt
+p0library=Mountain;Mountain;Mountain
+p0battlefield=Mountain
+p1life=20
+p1hand=
+p1library=Island;Island;Island
+p1battlefield=Leyline of Sanctity
+p2life=20
+p2hand=
+p2library=Island;Island;Island
+p2battlefield=Island
