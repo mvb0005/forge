@@ -1,0 +1,11 @@
+turn=3
+activeplayer=p1
+activephase=COMBAT_DECLARE_BLOCKERS
+p0life=20
+p0hand=
+p0library=Forest;Forest;Forest
+p0battlefield=Hill Giant;Sightless Ghoul;Forest
+p1life=20
+p1hand=
+p1library=Island;Island;Island
+p1battlefield=Boggart Brute|Attacking;Island

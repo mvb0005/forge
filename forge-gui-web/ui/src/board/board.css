@@ -1,0 +1,28 @@
+/* Board-only motion and highlight styles. Colours come from the theme tokens in index.css. */
+
+.bf-move { transition: transform 180ms ease-out, opacity 180ms ease-out; }
+.bf-card { transition: transform 170ms ease-out, filter 170ms ease-out, opacity 170ms ease-out, box-shadow 170ms ease-out; }
+
+@keyframes bf-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--color-target), 0 0 10px 1px color-mix(in oklab, var(--color-target) 55%, transparent); }
+  50% { box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-target) 55%, transparent), 0 0 3px 0 transparent; }
+}
+.hl-selectable { animation: bf-pulse 1.3s ease-in-out infinite; }
+.hl-playable { box-shadow: 0 0 0 1.5px color-mix(in oklab, var(--color-playable) 85%, transparent), 0 0 12px 1px color-mix(in oklab, var(--color-playable) 45%, transparent); }
+.hl-chosen { box-shadow: 0 0 0 2.5px var(--color-accent), 0 0 14px 2px color-mix(in oklab, var(--color-accent) 50%, transparent); }
+.hl-emph { box-shadow: 0 0 0 2px var(--color-ink), 0 0 16px 3px color-mix(in oklab, var(--color-accent) 60%, transparent); }
+.hl-dim { filter: brightness(0.55) saturate(0.6); }
+
+@keyframes bf-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.bf-pop { animation: bf-in 150ms ease-out; }
+
+.bf-scroll { scrollbar-width: thin; scrollbar-color: var(--color-line) transparent; }
+
+.felt {
+  background:
+    radial-gradient(ellipse at 50% 0%, color-mix(in oklab, var(--color-panel-2) 35%, transparent), transparent 70%),
+    var(--color-felt);
+}

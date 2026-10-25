@@ -1,0 +1,151 @@
+import { create } from 'zustand'
+import type { AssistMessage, Ask, BlockersAssist, CardDto, CombatAssist, CombatDto, EntityRef, GameDto, LogEntry, PlayerDto, ServerMessage, StackItemDto } from './protocol'
+
+// Shared client state. net.ts feeds server messages into apply(); components only read.
+export type ForgeState = {
+  connected: boolean
+  inMatch: boolean
+  lobby: { decks: { id: string; name: string; colors: string }[]; states: string[] } | null
+  game: GameDto | null
+  players: Record<number, PlayerDto>
+  cards: Record<number, CardDto>
+  stack: StackItemDto[]
+  combat: CombatDto | null
+  combatAssist: CombatAssist | null // engine's combat prediction (assist channel)
+  blockersAssist: BlockersAssist | null // who may block each attacker, while you declare blockers
+  caps: string[] // server capabilities from hello
+  prompt: { playerId: number; message: string; cardId: number | null } | null
+  buttons: { ok: { label: string; enabled: boolean }; cancel: { label: string; enabled: boolean }; focusOk: boolean } | null
+  selectable: { cardIds: Set<number>; playerIds?: Set<number>; min: number; max: number }
+  highlighted: Set<string> // entityKey()
+  playable: Set<number>
+  ask: Ask | null
+  reveal: { title: string; cardIds: number[] } | null
+  notices: { id: number; level: 'info' | 'error' | 'flash'; title: string; message: string }[]
+  gameOver: { winner: string | null; summary: string } | null
+  hoveredCardId: number | null
+  setConnected: (c: boolean) => void
+  setHovered: (id: number | null) => void
+  dismissNotice: (id: number) => void
+  clearReveal: () => void
+  clearAsk: () => void
+  clearGameOver: () => void
+  apply: (m: ServerMessage) => void
+}
+
+export const entityKey = (e: EntityRef) => `${e.kind}:${e.id}`
+
+const LOG_LIMIT = 200
+
+// One reducer per assist kind; unknown kinds are ignored.
+type AssistReducer<K extends AssistMessage['kind']> = (m: Extract<AssistMessage, { kind: K }>) => Partial<ForgeState>
+const assistReducers: { [K in AssistMessage['kind']]: AssistReducer<K> } = {
+  combat: (m) => ({ combatAssist: m.combat }),
+  blockers: (m) => ({ blockersAssist: m.blockers }),
+}
+
+function applyAssist(m: AssistMessage): Partial<ForgeState> {
+  const r = assistReducers[m.kind] as ((m: AssistMessage) => Partial<ForgeState>) | undefined
+  return r ? r(m) : {}
+}
+
+function nextLog(prev: LogEntry[], m: Extract<ServerMessage, { t: 'state' }>): LogEntry[] {
+  const legacy = (m.game as Partial<GameDto> | undefined)?.log // dev fixtures still carry game.log
+  if (legacy) return legacy
+  if (m.logReset) return (m.logAppend ?? []).slice(-LOG_LIMIT)
+  if (m.full) return []
+  if (!m.logAppend?.length) return prev
+  const log = prev.concat(m.logAppend)
+  return log.length > LOG_LIMIT ? log.slice(-LOG_LIMIT) : log
+}
+
+let noticeSeq = 0
+
+export const useForge = create<ForgeState>()((set) => ({
+  connected: false,
+  inMatch: false,
+  lobby: null,
+  game: null,
+  players: {},
+  cards: {},
+  stack: [],
+  combat: null,
+  combatAssist: null,
+  blockersAssist: null,
+  caps: [],
+  prompt: null,
+  buttons: null,
+  selectable: { cardIds: new Set(), playerIds: new Set(), min: 0, max: 0 },
+  highlighted: new Set(),
+  playable: new Set(),
+  ask: null,
+  reveal: null,
+  notices: [],
+  gameOver: null,
+  hoveredCardId: null,
+  setConnected: (connected) => set({ connected }),
+  setHovered: (hoveredCardId) => set({ hoveredCardId }),
+  dismissNotice: (id) => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })),
+  clearReveal: () => set({ reveal: null }),
+  clearAsk: () => set({ ask: null }),
+  clearGameOver: () => set({ gameOver: null }),
+  apply: (m) =>
+    set((s): Partial<ForgeState> => {
+      switch (m.t) {
+        case 'hello':
+          return { inMatch: m.inMatch, caps: m.caps ?? [] }
+        case 'lobby':
+          return { lobby: { decks: m.decks, states: m.states }, inMatch: false }
+        case 'state': {
+          const players = m.full ? {} : { ...s.players }
+          const cards = m.full ? {} : { ...s.cards }
+          for (const p of m.players ?? []) players[p.id] = p
+          for (const c of m.cards ?? []) cards[c.id] = c
+          for (const id of m.removedCards ?? []) delete cards[id]
+          const prevLog = s.game?.log ?? []
+          const log = nextLog(prevLog, m)
+          const base = m.game ?? s.game
+          return {
+            inMatch: true,
+            gameOver: m.full ? null : s.gameOver,
+            game: base && (m.game || log !== prevLog) ? { ...base, log } : s.game,
+            players,
+            cards,
+            stack: m.stack ?? (m.full ? [] : s.stack),
+            combat: m.combat !== undefined ? m.combat : m.full ? null : s.combat,
+          }
+        }
+        case 'prompt':
+          return { prompt: { playerId: m.playerId, message: m.message, cardId: m.cardId } }
+        case 'buttons':
+          return { buttons: { ok: m.ok, cancel: m.cancel, focusOk: m.focusOk } }
+        case 'selectables':
+          return { selectable: { cardIds: new Set(m.cardIds), playerIds: new Set(m.playerIds ?? []), min: m.min, max: m.max } }
+        case 'highlight': {
+          const highlighted = new Set(s.highlighted)
+          for (const e of m.entities) {
+            if (m.on) highlighted.add(entityKey(e))
+            else highlighted.delete(entityKey(e))
+          }
+          return { highlighted }
+        }
+        case 'playable':
+          return { playable: new Set(m.cardIds) }
+        case 'notice':
+          return { notices: [...s.notices, { id: ++noticeSeq, level: m.level, title: m.title, message: m.message }] }
+        case 'reveal':
+          return { reveal: { title: m.title, cardIds: m.cardIds } }
+        case 'ask':
+          return { ask: m }
+        case 'assist':
+          return applyAssist(m)
+        case 'gameOver':
+          return { gameOver: { winner: m.winner, summary: m.summary } }
+        case 'error':
+          return { notices: [...s.notices, { id: ++noticeSeq, level: 'error', title: 'Error', message: m.message }] }
+        default:
+          console.warn('unhandled server message', m)
+          return {}
+      }
+    }),
+}))
