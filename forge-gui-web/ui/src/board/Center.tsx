@@ -2,6 +2,8 @@ import type { PhaseName, StackItemDto } from '../protocol'
 import { useForge } from '../store'
 import { CardImage } from './CardImage'
 import { Icon } from './icons'
+import { STACK, stackItemX } from '../table/frame'
+import { usePeek } from '../popover/usePeek'
 import { useBoardUi } from './uiStore'
 
 const PHASES: { label: string; phases: PhaseName[] }[] = [
@@ -61,20 +63,25 @@ export function StackView() {
   const stack = useForge((s) => s.stack)
   if (!stack.length) return null
   return (
-    <div className="flex min-w-0 items-center gap-1.5">
-      <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-ink-dim [writing-mode:vertical-rl] rotate-180">Stack</span>
-      <div className="flex min-w-0 gap-1.5">
-        {stack.slice(0, 4).map((item, i) => (
-          <StackItem key={item.id} item={item} top={i === 0} />
-        ))}
-        {stack.length > 4 && <span className="self-center text-xs text-ink-dim">+{stack.length - 4}</span>}
-      </div>
+    <div className="relative h-full">
+      <span className="absolute left-0 top-1/2 w-3.5 -translate-y-1/2 rotate-180 text-[10px] font-bold uppercase tracking-wider text-ink-dim [writing-mode:vertical-rl]">Stack</span>
+      {stack.slice(0, STACK.shown).map((item, i) => (
+        <StackItem key={item.id} item={item} top={i === 0} x={stackItemX(i)} />
+      ))}
+      {stack.length > STACK.shown && (
+        <span className="absolute top-1/2 -translate-y-1/2 text-xs text-ink-dim" style={{ left: stackItemX(STACK.shown - 1) + STACK.rest + 6 }}>
+          +{stack.length - STACK.shown}
+        </span>
+      )}
     </div>
   )
 }
 
-function StackItem({ item, top }: { item: StackItemDto; top: boolean }) {
+// Spells on the stack draw their own card in the thumbnail slot (card layer); abilities show their source.
+function StackItem({ item, top, x }: { item: StackItemDto; top: boolean; x: number }) {
   const source = useForge((s) => (item.sourceCardId != null ? s.cards[item.sourceCardId] : undefined))
+  const own = source?.zone === 'stack'
+  const peek = usePeek({ kind: 'card', id: item.sourceCardId ?? -1 })
   const activator = useForge((s) => (item.activatorId != null ? s.players[item.activatorId] : undefined))
   const hovered = useBoardUi((s) => s.hoverStackId === item.id)
   const setHoverStack = useBoardUi((s) => s.setHoverStack)
@@ -82,21 +89,19 @@ function StackItem({ item, top }: { item: StackItemDto; top: boolean }) {
   return (
     <div
       data-entity={`stack:${item.id}`}
-      className={`flex h-[52px] min-w-0 shrink items-center gap-2 rounded-lg border bg-panel px-1.5 transition duration-150 ${
+      className={`absolute flex items-center gap-2 rounded-lg border bg-panel px-1.5 transition duration-150 ${
         hovered ? 'border-accent bg-panel-2' : top ? 'border-line' : 'border-line/60 opacity-80'
       }`}
-      style={{ width: top ? 250 : 190 }}
+      style={{ left: x, top: STACK.itemY, height: STACK.itemH, width: top ? STACK.top : STACK.rest }}
       onMouseEnter={() => {
         setHoverStack(item.id)
-        if (item.sourceCardId != null) useForge.getState().setHovered(item.sourceCardId)
       }}
       onMouseLeave={() => {
         setHoverStack(null)
-        useForge.getState().setHovered(null)
       }}
     >
-      <div className="shrink-0 overflow-hidden rounded-[4px]" style={{ width: 32, height: 44 }}>
-        {source ? <CardImage card={source} width={32} bare /> : <div className="h-full w-full bg-panel-2" />}
+      <div className="shrink-0 overflow-hidden rounded-[4px]" style={{ width: 32, height: 44 }} {...(source && !own ? peek : {})}>
+        {own ? null : source ? <CardImage card={source} width={32} bare /> : <div className="h-full w-full bg-panel-2" />}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1 text-[11px]">

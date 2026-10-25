@@ -1,5 +1,6 @@
 import { useState, type MouseEvent } from 'react'
 import type { CardDto, CombatBand, EntityRef } from '../protocol'
+import { usePeek } from '../popover/usePeek'
 import { useForge } from '../store'
 import { CardImage } from './CardImage'
 import { Icon } from './icons'
@@ -9,9 +10,11 @@ import { clickCards, useHighlight } from './Tile'
 // Popup that lays combat out as pairings: attackers, what blocks them, and what they're attacking.
 // Who dies and how much gets through come from the server (assist channel, the engine's own
 // combat evaluator); this component never does rules math.
-export function CombatArena({ meId }: { meId: number | null }) {
+const NO_CARDS: Record<number, CardDto> = {}
+
+export function CombatArena({ meId, right }: { meId: number | null; right: number }) {
   const combat = useForge((s) => s.combat)
-  const cards = useForge((s) => s.cards)
+  const cards = useForge((s) => (s.combat?.bands.length ? s.cards : NO_CARDS))
   const players = useForge((s) => s.players)
   const game = useForge((s) => s.game)
   const assist = useForge((s) => s.combatAssist)
@@ -33,7 +36,7 @@ export function CombatArena({ meId }: { meId: number | null }) {
   if (collapsed) {
     return (
       <button type="button" onClick={() => setCollapsedTurn(null)}
-        style={{ right: RIGHT }}
+        style={{ right }}
         className={`absolute top-3 z-30 flex items-center gap-2 rounded-full border ${tone} bg-panel/95 px-3 py-1.5 text-xs font-semibold text-ink shadow-lg shadow-black/40 backdrop-blur hover:bg-panel-2`}>
         {Icon.sword(13)}
         Combat · {combat.bands.reduce((n, b) => n + b.attackerIds.length, 0)} attacking
@@ -43,7 +46,7 @@ export function CombatArena({ meId }: { meId: number | null }) {
   }
 
   return (
-    <div style={{ right: RIGHT }} className={`absolute top-3 z-30 flex max-h-[calc(100%-24px)] max-w-[min(760px,calc(100%-24px))] flex-col gap-2 rounded-2xl border ${tone} bg-panel/95 p-3 shadow-2xl shadow-black/50 backdrop-blur`}>
+    <div style={{ right }} className={`absolute top-3 z-30 flex max-h-[calc(100%-24px)] max-w-[min(760px,calc(100%-24px))] flex-col gap-2 rounded-2xl border ${tone} bg-panel/95 p-3 shadow-2xl shadow-black/50 backdrop-blur`}>
       <div className="flex items-center gap-3">
         <span className={`text-xs font-bold uppercase tracking-wider ${attackingMe ? 'text-danger' : 'text-accent'}`}>
           {attackingMe ? 'Incoming attack' : 'Combat'}
@@ -106,19 +109,18 @@ function Pairing(p: {
 }
 
 const W = 78
-// clear of the preview column (MatchTable's second grid column)
-const RIGHT = 'calc(clamp(230px, 17vw, 330px) + 12px)'
 
 function ArenaCard({ card, dies }: { card: CardDto; dies: boolean }) {
   const { ring, dim } = useHighlight([card.id])
+  const peek = usePeek({ kind: 'card', id: card.id })
   const hurt = card.damage > 0
   return (
     <div
       data-arena-card={card.id}
+      tabIndex={0}
       className={`relative cursor-pointer rounded-[6px] transition duration-150 ${ring} ${dim ? 'opacity-50' : ''}`}
       style={{ width: W, height: W * CARD_RATIO }}
-      onMouseEnter={() => useForge.getState().setHovered(card.id)}
-      onMouseLeave={() => useForge.getState().setHovered(null)}
+      {...peek}
       onClick={(e: MouseEvent) => clickCards(e, [card.id])}
       onContextMenu={(e: MouseEvent) => clickCards(e, [card.id])}
     >

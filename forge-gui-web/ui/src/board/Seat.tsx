@@ -2,6 +2,7 @@ import { useEffect, useMemo, type MouseEvent, type ReactNode } from 'react'
 import { send } from '../net'
 import type { CardDto, ManaColor, PlayerDto } from '../protocol'
 import { useShallow } from 'zustand/react/shallow'
+import { usePeek } from '../popover/usePeek'
 import { useForge } from '../store'
 import { CardImage } from './CardImage'
 import { Icon } from './icons'
@@ -226,12 +227,13 @@ function ZoneViewer({ player, zone, up }: { player: PlayerDto; zone: 'graveyard'
 
 function ZoneCard({ card, w }: { card: CardDto; w: number }) {
   const { ring, dim } = useHighlight([card.id])
+  const peek = usePeek({ kind: 'card', id: card.id })
   return (
     <div
-      data-entity={`card:${card.id}`}
+      data-zone-card={card.id}
+      tabIndex={0}
       className={`bf-card cursor-pointer rounded-[6px] ${ring} ${dim ? 'opacity-60' : ''} hover:-translate-y-0.5`}
-      onMouseEnter={() => useForge.getState().setHovered(card.id)}
-      onMouseLeave={() => useForge.getState().setHovered(null)}
+      {...peek}
       onClick={(e) => clickCards(e, [card.id])}
       onContextMenu={(e) => clickCards(e, [card.id])}
     >
@@ -241,21 +243,23 @@ function ZoneCard({ card, w }: { card: CardDto; w: number }) {
 }
 
 /** Multiplayer: an unfocused opponent as a compact strip. Click to focus. */
-export function OpponentStrip({ player: p, cards, onFocus }: { player: PlayerDto; cards: Record<number, CardDto>; onFocus: () => void }) {
+export function OpponentStrip({ player: p, onFocus }: { player: PlayerDto; onFocus: () => void }) {
   const f = usePlayerFlags(p.id)
-  const stats = useMemo(() => {
-    let creatures = 0
-    let power = 0
-    let untapped = 0
-    for (const id of p.zones.battlefield) {
-      const c = cards[id]
-      if (!c || !c.types.includes('Creature')) continue
-      creatures++
-      power += c.power ?? 0
-      if (!c.tapped) untapped++
-    }
-    return { creatures, power, untapped }
-  }, [p, cards])
+  const stats = useForge(
+    useShallow((s) => {
+      let creatures = 0
+      let power = 0
+      let untapped = 0
+      for (const id of p.zones.battlefield) {
+        const c = s.cards[id]
+        if (!c || !c.types.includes('Creature')) continue
+        creatures++
+        power += c.power ?? 0
+        if (!c.tapped) untapped++
+      }
+      return { creatures, power, untapped }
+    }),
+  )
   const attackingMe = useForge((s) => {
     const me = s.game?.localPlayerIds[0]
     return !!s.combat?.bands.some((b) => b.defender?.kind === 'player' && b.defender.id === me && s.cards[b.attackerIds[0]]?.controllerId === p.id)

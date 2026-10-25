@@ -1,4 +1,5 @@
 import { useLayoutEffect, useState } from 'react'
+import { PeekRoot } from '../popover/PeekRoot'
 import { useForge } from '../store'
 import { FIXTURES } from './fixtures'
 import { MatchTable } from './MatchTable'
@@ -11,7 +12,7 @@ export function BoardPreview() {
   useLayoutEffect(() => {
     ;(window as unknown as { forge: typeof useForge }).forge = useForge // for poking at the store from devtools
     const f = FIXTURES.find((x) => x.id === id)!
-    useForge.setState({ inMatch: true, connected: false, hoveredCardId: null, ask: null, reveal: null, notices: [], gameOver: null, ...f.state() })
+    useForge.setState({ inMatch: true, connected: false, ask: null, reveal: null, notices: [], gameOver: null, ...f.state() })
     setLoaded(id)
     const url = new URL(location.href)
     url.searchParams.set('preview', id)
@@ -21,6 +22,7 @@ export function BoardPreview() {
   return (
     <div className="relative h-full">
       <MatchTable key={loaded} centerSlot={<PreviewPrompt />} />
+      <PeekRoot />
       <div className="absolute bottom-2 right-2 z-[60] flex gap-0.5 rounded-full border border-line bg-panel/95 p-0.5 text-[11px] shadow-lg">
         {FIXTURES.map((f) => (
           <button

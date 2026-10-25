@@ -23,9 +23,7 @@ export type ForgeState = {
   reveal: { title: string; cardIds: number[] } | null
   notices: { id: number; level: 'info' | 'error' | 'flash'; title: string; message: string }[]
   gameOver: { winner: string | null; summary: string } | null
-  hoveredCardId: number | null
   setConnected: (c: boolean) => void
-  setHovered: (id: number | null) => void
   dismissNotice: (id: number) => void
   clearReveal: () => void
   clearAsk: () => void
@@ -59,6 +57,15 @@ function nextLog(prev: LogEntry[], m: Extract<ServerMessage, { t: 'state' }>): L
   return log.length > LOG_LIMIT ? log.slice(-LOG_LIMIT) : log
 }
 
+// Cards keep their identity when an upsert changes nothing, so per-card subscribers don't re-render.
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false
+  const ka = Object.keys(a)
+  if (ka.length !== Object.keys(b).length) return false
+  return ka.every((k) => sameValue((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
+}
+
 let noticeSeq = 0
 
 export const useForge = create<ForgeState>()((set) => ({
@@ -82,9 +89,7 @@ export const useForge = create<ForgeState>()((set) => ({
   reveal: null,
   notices: [],
   gameOver: null,
-  hoveredCardId: null,
   setConnected: (connected) => set({ connected }),
-  setHovered: (hoveredCardId) => set({ hoveredCardId }),
   dismissNotice: (id) => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })),
   clearReveal: () => set({ reveal: null }),
   clearAsk: () => set({ ask: null }),
@@ -99,8 +104,11 @@ export const useForge = create<ForgeState>()((set) => ({
         case 'state': {
           const players = m.full ? {} : { ...s.players }
           const cards = m.full ? {} : { ...s.cards }
-          for (const p of m.players ?? []) players[p.id] = p
-          for (const c of m.cards ?? []) cards[c.id] = c
+          for (const p of m.players ?? []) players[p.id] = players[p.id] && sameValue(players[p.id], p) ? players[p.id] : p
+          for (const c of m.cards ?? []) {
+            const prev = cards[c.id]
+            cards[c.id] = prev && sameValue(prev, c) ? prev : c
+          }
           for (const id of m.removedCards ?? []) delete cards[id]
           const prevLog = s.game?.log ?? []
           const log = nextLog(prevLog, m)

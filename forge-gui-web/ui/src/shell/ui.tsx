@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type DragEvent, type ReactNode } from 'react'
 import { CardImage } from '../board/CardImage'
+import { usePeek } from '../popover/usePeek'
 import { send } from '../net'
 import type { CardDto, ManaColor } from '../protocol'
 import { useForge } from '../store'
@@ -55,7 +56,7 @@ export function ColorPips({ colors, size = 14 }: { colors: string; size?: number
   return <span className="inline-flex gap-1">{cs.map((c) => <Pip key={c} c={c} size={size} />)}</span>
 }
 
-// A card face that reports hover to the board's preview.
+// A card face; hovering peeks it and grows it (D-09).
 export function CardTile({ card, width, state, onClick, onDoubleClick, children }: {
   card: CardDto
   width: number
@@ -64,7 +65,7 @@ export function CardTile({ card, width, state, onClick, onDoubleClick, children 
   onDoubleClick?: () => void
   children?: ReactNode
 }) {
-  const setHovered = useForge((s) => s.setHovered)
+  const peek = usePeek({ kind: 'card', id: card.id })
   const ring =
     state === 'selected' ? 'ring-3 ring-accent -translate-y-1'
     : state === 'choice' ? 'ring-2 ring-target/50 hover:ring-target hover:-translate-y-0.5'
@@ -76,8 +77,7 @@ export function CardTile({ card, width, state, onClick, onDoubleClick, children 
       style={{ width }}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
-      onMouseEnter={() => setHovered(card.id)}
-      onMouseLeave={() => setHovered(null)}
+      {...peek}
     >
       <CardImage card={card} width={width} />
       {children}

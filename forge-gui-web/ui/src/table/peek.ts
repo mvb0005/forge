@@ -20,6 +20,7 @@ export type PeekContext = {
   phase: PhaseName | null
   mode: TableMode
   state: ForgeState
+  depth?: 'peek' | 'inspect' // inspect = the pinned panel; providers may show more. Default 'peek'
 }
 
 export type PeekSection = {
@@ -47,4 +48,15 @@ export function registerPeekProvider(p: PeekProvider) {
 
 export function peekSections(e: PeekEntity, ctx: PeekContext): PeekSection[] {
   return providers.filter((p) => p.matches(e, ctx)).flatMap((p) => p.sections(e, ctx))
+}
+
+// Stable identity for an entity, so callers can pass fresh literals every render.
+export function peekKey(e: PeekEntity): string {
+  switch (e.kind) {
+    case 'zone': return `zone:${e.playerId}:${e.zone}`
+    case 'keyword': return `keyword:${e.cardId}:${e.keyword}`
+    case 'trigger': return `trigger:${e.cardId}:${e.index}`
+    case 'lane': return `lane:${e.attackerId}`
+    default: return `${e.kind}:${e.id}`
+  }
 }

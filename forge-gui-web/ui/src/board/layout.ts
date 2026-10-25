@@ -19,11 +19,17 @@ export type Lanes = {
   others: Group[]
 }
 
-type CombatRole = { role: 'attacker' | 'blocker'; key: string; attackerIds: number[] }
+export type CombatRole = { role: 'attacker' | 'blocker'; key: string; attackerIds: number[] }
+
+const rolesCache = new WeakMap<CombatDto, Map<number, CombatRole>>()
+const NO_ROLES = new Map<number, CombatRole>()
 
 export function combatRoles(combat: CombatDto | null): Map<number, CombatRole> {
+  if (!combat) return NO_ROLES
+  const cached = rolesCache.get(combat)
+  if (cached) return cached
   const roles = new Map<number, CombatRole>()
-  if (!combat) return roles
+  rolesCache.set(combat, roles)
   for (const band of combat.bands) {
     const blockers = [...new Set([...band.blockerIds, ...band.plannedBlockerIds])]
     const def = band.defender ? `${band.defender.kind}:${band.defender.id}` : '-'
@@ -46,30 +52,41 @@ const sortedEntries = (r: Record<string, number>) =>
     .map((k) => `${k}=${r[k]}`)
     .join(',')
 
+// Card objects are replaced, never mutated, when the server upserts them, so the per-card part of
+// the key can be cached by identity.
+const baseKeys = new WeakMap<CardDto, string>()
+
+function baseKey(c: CardDto) {
+  let k = baseKeys.get(c)
+  if (k === undefined) {
+    k = [
+      c.name,
+      c.faceDown ? 'fd' : '',
+      c.img ?? '',
+      c.power,
+      c.toughness,
+      c.loyalty,
+      c.defense,
+      sortedEntries(c.counters),
+      c.damage,
+      c.tapped ? 'T' : '',
+      c.sick ? 'S' : '',
+      c.phasedOut ? 'P' : '',
+      c.token ? 'tok' : '',
+      [...c.keywords].sort().join('+'),
+    ].join('|')
+    baseKeys.set(c, k)
+  }
+  return k
+}
+
 /** Everything that must match for two permanents to share a tile. null = never groups. */
 export function groupKey(c: CardDto, role: CombatRole | undefined, highlighted = false): string | null {
   if (c.attachmentIds.length || c.heldExileIds.length) return null
-  return [
-    c.name,
-    c.faceDown ? 'fd' : '',
-    c.img ?? '',
-    c.power,
-    c.toughness,
-    c.loyalty,
-    c.defense,
-    sortedEntries(c.counters),
-    c.damage,
-    c.tapped ? 'T' : '',
-    c.sick ? 'S' : '',
-    c.phasedOut ? 'P' : '',
-    c.token ? 'tok' : '',
-    [...c.keywords].sort().join('+'),
-    role ? role.key : '',
-    highlighted ? 'hl' : '',
-  ].join('|')
+  return `${baseKey(c)}|${role ? role.key : ''}|${highlighted ? 'hl' : ''}`
 }
 
-function buildGroups(cards: CardDto[], roles: Map<number, CombatRole>, highlighted?: Set<string>): Group[] {
+export function buildGroups(cards: CardDto[], roles: Map<number, CombatRole>, highlighted?: Set<string>): Group[] {
   const byKey = new Map<string, Group>()
   const out: Group[] = []
   for (const c of [...cards].sort((a, b) => a.id - b.id)) {
@@ -129,6 +146,8 @@ export function groupBattlefield(
   }
 }
 
+const menace = (c: Column) => [...c.top, ...c.bottom].some((g) => g.role === 'attacker' && g.top.keywords.includes('menace'))
+
 export type Column = { key: string; slots: number; top: Group[]; bottom: Group[] }
 
 /**
@@ -156,7 +175,8 @@ export function combatColumns(top: Group[], bottom: Group[]) {
       placed.add(g)
     }
   }
-  for (const c of columns) c.slots = Math.max(1, c.top.length, c.bottom.length)
+  // Menace lanes always keep room for a second blocker (D-11).
+  for (const c of columns) c.slots = Math.max(menace(c) ? 2 : 1, c.top.length, c.bottom.length)
   return {
     columns,
     topRest: top.filter((g) => g.role !== 'attacker' && !placed.has(g)),

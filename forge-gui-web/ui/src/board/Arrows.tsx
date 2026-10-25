@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, type RefObject } from 'react'
+import { useLayoutEffect, useState, type RefObject } from 'react'
 import type { EntityRef } from '../protocol'
 import { useForge } from '../store'
 import { useBoardUi } from './uiStore'
@@ -42,51 +42,19 @@ function curve(a: R, b: R, bend: number) {
   return `M${p0.x.toFixed(1)},${p0.y.toFixed(1)} Q${(mx + nx * k).toFixed(1)},${(my + ny * k).toFixed(1)} ${p1.x.toFixed(1)},${p1.y.toFixed(1)}`
 }
 
-/** SVG layer over the whole table: stack targets and combat. Elements are found by data attributes. */
-export function Arrows({ rootRef, layoutVersion }: { rootRef: RefObject<HTMLDivElement | null>; layoutVersion: unknown }) {
-  const stack = useForge((s) => s.stack)
-  const combat = useForge((s) => s.combat)
-  const cards = useForge((s) => s.cards)
+/**
+ * SVG layer over the whole table: stack targets and combat. Elements are found by data attributes.
+ * It measures only once cards have landed (uiStore.settled), never while the card layer animates.
+ */
+export function Arrows({ rootRef }: { rootRef: RefObject<HTMLDivElement | null> }) {
   const hs = useBoardUi((s) => s.hoverStackId)
-  const focus = useBoardUi((s) => s.focus)
+  const settled = useBoardUi((s) => s.settled)
   const [arrows, setArrows] = useState<Arrow[]>([])
-  const [tick, setTick] = useState(0)
-
-  useEffect(() => {
-    const root = rootRef.current
-    if (!root) return
-    let t: number | undefined
-    const bump = () => {
-      setTick((n) => n + 1)
-      window.clearTimeout(t)
-      t = window.setTimeout(() => setTick((n) => n + 1), 220) // after tile transitions settle
-    }
-    const ro = new ResizeObserver(bump)
-    ro.observe(root)
-    // Tiles slide with CSS transitions; re-measure once they land.
-    let raf = 0
-    const onEnd = (e: TransitionEvent) => {
-      if (e.propertyName !== 'transform') return
-      cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => setTick((n) => n + 1))
-    }
-    root.addEventListener('transitionend', onEnd)
-    return () => {
-      ro.disconnect()
-      window.clearTimeout(t)
-      cancelAnimationFrame(raf)
-      root.removeEventListener('transitionend', onEnd)
-    }
-  }, [rootRef])
-
-  useEffect(() => {
-    const t = window.setTimeout(() => setTick((n) => n + 1), 220)
-    return () => window.clearTimeout(t)
-  }, [stack, combat, cards, focus, layoutVersion])
 
   useLayoutEffect(() => {
     const root = rootRef.current
     if (!root) return
+    const { stack, combat } = useForge.getState()
     const base = root.getBoundingClientRect()
     const rect = (el: Element): R => {
       const r = el.getBoundingClientRect()
@@ -116,7 +84,7 @@ export function Arrows({ rootRef, layoutVersion }: { rootRef: RefObject<HTMLDivE
       }
     }
     setArrows((prev) => (JSON.stringify(prev) === JSON.stringify(out) ? prev : out))
-  }, [rootRef, stack, combat, cards, hs, tick, layoutVersion])
+  }, [rootRef, hs, settled])
 
   if (!arrows.length) return null
   return (

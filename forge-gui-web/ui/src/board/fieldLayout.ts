@@ -1,10 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
 import type { CardDto, CombatDto } from '../protocol'
 import { CARD_RATIO, combatColumns, fitLane, groupBattlefield, placeLane, type Group, type LandPile, type LaneItem } from './layout'
-import { Tile } from './Tile'
 
-// Turns two players' battlefields into positioned tiles. Both front lanes share one tile size so
-// blockers line up under (or over) the attacker they block.
+// Turns two players' battlefields into positioned groups. Both front lanes share one tile size so
+// blockers line up under (or over) the attacker they block. Coordinates are inside each half.
 
 export type TileSpec = {
   key: string
@@ -19,9 +17,9 @@ export type TileSpec = {
   pile?: LandPile
 }
 
-export type SideLayout = { tiles: TileSpec[]; frontH: number; backH: number }
+export type SideLayout = { tiles: TileSpec[]; frontH: number; backH: number; columns: { key: string; x: number; w: number }[] }
 
-const PAD = 10
+export const PAD = 10
 const LANE_GAP = 10
 const FRONT = { minW: 44, slotX: 1.16 }
 const BACK = { minW: 40, slotX: 1.14 }
@@ -38,6 +36,7 @@ export function layoutTable(
   isVisible: (id: number) => boolean,
   size: { W: number; H: number }, // inner size of each battlefield (both halves are the same size)
   maxW: number,
+  fold = false, // combat mode: the back lanes (lands, other permanents) give room to the front
 ): { top: SideLayout; bottom: SideLayout } {
   const lt = groupBattlefield(topCards, combat, { highlighted, isVisible })
   const lb = groupBattlefield(bottomCards, combat, { highlighted, isVisible })
@@ -56,7 +55,7 @@ export function layoutTable(
     ]
     const back: LaneItem[] = [...lanes.lands.map((p) => ({ key: p.key, slots: 1 })), ...lanes.others.map((g) => ({ key: g.key, slots: 1, end: true }))]
     const frontGroups = [...lanes.creatures, ...lanes.walkers]
-    const share = !back.length ? 1 : !front.length && !columns.length ? 0.38 : 0.6
+    const share = !back.length ? 1 : !front.length && !columns.length ? 0.38 : fold ? 0.74 : 0.6
     const frontH = share === 1 ? H : (H - LANE_GAP) * share
     const backH = share === 1 ? 0 : H - LANE_GAP - frontH
     const fAttach = attachRows(frontGroups) * 0.13
@@ -85,8 +84,10 @@ export function layoutTable(
     const shiftAmt = th * 0.09 * (isTop ? 1 : -1)
     const push = (g: Group, x: number, y: number) =>
       tiles.push({ key: g.key, ids: g.ids, top: g.top, x: PAD + x, y: frontY0 + y, w, attachTop, shift: g.role ? shiftAmt : 0, role: g.role })
+    const cols: SideLayout['columns'] = []
     for (const c of columns) {
       const p = pos.get(c.key)!
+      cols.push({ key: c.key, x: PAD + p.x, w: (c.slots - 1) * step + w })
       ;(isTop ? c.top : c.bottom).forEach((g, i) => push(g, p.x + i * step, p.y))
     }
     for (const g of [...s.rest, ...s.lanes.walkers]) {
@@ -113,85 +114,8 @@ export function layoutTable(
         tiles.push({ key: g.key, ids: g.ids, top: g.top, x: PAD + at.x, y: backY0 + at.y, w: bf.w, attachTop: bAttachTop, shift: 0, role: g.role })
       }
     }
-    return { tiles, frontH: s.frontH, backH: s.backH }
+    return { tiles, frontH: s.frontH, backH: s.backH, columns: cols }
   })
   return { top: out[0], bottom: out[1] }
 }
 
-export function Battlefield({ layout, side }: { layout: SideLayout; side: 'top' | 'bottom' }) {
-  const edge = side === 'top' ? 'bottom' : 'top'
-  const lanePad = PAD - 4
-  return (
-    <div className="absolute inset-0">
-      {layout.backH > 0 && (
-        <div
-          className="pointer-events-none absolute rounded-xl bg-table/35"
-          style={{
-            left: lanePad,
-            right: lanePad,
-            height: layout.backH + 8,
-            top: side === 'top' ? lanePad : undefined,
-            bottom: side === 'bottom' ? lanePad : undefined,
-          }}
-        />
-      )}
-      {layout.tiles.map((t) =>
-        t.pile ? (
-          <LandPileTile key={t.key} spec={t} edge={edge} />
-        ) : (
-          <Tile key={t.key} ids={t.ids} top={t.top} x={t.x} y={t.y} w={t.w} attachTop={t.attachTop} shift={t.shift} role={t.role} edge={edge} />
-        ),
-      )}
-    </div>
-  )
-}
-
-/** A land pile with more than one kind of copy (e.g. some tapped): collapsed, expands on hover. */
-function LandPileTile({ spec, edge }: { spec: TileSpec; edge: 'top' | 'bottom' }) {
-  const pile = spec.pile!
-  const [open, setOpen] = useState(false)
-  const timer = useRef<number | undefined>(undefined)
-  useEffect(() => () => window.clearTimeout(timer.current), [])
-  const enter = () => {
-    window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => setOpen(true), 220)
-  }
-  const leave = () => {
-    window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => setOpen(false), 160)
-  }
-  const label = pile.tapped ? `${pile.tapped} tapped` : undefined
-  const ew = Math.max(spec.w, 62)
-  const estep = ew * 1.16
-  const eth = ew * CARD_RATIO
-  const panelW = (pile.groups.length - 1) * estep + ew + 20
-  const panelH = eth + 34
-  return (
-    <>
-      <Tile ids={spec.ids} top={spec.top} x={spec.x} y={spec.y} w={spec.w} attachTop={spec.attachTop} shift={0} role={null} edge={edge} label={label} onEnter={enter} onLeave={leave} />
-      {open && (
-        <div
-          className="bf-pop absolute z-40 rounded-xl border border-line bg-panel/95 shadow-2xl backdrop-blur"
-          style={{
-            left: Math.max(4, spec.x - 10),
-            top: edge === 'top' ? spec.y - panelH - 6 : spec.y + spec.w * CARD_RATIO + 14,
-            width: panelW,
-            height: panelH,
-          }}
-          onMouseEnter={() => window.clearTimeout(timer.current)}
-          onMouseLeave={leave}
-        >
-          <div className="px-2.5 pt-1.5 text-[11px] font-semibold text-ink-dim">
-            {pile.name} ×{pile.ids.length}
-            {pile.tapped ? ` · ${pile.tapped} tapped` : ''}
-          </div>
-          <div className="relative" style={{ marginTop: 4 }}>
-            {pile.groups.map((g, i) => (
-              <Tile key={g.key} ids={g.ids} top={g.top} x={10 + i * estep} y={0} w={ew} attachTop={0} shift={0} role={g.role} edge={edge} />
-            ))}
-          </div>
-        </div>
-      )}
-    </>
-  )
-}

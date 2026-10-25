@@ -1,10 +1,14 @@
-import type { CardDto, CombatDto, GameDto, PlayerDto } from '../protocol'
+import type { CardDto, CombatDto, GameDto, PlayerDto, StackItemDto } from '../protocol'
 
 // The card layer (docs/PLAN.md, "One card layer"). Every visible card is one element keyed by id;
 // a layout function per table mode says where each card goes. Moving between rows, zones or modes
 // is the same element animating, so nothing else may position cards.
 
 export type TableMode = 'main' | 'combat' | 'fanout'
+
+// Where a placed card sits, which decides how it is drawn and what a click does.
+// 'zone' = a face-down anchor at a pile or hand count (invisible; it lets cards fly to and from it).
+export type PlacementKind = 'field' | 'attach' | 'hand' | 'stack' | 'zone'
 
 export type Placement = {
   x: number // px, top-left of the card's untapped footprint, relative to the table
@@ -16,6 +20,12 @@ export type Placement = {
   scale?: number // default 1
   count?: number // > 1: this element stands for a group of identical cards (×N badge)
   memberIds?: number[] // the other ids in the group; they get no element of their own
+  kind: PlacementKind
+  edge?: 'top' | 'bottom' // battlefield side: which edge faces the centre line
+  faceId?: number // card drawn on the element when it isn't the keyed card (mixed land piles)
+  label?: string // small centred caption ("2 tapped")
+  more?: number // attachments not drawn (+N on the last one shown)
+  pile?: boolean // land pile with several kinds of copies: hovering opens it
 }
 
 // Named rectangles the chrome lays out around (type line, seat plaques, zone rails, lanes).
@@ -31,6 +41,7 @@ export type LayoutInput = {
   cards: Record<number, CardDto>
   combat: CombatDto | null
   highlighted: Set<string>
+  stack: StackItemDto[]
 }
 
 export type LayoutResult = {
