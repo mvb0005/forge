@@ -5,12 +5,12 @@ What the table looks like and how it behaves. The design canvas
 (phase flow, hover lab); this file is the written spec. [PLAN.md](PLAN.md) says what gets built
 when, and lists the open questions (`Q-xx`) referenced below.
 
-## Visual language (working assumption D-05)
+## Visual language (D-05)
 
 Magic's own vocabulary, built from card-frame materials.
 
-- **Table.** Each player's half is washed in their colour identity, taken from blurred art of their
-  basic lands. The active player's half is brighter.
+- **Table.** Each player's half is tinted in their colour identity with flat tones (no land art).
+  The active player's half is brighter.
 - **Type line.** The divider between the players reads like a card's type line:
   "Vex's Turn — Combat · Declare Blockers". In combat it moves up and turns ember.
 - **Phase track.** Five gems (Beginning, Main, Combat, Main, End) styled as rarity symbols; past
@@ -22,18 +22,19 @@ Magic's own vocabulary, built from card-frame materials.
 - **Colour meanings** (one meaning each): frost = you can play or activate it; gold (breathing) =
   choose this now; brass ring = chosen; ember = attacking, threat, damage; steel = blocking,
   protection.
-- **Playmats** are token sets: colour identity (default), any card's art, Lamplight felt, Midnight.
+- **Playmats** are token sets: colour identity (default), Lamplight felt, Midnight.
 
 ## The four layers ("quiet until asked")
 
 | Layer | Gesture | What it holds |
 |---|---|---|
 | Glance | none | Only what changes your next decision: art, P/T, dangerous-keyword rings, verdict icons, life (with combat preview), phase, open-mana count |
-| Peek | hover (~120 ms intent delay) | Large preview on the far side of the table plus a short, phase-aware answer; related cards light up |
+| Peek | hover (~120 ms intent delay) | A short, phase-aware answer; related cards light up. After ~300 ms the card itself grows in place to full readable size, over its neighbours (D-09) |
 | Inspect | deliberate (gesture is Q-03) | Pinned panel: full text, P/T by source, abilities and costs, history this turn |
 | Survey | key or click | Threat lens (hold Alt), zone shelves, the log, Tab fan-out of all boards |
 
-Rules: previews never cover what you're about to click; the board never moves on hover; anything
+Rules: the peek answer never covers what you're about to click (the grown card may cover its
+neighbours, and shrinks the moment the pointer leaves); the board never moves on hover; anything
 greyed out says why on hover; nothing needed for a decision exists only in a hover; keyboard focus
 shows the same peek; touch uses long-press (Q-10).
 
@@ -77,8 +78,15 @@ Pace setting: Cinematic / Brisk / Instant (AI turns follow it, Q-12).
 - **Ledger** (what happens if you confirm): totals per player, including trigger effects and pump
   risk. At glance level it's the "Net −2 · 40 → 38" on the type line and the arrow on your shield;
   the full ledger is their peek.
-- **Menace** shows as two stacked blockers; "needs a second blocker" until satisfied.
-- **Huge attacks** (token armies) need grouped lanes: Q-04.
+- **Menace** lanes always show two block slots. Each slot shows a menace icon. With one blocker
+  in, the second slot breathes gold and says "Menace: needs a second blocker". Confirm stays
+  disabled with that reason, so you can never confirm an illegal single block by accident
+  (D-11; `minBlockers` from the engine).
+- **Token groups** (D-10). A group of identical tokens is one creature with a ×N count.
+  Attacking: send N (stepper; 0, 1 and all are one click). Blocking an attacker with a group:
+  buttons 0, 1 and X, where X is the fewest members that kill it (from the engine). To block one member of an
+  attacking group, drop a blocker on the group's defend slot. One member animates out into its
+  own lane with that blocker, and the group's count drops (D-11).
 - All outcomes come from the engine (assist `combat`, `blockers`).
 
 ## Triggers and options

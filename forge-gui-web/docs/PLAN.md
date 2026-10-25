@@ -35,10 +35,13 @@ fast on huge boards and be easy to extend.
 | D-02 | Server projects engine views into DTOs; the browser never sees TrackableProperty | locked |
 | D-03 | No rules logic in the client (principle 1) | locked |
 | D-04 | Single player first; rooms and remote seats parked | locked |
-| D-05 | Look: v2 card-frame language (colour-identity table, type-line divider, rarity-gem phases, loyalty-shield life, mana ribbon) with v3 combat lanes | **working assumption, confirm** |
+| D-05 | Look: v2 card-frame language (type-line divider, rarity-gem phases, loyalty-shield life, mana ribbon) with v3 combat lanes. Each half is tinted in its player's colour identity, but with flat tones, not blurred land art (Matt liked the colours, not the land backgrounds) | locked |
 | D-06 | Default help level "Player" (verdicts, ledger as peek); "Coach" and "Purist" optional | working assumption |
 | D-07 | Fonts Cinzel + Crimson Pro (open-licence look-alikes of Beleren / Plantin) | working assumption |
 | D-08 | Desktop app via Tauri later; browser for development | locked |
+| D-09 | Hovering any card shows it big: after a dwell (~300 ms) the card itself grows in place, over its neighbours (they don't move), with the short peek answer beside it. Leaving shrinks it at once | locked |
+| D-11 | Blocking one member of an attacking group: drop a blocker on the group's defend slot and one member animates out of the group into its own lane with that blocker; the group's count drops by one. Menace attackers always show two block slots (the second marked "second blocker needed"), and Confirm stays disabled with that reason until both are filled or the slot is empty, using `minBlockers` from the `blockers` assist | locked |
+| D-10 | A group of identical tokens acts as one creature. Attacking: send N of the group (stepper; 0 / 1 / all are one click). Blocking an attacker with a group: buttons 0, 1 and X, where X is the fewest members that kill the attacker. X comes from the engine (`blockers` assist), never the client; no X button when 1 already kills it or no number does | locked |
 
 ## Architecture rules
 
@@ -90,7 +93,7 @@ permanents) and a 4-player Commander board (≈600 permanents).
 | Client: phase transition animation | 60 fps, no layout reads during the animation |
 | State message for a one-card change | ≤ 2 KB |
 
-Measured (M1.1–M1.3, 2026-10-24, server only, `tools/smoke.mjs` against the jar; client budgets wait for M1.7):
+Measured (M1.1–M1.3, 2026-10-24, server only, `tools/smoke.mjs` against the jar):
 - Server flush p95: 0.35–0.8 ms in 1v1 games, 0.8 ms in a 4-player game, 1.0 ms on the token pod (max ~150 ms: the
   first full state on a cold JVM).
 - Assist compute p95 (cache misses only): `combat` ≤ 0.95 ms and `blockers` ≤ 0.3 ms (max 3.5 ms) on a warm JVM, token
@@ -101,6 +104,25 @@ Measured (M1.1–M1.3, 2026-10-24, server only, `tools/smoke.mjs` against the ja
   phase, it carries `game` and/or a whole `PlayerDto` (all its zone id lists): up to 2.7 KB in 1v1, 3.8 KB on the token
   pod (6 of 183 such messages over 2 KB). Getting those under 2 KB needs per-zone diffs. Protocol v1 sent the last 200
   log entries in `game` on every log line: about 14–17 KB for the same messages (estimate from the smoke test).
+
+Measured (M1.4–M1.7, 2026-10-25, client, `/?bench=pod` and `/?bench=commander` on `vite build` + `vite preview`, Chrome,
+2560×1215; the token pod fixture has 108 permanents, the Commander board 616, drawn as 214 card elements):
+- One-card change applied and rendered (React commit plus forced style and layout, p95 of 100–200 runs, over several
+  bench runs at 60–180 Hz): pod 1.6–2.1 ms, a member of a token group 5.6–7.7 ms (the group splits, so two elements change), during combat 2.6–3.4 ms; Commander
+  3.3 ms, 3.5 ms in a group, 3.5 ms during combat. **Within the 8 ms budget.** The layout function doesn't run for a
+  P/T change that leaves the group partition alone (tested).
+- Phase transition (main ↔ combat). **The 60 fps budget is missed at the start of the transition.**
+  - No layout reads during the animation (0, counted by the bench).
+  - The animation frames: pod 59.4 fps average (p95 22 ms, 13 of 109 frames over 16.7 ms); Commander 54 fps (p95 28 ms,
+    20 of 101), the slow ones near the end of the flight.
+  - The frame that starts it: pod 60–66 ms, Commander 66–88 ms, a hitch of 3–5 frames. It holds the trigger (layout plus
+    React commit: pod 12 ms, Commander 19–21 ms), then style and layout (20–30 ms) and paint. Most of the style and
+    layout is card faces laid out again at a new width: 68 of 214 elements change width between modes on Commander,
+    many by 1 px.
+  - Next: keep card widths stable across modes where the lane allows (round them; don't shrink the back lanes by a
+    pixel), draw card faces at a fixed size and scale them, and split the commit (attackers first).
+  - The numbers swing with the browser's state (refresh rate 60–180 Hz; rAF throttled when the window isn't focused).
+    The phase-transition figures are from focused runs at 60 Hz.
 
 ## Milestones
 
@@ -126,19 +148,19 @@ Each milestone ends playable. Exit criteria are the definition of done.
 | M1.1 | Assist registry on the server; move `CombatAssist` into it and to decision points | No assist code in `flush`; existing combat assist unchanged on the wire | done |
 | M1.2 | Protocol v2: version and capabilities in `hello`, append-only log, `selectables.playerIds` | Smoke test passes; a one-card change sends ≤ 2 KB | doing (card-only changes ≤ 1.6 KB; zone moves and phase changes still send whole `PlayerDto`s, up to 3.8 KB; needs per-zone diffs) |
 | M1.3 | Legal-blockers assist (per attacker: who can block it, and why others can't) | Correct on menace, flying/reach and "can't block" fixtures | done |
-| M1.4 | Client card layer and per-mode layout functions (main, combat) with FLIP | Cards move between rows and zones without remounting; layout unit tests | todo |
-| M1.5 | Store subscriptions by id and structural signature | A P/T change re-renders one tile (React profiler) | todo |
-| M1.6 | Popover system and peek-provider registry | Intent delay, far-side placement, keyboard focus; two sample providers | todo |
-| M1.7 | Perf fixtures and a benchmark page (token pod, 4-player Commander) | Budgets measured and recorded in this file | todo |
+| M1.4 | Client card layer and per-mode layout functions (main, combat) with FLIP | Cards move between rows and zones without remounting; layout unit tests | done (ui/src/table; 'fanout' is the main layout until M7) |
+| M1.5 | Store subscriptions by id and structural signature | A P/T change re-renders one tile (React profiler) | done (proved with render counts in CardLayer.test.tsx) |
+| M1.6 | Popover system and peek-provider registry | Intent delay, far-side placement, keyboard focus; two sample providers | done (ui/src/popover; I pins Inspect, Q-03; integration into tiles with M1.4) |
+| M1.7 | Perf fixtures and a benchmark page (token pod, 4-player Commander) | Budgets measured and recorded in this file | done (measured; the start of a phase transition misses 60 fps, see Measured) |
 
 ## Open questions (need more thought)
 
 | ID | Question | Options and current lean | Blocks |
 |---|---|---|---|
-| Q-01 | Confirm the look (D-05) and the default playmat | Lean: v2+v3, colour-identity playmat by default, Lamplight as an option | M2 |
+| Q-01 | ~~Confirm the look~~ Resolved by D-05. Still open: the exact flat tone per colour pair | Lean: one token pair per colour, blended for multicolour | M2 |
 | Q-02 | Mana symbols | Draw our own SVG set, or use an open-source mana-symbol font (licence to check). Lean: our own, small set | M2 |
-| Q-03 | Inspect gesture. Right-click is already "remove from combat" in Forge (button 3 in InputAttack/InputBlock) | Hold (long-press) and a key (Space/I) to inspect; right-click keeps Forge's meaning. Lean: that | M5 |
-| Q-04 | Huge attacks: 20–60 attackers (token armies) in lanes | Lanes group identical attackers (×N) with the same grouping key as the battlefield; blocking assigns to one of the group or splits it. Needs a design pass | M4 |
+| Q-03 | Inspect gesture. Right-click is already "remove from combat" in Forge (button 3 in InputAttack/InputBlock). The big card on hover is D-09; this is only the pinned panel | Hold (long-press) and a key (Space/I) to inspect; right-click keeps Forge's meaning. Lean: that | M5 |
+| Q-04 | Huge attacks: 20–60 attackers (token armies) in lanes | Direction set by D-10 (a group is one lane, ×N). Splitting is D-11. Still open: the `blockers` assist field for X (lean: per attacker, per blocker group, `killWith: n \| null`) | M4 |
 | Q-05 | "Will vs could trigger": how exact can the engine be? | Spike: mode matching is easy; evaluating trigger conditions against hypothetical blocks may be approximate or slow. Decide after the spike | M4 |
 | Q-06 | "Castable now" badges and "you can respond with" need `getAllPossibleAbilities`, a known hot spot | Compute only at decision points, cache by `cardsVersion`; measure | M6 |
 | Q-07 | Ordering simultaneous triggers | A sheet over the stack (not a modal); needs design | M5 |
