@@ -1,0 +1,144 @@
+/* M2 look: Magic's card-frame materials as tokens (docs/DESIGN.md "Visual language"). Components use only these. */
+
+:root {
+  /* Type (D-07) */
+  --lk-font-title: 'Cinzel', 'Trajan Pro', Georgia, serif;
+  --lk-font-text: 'Crimson Pro', Georgia, serif;
+
+  /* Ink and parchment */
+  --lk-ink: #0a0806;
+  --lk-ink-2: #0f0c09;
+  --lk-ink-3: #1a1410;
+  --lk-plate-top: #26211b;
+  --lk-parchment: #f2ead6;
+  --lk-parchment-dim: #d9cdb2;
+  --lk-parchment-mute: #8c8170;
+  --lk-parchment-plate: linear-gradient(#ede4cf, #cfc3a6);
+  --lk-on-parchment: #140f09;
+  --lk-on-ember: #fff3e8;
+
+  /* Frame metal (gold by default; Custom: silver, bronze, black) */
+  --lk-metal: #d8b45a;
+  --lk-metal-bright: #f5d58a;
+  --lk-metal-deep: #c99a3e;
+  --lk-metal-dark: #8c6b2a;
+  --lk-metal-line: rgb(216 180 90 / 0.35);
+  --lk-metal-faint: rgb(216 180 90 / 0.18);
+  --lk-metal-ring: rgb(216 180 90 / 0.7);
+
+  /* Dark glass for chips, panels and shading over art */
+  --lk-chip: rgb(10 8 6 / 0.9);
+  --lk-ribbon: rgb(10 8 6 / 0.74);
+  --lk-panel: rgb(15 12 9 / 0.88);
+  --lk-shade: rgb(10 8 6 / 0.3);
+  --lk-shade-dim: rgb(10 8 6 / 0.62);
+  --lk-plate-ember-top: #2a1a14;
+  --lk-plate-ember-bottom: #120a07;
+  --lk-lamp: rgb(255 236 200 / 0.07);
+
+  /* Colour meanings: one meaning each */
+  --lk-frost: #9be7f2;           /* you can play or activate it */
+  --lk-frost-soft: rgb(155 231 242 / 0.5);
+  --lk-frost-plate: linear-gradient(#bff1f8, #8fd3de);
+  --lk-gold: #f5d58a;            /* choose this now (breathing) */
+  --lk-gold-soft: rgb(245 213 138 / 0.55);
+  --lk-brass: #c99a3e;           /* chosen */
+  --lk-brass-soft: rgb(201 154 62 / 0.45);
+  --lk-ember: #ff6a3d;           /* attacking, threat, damage */
+  --lk-ember-text: #ff8a66;
+  --lk-ember-light: #ffb199;
+  --lk-ember-deep: #e2452a;
+  --lk-ember-soft: rgb(255 106 61 / 0.45);
+  --lk-ember-line: rgb(255 106 61 / 0.6);
+  --lk-mythic-glow: rgb(247 162 27 / 0.5);
+  --lk-ember-plate: linear-gradient(#ffb199, #e2452a);
+  --lk-steel: #8fb4e3;           /* blocking, protection */
+  --lk-steel-text: #c8daf2;
+  --lk-steel-soft: rgb(143 180 227 / 0.5);
+
+  /* Rarity (phase gems) */
+  --lk-common: #1a1a1a;
+  --lk-common-edge: #777;
+  --lk-uncommon: #b8c2cc;
+  --lk-uncommon-edge: #e6edf3;
+  --lk-mythic-top: #f7a21b;
+  --lk-mythic-bottom: #c2311b;
+  --lk-mythic-edge: #f5d58a;
+
+  /* Mana symbols: the muted printed-pip tones, glyph in dark ink */
+  --lk-mana-w: #f8f6d8;
+  --lk-mana-u: #c1d7e9;
+  --lk-mana-b: #bab1ab;
+  --lk-mana-r: #e49977;
+  --lk-mana-g: #a3c095;
+  --lk-mana-c: #cbc2bf;
+  --lk-mana-glyph: #150b00;
+
+  /* Counters */
+  --lk-counter-plus: #1f7a3e;
+  --lk-counter-minus: #9c2a1c;
+  --lk-counter-other: #3a2c18;
+  --lk-poison: #4f7a2a;
+
+  /* Colour-identity table tones (Q-01): rest, and the active player's brighter half */
+  --lk-tone-w: #2a261f;  --lk-tone-w-hi: #3f392d;
+  --lk-tone-u: #13222e;  --lk-tone-u-hi: #1b3245;
+  --lk-tone-b: #1b1619;  --lk-tone-b-hi: #2a2128;
+  --lk-tone-r: #2b1510;  --lk-tone-r-hi: #401d14;
+  --lk-tone-g: #13231a;  --lk-tone-g-hi: #1b3425;
+  --lk-tone-c: #1f1c19;  --lk-tone-c-hi: #2c2823;
+
+  /* Playmat: colour identity (default) */
+  --lk-mat-room: #0a0806;
+  --lk-mat-vignette: radial-gradient(ellipse 75% 70% at 50% 50%, transparent 40%, rgb(0 0 0 / 0.62) 100%);
+  --lk-mat-half: none;
+  --lk-mat-tones: 1;
+  --lk-mat-rim: rgb(216 180 90 / 0.45);
+}
+
+/* Playmats are token sets. Put data-mat on the table root. */
+[data-mat='lamplight'] {
+  --lk-mat-room: #160e0a;
+  --lk-mat-half: radial-gradient(ellipse 70% 80% at 50% 100%, #1d463e 0%, #143530 50%, #0c1b19 100%);
+  --lk-mat-tones: 0;
+  --lk-mat-vignette: radial-gradient(ellipse 80% 75% at 50% 50%, transparent 45%, rgb(0 0 0 / 0.55) 100%);
+}
+[data-mat='lamplight'] .lk-half[data-side='top'] { --lk-mat-half: radial-gradient(ellipse 70% 80% at 50% 0%, #1d463e 0%, #143530 50%, #0c1b19 100%); }
+[data-mat='midnight'] {
+  --lk-mat-room: #070708;
+  --lk-mat-half: linear-gradient(#0e0e10, #0e0e10);
+  --lk-mat-tones: 0;
+  --lk-mat-vignette: radial-gradient(ellipse 80% 75% at 50% 50%, transparent 50%, rgb(0 0 0 / 0.5) 100%);
+  --lk-mat-rim: rgb(216 180 90 / 0.25);
+}
+
+/* Frame metals (customization candidate) */
+[data-metal='silver'] { --lk-metal: #c9d2da; --lk-metal-bright: #e6edf3; --lk-metal-deep: #8a949e; --lk-metal-dark: #5d656d; --lk-metal-line: rgb(201 210 218 / 0.35); --lk-metal-faint: rgb(201 210 218 / 0.18); --lk-metal-ring: rgb(201 210 218 / 0.7); }
+[data-metal='bronze'] { --lk-metal: #c98a5c; --lk-metal-bright: #e0a47a; --lk-metal-deep: #8a4e2a; --lk-metal-dark: #6a3c20; --lk-metal-line: rgb(201 138 92 / 0.35); --lk-metal-faint: rgb(201 138 92 / 0.18); --lk-metal-ring: rgb(201 138 92 / 0.7); }
+
+.lk-title { font-family: var(--lk-font-title); }
+.lk-text { font-family: var(--lk-font-text); }
+.lk-label { font-family: var(--lk-font-title); font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+
+/* Breathing gold: a static ring whose opacity breathes (transform/opacity only). */
+@keyframes lk-breathe { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+@keyframes lk-glow { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+.lk-breathe { animation: lk-breathe 1.6s ease-in-out infinite; }
+.lk-glow { animation: lk-glow 2.4s ease-in-out infinite; }
+
+/* Card frame: drawn at one design size, scaled by the layer width. */
+.lk-card { position: relative; flex: none; }
+.lk-card-in { position: absolute; left: 0; top: 0; transform-origin: 50% 50%; }
+.lk-tap { transition: transform 260ms cubic-bezier(.2, .8, .2, 1); }
+.lk-fade { transition: opacity 200ms ease-out; }
+
+/* Keyword rail: words slide out on hover without moving anything else. */
+.lk-rail-word { opacity: 0; transform: translateX(-4px); transition: opacity 140ms ease-out, transform 140ms ease-out; pointer-events: none; }
+.lk-rail:hover .lk-rail-word, .lk-rail-word[data-on='1'] { opacity: 1; transform: none; }
+
+.lk-half-hi { transition: opacity 400ms ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lk-breathe, .lk-glow { animation: none; opacity: 1; }
+  .lk-tap, .lk-fade, .lk-rail-word, .lk-half-hi { transition: none; }
+}
