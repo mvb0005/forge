@@ -1,4 +1,4 @@
-import { memo, useState, type MouseEvent } from 'react'
+import { useState, type MouseEvent } from 'react'
 import { send } from '../net'
 import type { CardDto } from '../protocol'
 import { useShallow } from 'zustand/react/shallow'
@@ -7,8 +7,6 @@ import { CardImage } from './CardImage'
 import { Icon, KEYWORD_ORDER, KeywordIcon } from './icons'
 import { CARD_RATIO, pickFromGroup } from './layout'
 import { useBoardUi } from './uiStore'
-
-const TAP_SCALE = 0.76
 
 /** Highlight class for a set of card ids, in the one highlight language. */
 export function useHighlight(ids: number[]) {
@@ -35,134 +33,72 @@ export function clickCards(e: MouseEvent, ids: number[]) {
   send({ t: 'selectCard', cardId, others: e.shiftKey && others.length ? others : undefined, shift: e.shiftKey, button })
 }
 
-const hover = (id: number | null) => useForge.getState().setHovered(id)
+export const TAP_SCALE = 0.76
 
-export type TileProps = {
-  ids: number[]
-  top: CardDto
-  x: number
-  y: number
+export type TileFaceProps = {
+  card: CardDto
   w: number
-  attachTop: number // px reserved above the card for tucked attachments
-  shift: number // signed px toward the center (combat)
+  count: number
+  tapped: boolean
+  ring: string
   role: 'attacker' | 'blocker' | null
   edge: 'top' | 'bottom' // which edge faces the center
-  label?: string // land tray: "×5 · 2 tapped"
-  onEnter?: () => void
-  onLeave?: () => void
-  onClick?: (e: MouseEvent) => void
+  label?: string // land pile: "2 tapped"
+  more?: number // attachments not drawn
 }
 
-export const Tile = memo(function Tile(p: TileProps) {
-  const { ids, top, w } = p
+/** What a battlefield element looks like: the card (tapped = quarter turn), copies fanned behind it, overlays. */
+export function TileFace({ card: top, w, count, tapped, ring, role, edge, label, more }: TileFaceProps) {
   const th = w * CARD_RATIO
-  const attachments = useForge(useShallow((s) => top.attachmentIds.map((id) => s.cards[id]).filter((c) => !!c && c.zone === 'battlefield')))
-  const { ring, dim } = useHighlight(ids)
-  const count = ids.length
   const fan = Math.min(count, 3)
   const fd = Math.max(2, w * 0.045)
-  const tapped = top.tapped
   const box = tapped ? { w: th * TAP_SCALE, h: w * TAP_SCALE } : { w, h: th }
   const bx = (w - box.w) / 2
   const by = (th - box.h) / 2
   const fs = Math.max(9, Math.min(14, w * 0.115))
-  const onClick = p.onClick ?? ((e: MouseEvent) => clickCards(e, ids))
-
+  const turn = tapped ? `rotate(90deg) scale(${TAP_SCALE})` : 'none'
   return (
-    <div
-      data-ids={ids.join(' ')}
-      className={`bf-move absolute left-0 top-0 ${dim ? 'hl-dim' : ''}`}
-      style={{
-        width: w,
-        height: th,
-        transform: `translate(${p.x}px, ${p.y + p.attachTop + p.shift}px)`,
-        opacity: top.phasedOut ? 0.32 : 1,
-        transition: 'transform 180ms ease-out, filter 170ms ease-out, opacity 170ms',
-      }}
-      onMouseEnter={() => {
-        hover(top.id)
-        p.onEnter?.()
-      }}
-      onMouseLeave={() => {
-        hover(null)
-        p.onLeave?.()
-      }}
-    >
-      {attachments.slice(0, 2).map((a, i) => (
-        <Attachment key={a.id} card={a} w={w} dy={-(i + 1) * th * 0.13} z={-1 - i} more={i === Math.min(attachments.length, 2) - 1 ? attachments.length - 2 : 0} />
-      ))}
+    <>
       {Array.from({ length: fan - 1 }, (_, i) => {
         const k = fan - 1 - i
         return (
           <div
             key={k}
             className="bf-card pointer-events-none absolute left-0 top-0"
-            style={{ transform: `translate(${k * fd}px, ${-k * fd}px) ${tapped ? `rotate(90deg) scale(${TAP_SCALE})` : ''}`, filter: `brightness(${1 - k * 0.12})` }}
+            style={{ transform: `translate(${k * fd}px, ${-k * fd}px) ${tapped ? turn : ''}`, filter: `brightness(${1 - k * 0.12})` }}
           >
             <CardImage card={top} width={w} bare mini={tapped} />
           </div>
         )
       })}
       <div
-        className={`bf-card absolute left-0 top-0 cursor-pointer ${ring}`}
+        className={`bf-card absolute left-0 top-0 ${ring}`}
         style={{
-          transform: tapped ? `rotate(90deg) scale(${TAP_SCALE})` : undefined,
+          transform: turn,
           borderRadius: Math.max(3, w * 0.048),
           filter: top.sick ? 'brightness(0.72) saturate(0.75)' : undefined,
           outline: top.phasedOut ? '1.5px dashed var(--color-ink-dim)' : undefined,
         }}
-        onClick={onClick}
-        onContextMenu={onClick}
       >
         <CardImage card={top} width={w} bare mini={tapped} />
       </div>
       <div className="pointer-events-none absolute" style={{ left: bx, top: by, width: box.w, height: box.h }}>
-        <Overlays card={top} w={w} fs={fs} count={count} label={p.label} mini={tapped || w < 110} />
-        {p.role && (
+        <Overlays card={top} w={w} fs={fs} count={count} label={label} mini={tapped || w < 110} />
+        {role && (
           <div
             className="absolute inset-x-[6%] rounded-full"
             style={{
               height: 3,
-              [p.edge]: -5,
-              background: p.role === 'attacker' ? 'var(--color-danger)' : 'var(--color-ink)',
-              boxShadow: `0 0 8px 1px ${p.role === 'attacker' ? 'var(--color-danger)' : 'var(--color-ink-dim)'}`,
+              [edge]: -5,
+              background: role === 'attacker' ? 'var(--color-danger)' : 'var(--color-ink)',
+              boxShadow: `0 0 8px 1px ${role === 'attacker' ? 'var(--color-danger)' : 'var(--color-ink-dim)'}`,
             }}
           />
         )}
         {top.heldExileIds.length > 0 && <HeldExile ids={top.heldExileIds} fs={fs} />}
+        {!!more && <span className="absolute right-1 top-0.5 rounded-full bg-panel-2 px-1.5 text-[10px] font-bold text-ink ring-1 ring-line">+{more}</span>}
       </div>
-    </div>
-  )
-}, sameTile)
-
-// ids arrive as a fresh array on every layout pass; compare by value. Callbacks only touch stable refs.
-function sameTile(a: TileProps, b: TileProps) {
-  for (const k of Object.keys(a) as (keyof TileProps)[]) {
-    if (k === 'ids' || k === 'onEnter' || k === 'onLeave' || k === 'onClick') continue
-    if (a[k] !== b[k]) return false
-  }
-  return a.ids.length === b.ids.length && a.ids.every((id, i) => id === b.ids[i]) && !!a.onEnter === !!b.onEnter
-}
-
-function Attachment({ card, w, dy, z, more }: { card: CardDto; w: number; dy: number; z: number; more: number }) {
-  const { ring, dim } = useHighlight([card.id])
-  return (
-    <div
-      data-entity={`card:${card.id}`}
-      className={`bf-card absolute left-0 top-0 cursor-pointer ${ring} ${dim ? 'hl-dim' : ''}`}
-      style={{ transform: `translateY(${dy}px)`, zIndex: z, borderRadius: Math.max(3, w * 0.048) }}
-      onMouseEnter={(e) => {
-        e.stopPropagation()
-        hover(card.id)
-      }}
-      onClick={(e) => clickCards(e, [card.id])}
-      onContextMenu={(e) => clickCards(e, [card.id])}
-    >
-      <CardImage card={card} width={w} bare />
-      {more > 0 && (
-        <span className="absolute right-1 top-0.5 rounded-full bg-panel-2 px-1.5 text-[10px] font-bold text-ink ring-1 ring-line">+{more}</span>
-      )}
-    </div>
+    </>
   )
 }
 
@@ -251,7 +187,7 @@ function Overlays({ card, w, fs, count, label, mini }: { card: CardDto; w: numbe
 }
 
 function HeldExile({ ids, fs }: { ids: number[]; fs: number }) {
-  const cards = useForge((s) => s.cards)
+  const names = useForge(useShallow((s) => ids.map((id) => s.cards[id]?.name ?? 'Unknown card')))
   const [open, setOpen] = useState(false)
   return (
     <span
@@ -265,9 +201,9 @@ function HeldExile({ ids, fs }: { ids: number[]; fs: number }) {
       {open && (
         <div className="bf-pop absolute left-full top-0 z-50 ml-1 w-max max-w-56 rounded-lg border border-line bg-panel p-2 text-xs font-normal shadow-xl">
           <div className="mb-1 text-[10px] uppercase tracking-wider text-ink-dim">Exiled with this</div>
-          {ids.map((id) => (
-            <div key={id} className="truncate" onMouseEnter={() => hover(id)}>
-              {cards[id]?.name ?? 'Unknown card'}
+          {names.map((n, i) => (
+            <div key={ids[i]} className="truncate">
+              {n}
             </div>
           ))}
         </div>

@@ -1,5 +1,6 @@
 import type { ForgeState } from '../../store'
 import type { CombatDto, GameDto, StackItemDto } from '../../protocol'
+import { commanderBoard } from './commander'
 import { attach, basic, buildTable, card, creature, holdInExile, many, player, spell } from './factory'
 
 export type Fixture = { id: string; label: string; state: () => Partial<ForgeState> }
@@ -276,4 +277,12 @@ export const FIXTURES: Fixture[] = [
   { id: 'quiet', label: 'Mid-game', state: quiet },
   { id: 'pod', label: 'Token pod · combat', state: tokenPod },
   { id: 'four', label: '4 players', state: fourPlayer },
+  {
+    id: 'commander',
+    label: 'Commander · 600',
+    state: () => {
+      const { attack: _, ...s } = commanderBoard()
+      return s
+    },
+  },
 ]

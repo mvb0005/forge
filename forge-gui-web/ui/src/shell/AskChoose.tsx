@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, type PointerEvent } from 'react'
+import { peekTimer } from '../popover/store'
 import type { Ask, CardDto, ChoiceItem } from '../protocol'
 import { useForge } from '../store'
 import { EnterHint, Frame, useMinimized } from './Frame'
@@ -106,7 +107,6 @@ export function ChooseAsk({ ask }: { ask: AskOf<'choose'> }) {
 export function OrderAsk({ ask }: { ask: AskOf<'order'> }) {
   const minimized = useMinimized()
   const { cardOf, labelOf } = useItemCards()
-  const setHovered = useForge((s) => s.setHovered)
   const source = useForge((s) => (ask.cardId == null ? undefined : s.cards[ask.cardId]))
   const plain = ask.min >= ask.items.length && ask.max >= ask.items.length
   const [chosen, setChosen] = useState<number[]>(() => (plain ? ask.items.map((it) => it.i) : []))
@@ -116,10 +116,19 @@ export function OrderAsk({ ask }: { ask: AskOf<'order'> }) {
   const { row, over } = useDragReorder((from, to) => setChosen((c) => move(c, from, to)))
   const byI = new Map(ask.items.map((it) => [it.i, it]))
   const available = ask.items.filter((it) => !chosen.includes(it.i))
-  const hover = (it: ChoiceItem) => ({
-    onMouseEnter: () => cardOf(it) && setHovered(cardOf(it)!.id),
-    onMouseLeave: () => cardOf(it) && setHovered(null),
-  })
+  // Rows name a card without showing it; hovering one peeks the card.
+  const hover = (it: ChoiceItem) => {
+    const c = cardOf(it)
+    if (!c) return {}
+    const key = `card:${c.id}`
+    return {
+      onPointerEnter: (e: PointerEvent<Element>) => {
+        const r = e.currentTarget.getBoundingClientRect()
+        peekTimer.enter(key, { key, entity: { kind: 'card', id: c.id }, anchor: { x: r.left, y: r.top, w: r.width, h: r.height } })
+      },
+      onPointerLeave: () => peekTimer.leave(key),
+    }
+  }
 
   const list = (
     <ol className="flex flex-col gap-1.5">
