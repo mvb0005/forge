@@ -53,6 +53,14 @@ public interface IGuiGame {
     }
 
     /**
+     * Point at library cards on the table when choosing them.
+     * Desktop does. A client that does not lay the library out (the web table) does not.
+     */
+    default boolean clickToSelectFromLibrary() {
+        return !isLibgdxPort();
+    }
+
+    /**
      * Set the game view with a sequence number for delta sync baseline.
      * Local games ignore the sequence number.
      */

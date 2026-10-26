@@ -12,6 +12,7 @@ const EDGE = 18 // inside the mat's rim
 export const LINE_H = 64
 export const STRIP_H = 104
 export const RIBBON_H = 46
+export const COL_HEAD = 64 // compact life and name above each opponent column on your turn
 
 // Stack items in the action column, top of the stack nearest the type line. Spells show their own
 // card (from the card layer) in the thumbnail slot; StackView draws the rest of the item around it.
@@ -42,7 +43,7 @@ export type Frame = {
   split: Region // y where the two coloured halves meet (h = 0)
 }
 
-export function tableFrame(view: { w: number; h: number }, strips: boolean, stackLen: number, combat = false): Frame {
+export function tableFrame(view: { w: number; h: number }, strips: boolean, stackLen: number, combat = false, fanout = false): Frame {
   const sideW = clamp(view.w * 0.15, 220, 300)
   const leftW = Math.max(400, view.w - sideW)
   const seatW = clamp(view.w * 0.1, 150, 210)
@@ -58,10 +59,13 @@ export function tableFrame(view: { w: number; h: number }, strips: boolean, stac
   if (strips) y += STRIP_H + GAP
   const half = Math.max(80, (view.h - EDGE - y - LINE_H - handH - 3 * GAP) / 2)
   // Main: opponent, type line, you. Combat: the type line rises, the battle band is the two halves meeting.
+  // Fan-out (your turn, several opponents) keeps that vertical split and reserves a header row in the top half.
   const lineY = combat ? y : y + half + GAP
   const topY = combat ? y + LINE_H + GAP : y
   const bottomY = y + half + LINE_H + 2 * GAP
-  const top = { x: feltX, y: topY + RIBBON_H, w: feltW, h: half - RIBBON_H }
+  const head = fanout ? COL_HEAD : 0
+  const topH = half - RIBBON_H - head
+  const top = { x: feltX, y: topY + RIBBON_H + head, w: feltW, h: fanout ? Math.max(36, topH) : half - RIBBON_H }
   const bottom = { x: feltX, y: bottomY, w: feltW, h: half - RIBBON_H }
   const hand = { x: feltX, y: bottomY + half + GAP, w: feltW, h: handH }
   const line = { x: x0, y: lineY, w: innerW, h: LINE_H }
@@ -71,7 +75,7 @@ export function tableFrame(view: { w: number; h: number }, strips: boolean, stac
     side: { x: leftW, y: 0, w: view.w - leftW, h: view.h },
     strips: stripR,
     oppSeat: { x: x0, y: topY, w: seatW, h: half },
-    oppRibbon: { x: feltX, y: topY, w: feltW, h: RIBBON_H },
+    oppRibbon: { x: feltX, y: topY + head, w: feltW, h: RIBBON_H },
     top,
     line,
     stack: { x: actX, y: stackBase - sh, w: actW, h: sh },

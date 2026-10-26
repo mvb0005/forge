@@ -884,6 +884,31 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     }
 
     @Override
+    public boolean clickToSelectFromLibrary() {
+        return false;
+    }
+
+    @Override
+    public <T> List<T> many(String title, String topCaption, int min, int max, List<T> sourceChoices, List<T> destChoices, CardView c) {
+        // A subset of cards is a choose ask, returned in click order. Ordering every card, or the
+        // unlimited (-1) reorder (scry, surveil, opening hand, contraptions), stays the order dialog.
+        if (max >= 1 && sourceChoices != null && !sourceChoices.isEmpty()
+                && !(min >= sourceChoices.size() && max >= sourceChoices.size())) {
+            boolean cards = true;
+            for (T item : sourceChoices) {
+                if (!(item instanceof CardView)) {
+                    cards = false;
+                    break;
+                }
+            }
+            if (cards) {
+                return getChoices(title, min, max, sourceChoices);
+            }
+        }
+        return super.many(title, topCaption, min, max, sourceChoices, destChoices, c);
+    }
+
+    @Override
     public <T> List<T> getChoices(String message, int min, int max, List<T> choices, List<T> selected, FSerializableFunction<T, String> display) {
         if (choices == null || choices.isEmpty()) {
             return new ArrayList<>();

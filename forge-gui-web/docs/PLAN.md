@@ -143,6 +143,8 @@ Each milestone ends playable. Exit criteria are the definition of done.
 | M8 | Customization and accessibility | M2 | todo |
 | M9 | Desktop packaging (Tauri) | | parked |
 
+During your turn the table draws every opponent battlefield in columns, and on other turns one board stays full size with the rest as strips (M7); Tab fan-out (Q-09) is still open.
+
 M1 is done except M1.2: a zone move or a phase change still sends a whole `PlayerDto`.
 
 M2 is on the live table: colour-identity halves, type line and phase gems, life shield (combat

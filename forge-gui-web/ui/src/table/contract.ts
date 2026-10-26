@@ -35,7 +35,7 @@ export type LayoutInput = {
   mode: TableMode
   viewport: { w: number; h: number }
   meId: number
-  focusId: number | null // opponent drawn full size (multiplayer)
+  focusId: number | null // opponent drawn full size when it is not your turn
   game: GameDto
   players: Record<number, PlayerDto>
   cards: Record<number, CardDto>
