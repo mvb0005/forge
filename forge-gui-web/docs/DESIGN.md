@@ -119,12 +119,18 @@ Pace setting: Cinematic / Brisk / Instant (AI turns follow it, Q-12).
 
 ## Multiplayer (1–3 AI opponents)
 
-- Opponents are seat strips: life, colours, open mana, hand, untapped power, "can hit you for N",
-  zone counts with badges, commander and tax, ⚡ trigger count. Shapes over sentences.
-- One opponent's battlefield is drawn full size: the attacker during combat, the controller of
-  whatever just targeted you, else the one you clicked. Tab fans all boards out (Q-09).
-- The full zone rail is yours; opponents' zones live in their strips.
-- Combat lanes are grouped by defender; your group first and the only clickable one.
+- During your turn every opponent's battlefield is drawn. The top half is one column per opponent,
+  in turn order: their colour, life and name, mana ribbon, and non-land permanents. A duel is the
+  same full board as before, since there is only one opponent.
+- On an opponent's turn one battlefield is full size — the attacker, the controller of whatever
+  just targeted you, else the one you clicked — and the rest are seat strips: life, colours, open
+  mana, hand, untapped power, "can hit you for N", zone counts with badges, commander and tax,
+  ⚡ trigger count. Shapes over sentences.
+- Tab fan-out of every board at any time is still open (Q-09).
+- The full zone rail is yours. Opponent zone counts sit on the strip, and on the column header
+  during your turn.
+- Combat lanes are grouped by defender; your group first and the only clickable one. During your
+  turn each defender's combat is in that defender's column, so your attackers line up with it.
 - Commander: commander damage per source on your shield (21 is lethal), tax on the command zone,
   turn order on the type line.
 

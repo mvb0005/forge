@@ -101,8 +101,8 @@ export function Ribbon({ player, isMe, style }: { player: PlayerDto; isMe: boole
   )
 }
 
-/** Life shield and name. The shield is the player for clicks, targets and arrows. */
-export function SeatPlate({ player: p, isMe }: { player: PlayerDto; isMe: boolean }) {
+/** Life shield and name. The shield is the player for clicks, targets and arrows. `compact` is the column header on your turn. */
+export function SeatPlate({ player: p, isMe, compact = false }: { player: PlayerDto; isMe: boolean; compact?: boolean }) {
   const mark = usePlayerMark(p.id)
   const active = useForge((s) => s.game?.activePlayerId === p.id)
   const attacked = useForge((s) => !!s.combat?.bands.some((b) => b.defender?.kind === 'player' && b.defender.id === p.id))
@@ -113,6 +113,26 @@ export function SeatPlate({ player: p, isMe }: { player: PlayerDto; isMe: boolea
   const hits = useCommanderHits(p)
   const counters = Object.entries(p.counters).filter(([, n]) => n > 0)
   const rim: ShieldRim = attacked ? 'ember' : active ? (isMe ? 'bright' : 'active') : 'metal'
+  if (compact) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, opacity: p.hasLost ? 0.5 : 1 }}>
+        <button
+          type="button"
+          data-entity={`player:${p.id}`}
+          title={mark === 'choose' ? `Choose ${p.name}` : `${p.name}: ${p.life} life`}
+          style={{ border: 0, padding: 0, background: 'none', cursor: 'pointer', filter: mark ? MARK_SHADOW[mark] : undefined, flex: 'none' }}
+          onClick={(e) => clickPlayer(e, p.id)}
+          onContextMenu={(e) => clickPlayer(e, p.id)}
+        >
+          <LifeShield life={p.life} preview={after?.lifeAfter ?? null} lethal={!!after?.lethal} poison={p.poison} width={48} rim={rim} commander={hits} />
+        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+          <div className="lk-title" style={{ fontWeight: 700, fontSize: 16, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+          <OppZones player={p} />
+        </div>
+      </div>
+    )
+  }
   const sub = isMe ? null : attacked || active ? (
     <span style={{ color: open ? 'var(--lk-ember-light)' : undefined }}>{open} open · {p.handCount} in hand</span>
   ) : (

@@ -1,7 +1,7 @@
 import { chooseFocus, combatRoles, groupKey } from '../board/layout'
 import type { PlayerDto } from '../protocol'
 import type { ForgeState } from '../store'
-import { foldsLands, tableMode } from './layouts'
+import { foldsLands, opponentIds, showEveryOpponent, tableMode } from './layouts'
 
 // Store subscriptions for the card layer (docs/PLAN.md, "Subscriptions by id"). The layer
 // subscribes to one string: the table's structure. It changes when a card changes zone, row or
@@ -22,7 +22,7 @@ export function seatIds(s: ForgeState, userFocus: Focus) {
 let last: { deps: unknown[]; sig: string } | null = null
 
 export function tableSignature(s: ForgeState, meId: number | null, focusId: number | null): string {
-  const deps = [s.cards, s.players, s.combat, s.game?.phase, s.highlighted, s.stack, s.selectable, meId, focusId]
+  const deps = [s.cards, s.players, s.combat, s.game?.phase, s.highlighted, s.stack, s.selectable, s.game?.activePlayerId, s.game?.turnOrder, s.game?.localPlayerIds, meId, focusId]
   if (last && last.deps.every((d, i) => d === deps[i])) return last.sig
   const sig = compute(s, meId, focusId)
   last = { deps, sig }
@@ -32,11 +32,17 @@ export function tableSignature(s: ForgeState, meId: number | null, focusId: numb
 function compute(s: ForgeState, meId: number | null, focusId: number | null) {
   if (meId == null) return ''
   const roles = combatRoles(s.combat)
-  const out: string[] = [tableMode(s.combat, s.game?.phase), String(meId), String(focusId), String(Object.keys(s.players).length)]
+  const opps = opponentIds(s.players, meId, s.game?.turnOrder)
+  const every = s.game != null && showEveryOpponent(s.game, opps.length)
+  // On your turn the mark names every opponent column, so a focus click does not rebuild.
+  // On another turn it stays the focused id, matching the single board that is drawn.
+  const mark = every ? `all:${opps.join(',')}` : String(focusId)
+  const out: string[] = [tableMode(s.combat, s.game?.phase), String(meId), mark, String(Object.keys(s.players).length)]
   const field = (p: PlayerDto | undefined) => {
     if (!p) return
     // Group partition: each card names the lowest id sharing its group key (cards are visited in
-    // zone order, so keep the minimum explicitly).
+    // zone order, so keep the minimum explicitly). A power/toughness change keeps the same head
+    // unless the card leaves its group, so it does not rebuild the layout.
     const heads = new Map<string, number>()
     const keys: (string | null)[] = []
     for (const id of p.zones.battlefield) {
@@ -59,7 +65,8 @@ function compute(s: ForgeState, meId: number | null, focusId: number | null) {
     out.push('|', fold ? 'fold' : 'lands', p.zones.hand.join(','), p.zones.graveyard.slice(-3).join(','), p.zones.exile.slice(-3).join(','), p.zones.command.join(','))
   }
   field(s.players[meId])
-  if (focusId != null) field(s.players[focusId])
+  if (every) for (const id of opps) field(s.players[id])
+  else if (focusId != null) field(s.players[focusId])
   for (const item of s.stack) out.push(`s${item.id}:${item.sourceCardId}:${item.sourceCardId != null ? s.cards[item.sourceCardId]?.zone : ''}`)
   return out.join(' ')
 }
