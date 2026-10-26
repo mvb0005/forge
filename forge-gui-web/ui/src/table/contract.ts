@@ -42,6 +42,7 @@ export type LayoutInput = {
   combat: CombatDto | null
   highlighted: Set<string>
   stack: StackItemDto[]
+  selectable?: Set<number> // card ids you may choose now (lands unfold from the ribbon when one is)
 }
 
 export type LayoutResult = {

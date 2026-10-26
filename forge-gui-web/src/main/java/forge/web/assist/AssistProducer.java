@@ -18,4 +18,9 @@ public interface AssistProducer {
      * (sent as `null`, which clears that kind on the client). Must only use what `seat` may know.
      */
     JsonElement compute(Game game, Player seat);
+
+    /** What else this kind's result depends on, beyond {@link Assists#decisionKey}. */
+    default String key(Game game, Player seat) {
+        return "";
+    }
 }

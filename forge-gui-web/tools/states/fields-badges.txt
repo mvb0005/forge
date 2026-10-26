@@ -1,0 +1,11 @@
+turn=3
+activeplayer=p0
+activephase=MAIN1
+p0life=20
+p0hand=
+p0library=Plains;Plains;Plains
+p0battlefield=Phantom Warrior;White Knight;Inkwell Leviathan;Grizzly Bears|Counters:P1P1=1;Plains;Plains;Island
+p1life=20
+p1hand=
+p1library=Mountain;Mountain;Mountain
+p1battlefield=Hill Giant;Mountain;Forest|Tapped

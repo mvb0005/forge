@@ -5,7 +5,7 @@ import { useBoardUi } from './uiStore'
 
 type Arrow = { key: string; d: string; kind: 'target' | 'attack' | 'block'; dim: boolean; emph: boolean }
 
-const COLORS = { target: 'var(--color-accent)', attack: 'var(--color-danger)', block: '#d4dde8' }
+const COLORS = { target: 'var(--lk-ember-text)', attack: 'var(--lk-ember)', block: 'var(--lk-steel)' }
 
 function find(root: HTMLElement, ref: EntityRef | string): Element | null {
   if (typeof ref === 'string') return root.querySelector(`[data-entity="${ref}"]`)
@@ -54,7 +54,8 @@ export function Arrows({ rootRef }: { rootRef: RefObject<HTMLDivElement | null> 
   useLayoutEffect(() => {
     const root = rootRef.current
     if (!root) return
-    const { stack, combat } = useForge.getState()
+    const { stack, combat, game } = useForge.getState()
+    const me = game?.localPlayerIds[0]
     const base = root.getBoundingClientRect()
     const rect = (el: Element): R => {
       const r = el.getBoundingClientRect()
@@ -75,7 +76,8 @@ export function Arrows({ rootRef }: { rootRef: RefObject<HTMLDivElement | null> 
     }
     for (const band of combat?.bands ?? []) {
       const attackers = band.attackerIds.map((id) => find(root, { kind: 'card', id }))
-      if (band.defender) {
+      // An attack on you is told by its lane and block slot; arrows only for attacks elsewhere.
+      if (band.defender && !(band.defender.kind === 'player' && band.defender.id === me)) {
         const def = find(root, band.defender)
         for (const a of attackers) add(a, def, 'attack', hs != null, false, 0.12)
       }

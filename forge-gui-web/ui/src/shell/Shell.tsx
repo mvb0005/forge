@@ -96,9 +96,9 @@ function LinkBadge({ link, retryIn }: { link: Link; retryIn: number }) {
 
 function Splash({ link }: { link: Link }) {
   return (
-    <div className="grid h-full place-items-center bg-table">
+    <div className="grid h-full place-items-center" style={{ background: 'radial-gradient(ellipse 80% 60% at 30% 0%, #2a2118 0%, #120e0a 55%, #0a0806 100%)' }}>
       <div className="flex flex-col items-center gap-4">
-        <div className="text-3xl font-bold tracking-tight">Forge</div>
+        <div className="font-title text-4xl font-bold">Forge</div>
         <div className="flex items-center gap-2 text-sm text-ink-dim">
           <span className={`h-2 w-2 rounded-full ${link === 'retrying' ? 'bg-danger' : 'animate-pulse bg-accent'}`} />
           {link === 'retrying' ? 'Server unreachable, retrying…' : 'Connecting to server…'}

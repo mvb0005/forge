@@ -2,8 +2,8 @@
 
 :root {
   /* Type (D-07) */
-  --lk-font-title: 'Cinzel', 'Trajan Pro', Georgia, serif;
-  --lk-font-text: 'Crimson Pro', Georgia, serif;
+  --lk-font-title: 'Faustina', Georgia, serif;
+  --lk-font-text: 'Libre Baskerville', Georgia, serif;
 
   /* Ink and parchment */
   --lk-ink: #0a0806;
@@ -118,7 +118,7 @@
 
 .lk-title { font-family: var(--lk-font-title); }
 .lk-text { font-family: var(--lk-font-text); }
-.lk-label { font-family: var(--lk-font-title); font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+.lk-label { font-family: var(--lk-font-title); font-weight: 700; letter-spacing: 0.01em; }
 
 /* Breathing gold: a static ring whose opacity breathes (transform/opacity only). */
 @keyframes lk-breathe { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }

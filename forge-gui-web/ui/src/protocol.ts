@@ -20,6 +20,7 @@ export type GameWire = {
   localPlayerIds: number[]
   gameOver: boolean
   winner: string | null
+  turnOrder?: number[]
 }
 
 export type ManaPool = { W: number; U: number; B: number; R: number; G: number; C: number }
@@ -37,6 +38,9 @@ export type PlayerDto = {
   zones: { hand: number[]; battlefield: number[]; graveyard: number[]; exile: number[]; command: number[] }
   avatarImg: string | null
   hasLost: boolean
+  colorIdentity?: string[]
+  commanders?: { cardId: number; casts: number; tax: number }[]
+  commanderDamage?: { cardId: number; damage: number }[]
 }
 
 export type ZoneName = 'hand' | 'library' | 'battlefield' | 'graveyard' | 'exile' | 'command' | 'stack' | 'other'
@@ -57,11 +61,14 @@ export type CardDto = {
   text: string
   power: number | null
   toughness: number | null
+  basePower?: number
+  baseToughness?: number
   loyalty: number | null
   defense: number | null
   damage: number
   counters: Record<string, number>
   keywords: string[]
+  keywordLabels?: Record<string, string[]>
   tapped: boolean
   sick: boolean
   phasedOut: boolean
@@ -109,9 +116,14 @@ export type BlockersAssist = {
   }[]
 }
 
+export type ManaAssist = {
+  players: { id: number; total: number; open: Record<string, number> }[]
+}
+
 export type AssistMessage =
   | { t: 'assist'; kind: 'combat'; combat: CombatAssist | null }
   | { t: 'assist'; kind: 'blockers'; blockers: BlockersAssist | null }
+  | { t: 'assist'; kind: 'mana'; mana: ManaAssist | null }
 
 export type ChoiceItem = { i: number; label: string; ref: EntityRef | null }
 

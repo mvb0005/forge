@@ -37,7 +37,7 @@ export const PhaseGems = memo(function PhaseGems({ phase, size = 15, labels = fa
         )
       })}
       {labels && (
-        <span className="lk-label" style={{ marginLeft: size * 0.3, fontSize: Math.max(10, size * 0.78), color: 'var(--lk-parchment-dim)', whiteSpace: 'nowrap' }}>
+        <span className="lk-label" style={{ marginLeft: size * 0.3, fontSize: Math.max(13, size * 0.95), color: 'var(--lk-parchment-dim)', whiteSpace: 'nowrap' }}>
           {GEMS.map((g, i) => (
             <span key={i}>
               {i > 0 && ' · '}

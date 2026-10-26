@@ -61,6 +61,7 @@ export const MARK_GLYPH: Record<string, Glyph> = {
   trigger: { d: 'M13 2 4 14h6l-1 8 9-12h-6z' },
   block: { d: 'M12 3l7 3v5c0 5-3 8.5-7 10-4-1.5-7-5-7-10V6z', s: true },
   warn: { d: 'M12 3l9 16H3zM12 10v4M12 17v.5', s: true },
+  exile: { d: 'M12 3a9 9 0 1 0 9 9M12 7.5a4.5 4.5 0 1 0 4.5 4.5', s: true },
 }
 
 export const Icon = memo(function Icon({ g, size, color = 'currentColor', sw = 2 }: { g: Glyph; size: number; color?: string; sw?: number }) {

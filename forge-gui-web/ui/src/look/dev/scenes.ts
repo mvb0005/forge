@@ -21,8 +21,8 @@ export const hasArt = Object.keys(ART).length > 0
 
 export type Scene = {
   state: Partial<ForgeState>
-  colors: Record<number, string> // colour identity per player (PlayerDto doesn't carry it yet)
-  base: Record<number, BasePT> // printed P/T where it differs (CardDto doesn't carry it yet)
+  colors: Record<number, string> // fixture colour identity; LiveScene copies this onto the players
+  base: Record<number, BasePT> // fixture base P/T where it differs; LiveScene copies this onto the cards
   focusAttacker?: number
   slotHints?: Record<number, { rule: string; through?: string }>
   hint?: string

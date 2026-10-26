@@ -43,9 +43,9 @@ export function foldLands(cards: CardDto[]): RibbonSource[] {
 
 /**
  * Lands folded into mana symbols with counts. `usable`: you can spend untapped mana now (they glow frost).
- * Tapped-out sources fade. Extra sources (mana rocks) go in as their own entries with a label.
+ * Tapped-out sources fade. Extra sources (mana rocks) go in as their own entries with a label. `onPick`: a source was clicked.
  */
-export const ManaRibbon = memo(function ManaRibbon({ sources, usable = false, size = 26, summary }: { sources: RibbonSource[]; usable?: boolean; size?: number; summary?: string }) {
+export const ManaRibbon = memo(function ManaRibbon({ sources, usable = false, size = 26, summary, onPick }: { sources: RibbonSource[]; usable?: boolean; size?: number; summary?: string; onPick?: (s: RibbonSource) => void }) {
   if (!sources.length) return null
   return (
     <div
@@ -57,7 +57,13 @@ export const ManaRibbon = memo(function ManaRibbon({ sources, usable = false, si
       {sources.map((s, i) => {
         const open = s.untapped > 0
         return (
-          <span key={i} className="lk-fade" title={`${s.label ?? s.sym}: ${s.untapped} of ${s.total} untapped`} style={{ display: 'flex', alignItems: 'center', gap: size * 0.22, opacity: open ? 1 : 0.42 }}>
+          <span
+            key={i}
+            className="lk-fade"
+            title={`${s.label ?? s.sym}: ${s.untapped} of ${s.total} untapped`}
+            style={{ display: 'flex', alignItems: 'center', gap: size * 0.22, opacity: open ? 1 : 0.42, cursor: onPick && s.ids?.length ? 'pointer' : undefined }}
+            onClick={onPick && s.ids?.length ? () => onPick(s) : undefined}
+          >
             <span style={{ position: 'relative', display: 'grid', width: size, height: size }}>
               {usable && open && <span className="lk-glow" style={{ position: 'absolute', inset: -1, borderRadius: 999, boxShadow: '0 0 0 2px var(--lk-frost), 0 0 12px 2px var(--lk-frost-soft)' }} />}
               <ManaSymbol sym={s.sym} size={size} shadow={false} />

@@ -1,73 +1,86 @@
 import type { Region } from './contract'
 
-// The table's chrome rectangles for a viewport: seats, the two battlefield halves, the centre
-// strip (phase, stack, prompt), the hand and the side panel. Pure, so the card layout and the chrome
-// agree on every pixel without measuring the DOM.
+// The table's chrome rectangles for a viewport: the two battlefield halves, the type line between
+// them (it rises above the opponent's half in combat), the seats, mana ribbons, the action column
+// (stack, action plate, piles), the hand and the log. Pure, so the card layout and the chrome agree
+// on every pixel without measuring the DOM.
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi))
 
 const GAP = 8
-export const CENTER_H = 64
-export const STRIP_H = 52
-export const PHASE_W = 350
+const EDGE = 18 // inside the mat's rim
+export const LINE_H = 64
+export const STRIP_H = 104
+export const RIBBON_H = 46
 
-// Stack items in the centre strip: the top item is wider. Spells show their own card (from the
-// card layer) in the thumbnail slot; StackView draws the rest of the item around it.
-export const STACK = { label: 20, gap: 6, top: 250, rest: 190, shown: 4, itemY: 6, itemH: 52, thumbX: 7, thumbY: 4, thumbW: 32, more: 30 }
+// Stack items in the action column, top of the stack nearest the type line. Spells show their own
+// card (from the card layer) in the thumbnail slot; StackView draws the rest of the item around it.
+export const STACK = { gap: 6, shown: 4, itemH: 56, thumbX: 7, thumbY: 5, thumbW: 33, more: 22 }
 
-export const stackItemX = (i: number) => STACK.label + (i > 0 ? STACK.top + STACK.gap + (i - 1) * (STACK.rest + STACK.gap) : 0)
+/** Offset of stack item i (0 = top of the stack) from the bottom of the stack region. */
+export const stackItemY = (i: number) => (i + 1) * STACK.itemH + i * STACK.gap
 
-export function stackWidth(n: number) {
+export function stackHeight(n: number) {
   if (!n) return 0
-  const shown = Math.min(n, STACK.shown)
-  return stackItemX(shown - 1) + (shown === 1 ? STACK.top : STACK.rest) + (n > STACK.shown ? STACK.more : 0)
+  return stackItemY(Math.min(n, STACK.shown) - 1) + (n > STACK.shown ? STACK.more : 0)
 }
 
 export type Frame = {
   side: Region // right column (log)
   strips: Region | null // multiplayer: unfocused opponents
-  oppSeat: Region
-  top: Region // opponent's battlefield half
-  center: Region
-  phase: Region
+  oppSeat: Region // focused opponent's shield and name
+  oppRibbon: Region
+  top: Region // opponent's battlefield (cards)
+  line: Region // the type line
   stack: Region
-  prompt: Region
+  act: Region // the action plate
   meSeat: Region
-  bottom: Region // your battlefield half
+  meRibbon: Region
+  bottom: Region // your battlefield (cards)
   hand: Region
+  piles: Region // your library, graveyard, exile, command
+  split: Region // y where the two coloured halves meet (h = 0)
 }
 
-export function tableFrame(view: { w: number; h: number }, strips: boolean, stackLen: number): Frame {
-  const sideW = clamp(view.w * 0.17, 230, 330)
-  const leftW = Math.max(200, view.w - sideW)
-  const seatW = clamp(view.w * 0.115, 168, 215)
-  const handH = clamp(view.h * 0.155, 104, 172)
-  const x0 = GAP
-  const innerW = leftW - 2 * GAP
+export function tableFrame(view: { w: number; h: number }, strips: boolean, stackLen: number, combat = false): Frame {
+  const sideW = clamp(view.w * 0.15, 220, 300)
+  const leftW = Math.max(400, view.w - sideW)
+  const seatW = clamp(view.w * 0.1, 150, 210)
+  const actW = clamp(view.w * 0.14, 220, 300)
+  const handH = clamp(view.h * 0.15, 100, 168)
+  const x0 = EDGE
+  const innerW = leftW - EDGE - GAP
   const feltX = x0 + seatW + GAP
-  const feltW = Math.max(50, innerW - seatW - GAP)
-  let y = GAP
+  const feltW = Math.max(60, innerW - seatW - actW - 2 * GAP)
+  const actX = feltX + feltW + GAP
+  let y = EDGE
   const stripR = strips ? { x: x0, y, w: innerW, h: STRIP_H } : null
   if (strips) y += STRIP_H + GAP
-  const half = Math.max(60, (view.h - y - CENTER_H - handH - 3 * GAP) / 2)
-  const top = { x: feltX, y, w: feltW, h: half }
-  const center = { x: x0, y: y + half + GAP, w: innerW, h: CENTER_H }
-  const bottom = { x: feltX, y: center.y + CENTER_H + GAP, w: feltW, h: half }
-  const hand = { x: feltX, y: bottom.y + half + GAP, w: feltW, h: handH }
-  const phase = { x: center.x + 12, y: center.y, w: PHASE_W, h: CENTER_H }
-  const stack = { x: phase.x + PHASE_W + 33, y: center.y, w: stackWidth(stackLen), h: CENTER_H }
-  const promptX = stack.x + stack.w + 16
+  const half = Math.max(80, (view.h - EDGE - y - LINE_H - handH - 3 * GAP) / 2)
+  // Main: opponent, type line, you. Combat: the type line rises, the battle band is the two halves meeting.
+  const lineY = combat ? y : y + half + GAP
+  const topY = combat ? y + LINE_H + GAP : y
+  const bottomY = y + half + LINE_H + 2 * GAP
+  const top = { x: feltX, y: topY + RIBBON_H, w: feltW, h: half - RIBBON_H }
+  const bottom = { x: feltX, y: bottomY, w: feltW, h: half - RIBBON_H }
+  const hand = { x: feltX, y: bottomY + half + GAP, w: feltW, h: handH }
+  const line = { x: x0, y: lineY, w: innerW, h: LINE_H }
+  const sh = stackHeight(stackLen)
+  const stackBase = combat ? bottomY + half - GAP : lineY - GAP
   return {
     side: { x: leftW, y: 0, w: view.w - leftW, h: view.h },
     strips: stripR,
-    oppSeat: { x: x0, y, w: seatW, h: half },
+    oppSeat: { x: x0, y: topY, w: seatW, h: half },
+    oppRibbon: { x: feltX, y: topY, w: feltW, h: RIBBON_H },
     top,
-    center,
-    phase,
-    stack,
-    prompt: { x: promptX, y: center.y, w: Math.max(0, center.x + center.w - 12 - promptX), h: CENTER_H },
-    meSeat: { x: x0, y: bottom.y, w: seatW, h: hand.y + handH - bottom.y - GAP },
+    line,
+    stack: { x: actX, y: stackBase - sh, w: actW, h: sh },
+    act: { x: actX, y: combat ? topY : bottomY, w: actW, h: half },
+    meSeat: { x: x0, y: bottomY + half - RIBBON_H, w: seatW, h: handH + RIBBON_H + GAP },
+    meRibbon: { x: feltX, y: bottomY + half - RIBBON_H, w: feltW, h: RIBBON_H },
     bottom,
     hand,
+    piles: { x: actX, y: hand.y, w: actW, h: handH },
+    split: { x: 0, y: combat ? topY + half + GAP / 2 : lineY + LINE_H / 2, w: leftW, h: 0 },
   }
 }

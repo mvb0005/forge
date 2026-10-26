@@ -16,9 +16,10 @@ import type { Mat, Metal } from './theme'
 import { TypeLine } from './TypeLine'
 import { artFor, hasArt, SCENES } from './dev/scenes'
 import { StaticTable } from './dev/StaticTable'
+import { LiveScene } from './dev/LiveScene'
 
 // /?look: every look component in every state, and static tables (/?look=main, combat, four, quiet, pod) to set beside the mockups.
-// &mat=lamplight|midnight, &metal=silver|bronze.
+// &mat=lamplight|midnight, &metal=silver|bronze. /?look=live&scene=… drives the real table from a scene.
 
 const q = new URLSearchParams(location.search)
 const view = q.get('look') || 'atoms'
@@ -33,6 +34,7 @@ const link = (p: Record<string, string>) => {
 }
 
 export function DevLook() {
+  if (view === 'live') return <LiveScene />
   return (
     <div data-mat={mat} data-metal={metal} className="lk-text" style={{ minHeight: '100%', minWidth: 1440, background: 'radial-gradient(ellipse 80% 60% at 30% 0%, #2a2118 0%, #120e0a 55%, #0a0806 100%)', color: 'var(--lk-parchment)' }}>
       <Nav />
@@ -77,7 +79,7 @@ function Cap({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
       {children}
-      <span className="lk-label" style={{ fontSize: 10, color: 'var(--lk-parchment-mute)' }}>{label}</span>
+      <span className="lk-label" style={{ fontSize: 13, color: 'var(--lk-parchment-mute)' }}>{label}</span>
     </div>
   )
 }
@@ -237,8 +239,8 @@ function Atoms() {
                   <TableHalf colors={c} active style={{ position: 'absolute', inset: '50% 0 0 0' }} />
                 </>
               }>
-                <span className="lk-label" style={{ position: 'absolute', left: 18, top: 16, fontSize: 9, color: 'var(--lk-parchment-mute)' }}>rest</span>
-                <span className="lk-label" style={{ position: 'absolute', left: 18, bottom: 16, fontSize: 9, color: 'var(--lk-parchment-dim)' }}>active</span>
+                <span className="lk-label" style={{ position: 'absolute', left: 18, top: 16, fontSize: 12, color: 'var(--lk-parchment-mute)' }}>rest</span>
+                <span className="lk-label" style={{ position: 'absolute', left: 18, bottom: 16, fontSize: 12, color: 'var(--lk-parchment-dim)' }}>active</span>
               </TableMat>
             </Cap>
           ))}

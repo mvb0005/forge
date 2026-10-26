@@ -86,10 +86,23 @@ describe('table layouts', () => {
     expect(placements.get(gy[gy.length - 1])).toMatchObject({ kind: 'zone', opacity: 0 })
   })
 
+  it('folds lands into the ribbon, and unfolds a player’s lands when one can be chosen', () => {
+    const s = fixture('pod')
+    const i = input(s, { combat: null })
+    const land = i.players[i.meId].zones.battlefield.find((id) => i.cards[id].types.includes('Land') && !i.cards[id].types.includes('Creature'))!
+    const folded = run(i)
+    expect(folded.placements.get(land)).toMatchObject({ kind: 'zone', opacity: 0 })
+    expect(folded.regions['bottom:back']).toBeUndefined()
+    const open = run({ ...i, selectable: new Set([land]) })
+    expect(open.placements.get(land)?.kind ?? 'member').not.toBe('zone')
+    expect(open.regions['bottom:back'].h).toBeGreaterThan(0)
+  })
+
   it('combat mode lines attackers up and folds the back lanes', () => {
     const s = fixture('pod')
-    const main = run(input(s, { combat: null }))
-    const combat = run(input(s))
+    const land = s.players![1].zones.battlefield.find((id) => s.cards![id].types.includes('Land') && !s.cards![id].types.includes('Creature'))!
+    const main = run(input(s, { combat: null, selectable: new Set([land]) }))
+    const combat = run(input(s, { selectable: new Set([land]) }))
     expect(tableMode(s.combat!)).toBe<TableMode>('combat')
     expect(combat.regions['bottom:back'].h).toBeLessThan(main.regions['bottom:back'].h)
     expect(Object.keys(combat.regions).some((k) => k.startsWith('lane:'))).toBe(true)

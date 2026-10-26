@@ -9,13 +9,11 @@ import { AbilityAsk, ConfirmAsk, InputAsk } from './AskSimple'
 import { MinimizeCtx } from './Frame'
 import { Btn, CardTile, IconBtn, Kbd } from './ui'
 
-// Everything drawn over the table during a match: ask dialogs, reveal, log drawer, menu.
+// Everything drawn over the table during a match: ask dialogs, reveal, menu. (The log is the table's side column.)
 export function Overlays() {
-  const [logOpen, setLogOpen] = useState(false)
   return (
     <>
-      <TopMenu logOpen={logOpen} onLog={() => setLogOpen((o) => !o)} />
-      <LogDrawer open={logOpen} onClose={() => setLogOpen(false)} />
+      <TopMenu />
       <RevealPanel />
       <AskHost />
     </>
@@ -75,7 +73,7 @@ function RevealPanel() {
   const clear = useForge((s) => s.clearReveal)
   if (!reveal) return null
   return (
-    <div className="shell-in fixed left-1/2 top-4 z-30 max-w-[min(92vw,960px)] -translate-x-1/2 rounded-xl border border-line bg-panel/95 shadow-2xl shadow-black/40 backdrop-blur">
+    <div className="shell-in fixed left-1/2 top-4 z-30 max-w-[min(92vw,960px)] -translate-x-1/2 rounded-xl lk-plate">
       <div className="flex items-center gap-3 border-b border-line px-4 py-2.5">
         <span className="rounded bg-target/15 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wider text-target">Revealed</span>
         <span className="flex-1 truncate text-sm font-medium">{reveal.title}</span>
@@ -90,7 +88,7 @@ function RevealPanel() {
   )
 }
 
-function TopMenu({ logOpen, onLog }: { logOpen: boolean; onLog: () => void }) {
+function TopMenu() {
   const [open, setOpen] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -107,17 +105,13 @@ function TopMenu({ logOpen, onLog }: { logOpen: boolean; onLog: () => void }) {
   }, [open])
   return (
     <div ref={ref} className="fixed right-3 top-3 z-30 flex items-start gap-1.5">
-      <button type="button" onClick={onLog}
-        className={`rounded-lg border px-3 py-1.5 text-xs transition ${logOpen ? 'border-accent text-accent' : 'border-line bg-panel/90 text-ink-dim hover:text-ink'}`}>
-        Log
-      </button>
       <div className="relative">
         <button type="button" aria-label="Menu" onClick={() => { setOpen((o) => !o); setConfirming(false) }}
           className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${open ? 'border-accent text-ink' : 'border-line bg-panel/90 text-ink-dim hover:text-ink'}`}>
           •••
         </button>
         {open && (
-          <div className="shell-in absolute right-0 mt-1.5 w-56 rounded-xl border border-line bg-panel p-1.5 shadow-2xl shadow-black/50">
+          <div className="shell-in absolute right-0 mt-1.5 w-56 rounded-xl lk-plate p-1.5">
             {!confirming ? (
               <>
                 <MenuItem onClick={() => { send({ t: 'undo' }); setOpen(false) }} kbd="Z">Undo</MenuItem>
@@ -146,35 +140,5 @@ function MenuItem({ children, onClick, kbd, danger }: { children: string; onClic
       <span className="flex-1">{children}</span>
       {kbd && <Kbd>{kbd}</Kbd>}
     </button>
-  )
-}
-
-function LogDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const log = useForge((s) => s.game?.log)
-  const end = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (open) end.current?.scrollIntoView({ block: 'end' })
-  }, [open, log])
-  return (
-    <aside
-      aria-hidden={!open}
-      className={`fixed bottom-3 right-3 top-14 z-20 flex w-80 flex-col rounded-xl border border-line bg-panel/95 shadow-2xl shadow-black/40 backdrop-blur
-        transition duration-200 ${open ? 'translate-x-0 opacity-100' : 'pointer-events-none translate-x-[110%] opacity-0'}`}
-    >
-      <div className="flex items-center border-b border-line px-4 py-2.5">
-        <span className="flex-1 text-sm font-semibold">Game log</span>
-        <IconBtn title="Close log" onClick={onClose}>×</IconBtn>
-      </div>
-      <div className="shell-scroll flex-1 overflow-y-auto px-2 py-2">
-        {(log ?? []).map((l, i) => (
-          <div key={i} className="rounded-md px-2 py-1.5 text-[13px] leading-snug text-ink-dim odd:bg-felt/50">
-            {l.type && <span className="mr-1.5 text-[10px] uppercase tracking-wide text-ink-dim/70">{l.type.toLowerCase().replace(/_/g, ' ')}</span>}
-            <span className="text-ink">{l.message}</span>
-          </div>
-        ))}
-        {!log?.length && <p className="p-3 text-sm text-ink-dim">Nothing yet.</p>}
-        <div ref={end} />
-      </div>
-    </aside>
   )
 }

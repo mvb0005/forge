@@ -10,11 +10,11 @@ import { identity } from './tones'
 export type SeatStatus = 'active' | 'attacking' | 'defending' | 'waiting' | 'out'
 
 const STATUS: Record<SeatStatus, { text: string; color: string; rim: string }> = {
-  active: { text: 'their turn', color: 'var(--lk-mythic-top)', rim: '0 0 0 2px var(--lk-mythic-top)' },
-  attacking: { text: 'attacking', color: 'var(--lk-mythic-top)', rim: '0 0 0 2px var(--lk-mythic-top)' },
-  defending: { text: 'under attack', color: 'var(--lk-ember-text)', rim: '0 0 0 1.5px var(--lk-ember)' },
-  waiting: { text: 'waiting', color: 'var(--lk-parchment-dim)', rim: '0 0 0 1px var(--lk-metal-line)' },
-  out: { text: 'out', color: 'var(--lk-parchment-mute)', rim: '0 0 0 1px var(--lk-metal-faint)' },
+  active: { text: 'Their turn', color: 'var(--lk-mythic-top)', rim: '0 0 0 2px var(--lk-mythic-top)' },
+  attacking: { text: 'Attacking', color: 'var(--lk-mythic-top)', rim: '0 0 0 2px var(--lk-mythic-top)' },
+  defending: { text: 'Under attack', color: 'var(--lk-ember-text)', rim: '0 0 0 1.5px var(--lk-ember)' },
+  waiting: { text: 'Waiting', color: 'var(--lk-parchment-dim)', rim: '0 0 0 1px var(--lk-metal-line)' },
+  out: { text: 'Out', color: 'var(--lk-parchment-mute)', rim: '0 0 0 1px var(--lk-metal-faint)' },
 }
 
 const PIP: Record<string, string> = { W: 'var(--lk-mana-w)', U: 'var(--lk-mana-u)', B: 'var(--lk-mana-b)', R: 'var(--lk-mana-r)', G: 'var(--lk-mana-g)' }
@@ -53,7 +53,7 @@ export const SeatStrip = memo(function SeatStrip({ player, colors, status = 'wai
       <div className="lk-title" style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 17, minWidth: 0 }}>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{player.name}</span>
         {identity(colors).map((c) => <span key={c} style={{ width: 12, height: 12, borderRadius: 999, background: PIP[c], flex: 'none', boxShadow: '0 1px 2px rgb(0 0 0 / .6)' }} />)}
-        <span className="lk-label" style={{ fontSize: 11, color: st.color, marginLeft: 4, whiteSpace: 'nowrap' }}>{st.text}</span>
+        <span className="lk-label" style={{ fontSize: 13, color: st.color, marginLeft: 4, whiteSpace: 'nowrap' }}>{st.text}</span>
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '2px 12px', fontSize: 15, color: 'var(--lk-parchment-dim)' }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: openCount ? 'var(--lk-ember-light)' : undefined }}>

@@ -51,8 +51,8 @@ export function GameOverModal() {
   const headline = over.winner == null ? 'Draw' : won ? 'Victory' : 'Defeat'
   return (
     <div className="shell-fade fixed inset-0 z-50 grid place-items-center bg-table/70 p-6 backdrop-blur-sm">
-      <div className="shell-in w-full max-w-md rounded-xl border border-line bg-panel p-8 text-center shadow-2xl shadow-black/60">
-        <div className={`text-4xl font-bold tracking-tight ${over.winner == null ? 'text-ink' : won ? 'text-playable' : 'text-danger'}`}>{headline}</div>
+      <div className="shell-in w-full max-w-md lk-plate rounded-2xl p-8 text-center">
+        <div className={`font-title text-5xl font-bold ${over.winner == null ? 'text-ink' : won ? 'text-playable' : 'text-danger'}`}>{headline}</div>
         <div className="mt-2 text-sm text-ink-dim">{won ? 'You won the game' : over.winner ? `${over.winner} wins the game` : 'Nobody won'}</div>
         {over.summary && <p className="mt-5 whitespace-pre-line rounded-lg bg-felt px-4 py-3 text-left text-sm text-ink-dim">{over.summary}</p>}
         <Btn variant="primary" className="mt-6 w-full py-2.5" autoFocus onClick={close}>Back to lobby</Btn>

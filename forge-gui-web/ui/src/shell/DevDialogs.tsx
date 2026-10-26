@@ -38,7 +38,7 @@ export function DevDialogs() {
         <div className="fixed inset-0 grid place-items-center bg-felt">
           <div className="absolute inset-x-[18%] top-[8%] h-[30%] rounded-2xl border border-line/50 bg-table/40" />
           <div className="absolute inset-x-[18%] bottom-[8%] h-[30%] rounded-2xl border border-line/50 bg-table/40" />
-          <PromptBar />
+          <div className="w-72"><PromptBar /></div>
         </div>
       ) : (
         hasLobby && <div className="fixed inset-0"><Lobby /></div>

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AssistMessage, Ask, BlockersAssist, CardDto, CombatAssist, CombatDto, EntityRef, GameDto, LogEntry, PlayerDto, ServerMessage, StackItemDto } from './protocol'
+import type { AssistMessage, Ask, BlockersAssist, CardDto, CombatAssist, CombatDto, EntityRef, GameDto, LogEntry, ManaAssist, PlayerDto, ServerMessage, StackItemDto } from './protocol'
 
 // Shared client state. net.ts feeds server messages into apply(); components only read.
 export type ForgeState = {
@@ -13,6 +13,7 @@ export type ForgeState = {
   combat: CombatDto | null
   combatAssist: CombatAssist | null // engine's combat prediction (assist channel)
   blockersAssist: BlockersAssist | null // who may block each attacker, while you declare blockers
+  manaAssist: ManaAssist | null // what each player's untapped sources could add now
   caps: string[] // server capabilities from hello
   prompt: { playerId: number; message: string; cardId: number | null } | null
   buttons: { ok: { label: string; enabled: boolean }; cancel: { label: string; enabled: boolean }; focusOk: boolean } | null
@@ -40,6 +41,7 @@ type AssistReducer<K extends AssistMessage['kind']> = (m: Extract<AssistMessage,
 const assistReducers: { [K in AssistMessage['kind']]: AssistReducer<K> } = {
   combat: (m) => ({ combatAssist: m.combat }),
   blockers: (m) => ({ blockersAssist: m.blockers }),
+  mana: (m) => ({ manaAssist: m.mana }),
 }
 
 function applyAssist(m: AssistMessage): Partial<ForgeState> {
@@ -79,6 +81,7 @@ export const useForge = create<ForgeState>()((set) => ({
   combat: null,
   combatAssist: null,
   blockersAssist: null,
+  manaAssist: null,
   caps: [],
   prompt: null,
   buttons: null,
