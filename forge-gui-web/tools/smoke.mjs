@@ -8,6 +8,8 @@
 // that the combat assist follows it.
 // Checks (protocol v2): hello version and caps, the log arrives append-only, `blockers` assists are sane (and match
 // the expectations below for the blockers-*.txt fixtures), and reports the largest state message for a one-card change.
+// Optional fields: basePower/baseToughness, keywordLabels, colorIdentity, commanders/commanderDamage, turnOrder and
+// the `mana` assist are checked for shape whenever they arrive.
 const args = process.argv.slice(2);
 const opt = (name, dflt) => {
   const i = args.indexOf(`--${name}`);
@@ -41,6 +43,22 @@ const BLOCKER_EXPECT = {
 const PLAYER_TARGET_EXPECT = { "targets-hexproof.txt": ["me", 2] }; // p1 has hexproof (Leyline of Sanctity)
 let playerTargetSeen = false;
 
+// fixture -> card name -> fields its CardDto must have, and the first `mana` assist by player ("me" = our seat)
+const FIELD_EXPECT = {
+  "fields-badges.txt": {
+    cards: {
+      "Phantom Warrior": { keywords: ["can't be blocked"] },
+      "White Knight": { keywords: ["first strike", "protection"], keywordLabels: { protection: ["Protection from black"] } },
+      "Inkwell Leviathan": { keywords: ["trample", "shroud"] },
+      "Grizzly Bears": { power: 3, toughness: 3, basePower: 2, baseToughness: 2 },
+    },
+    mana: { me: { W: 2, U: 1 }, 1: { R: 1 } },
+    colorIdentity: { me: ["W", "U", "G"], 1: ["R"] },
+  },
+  "token-pod-turn12.txt": { cards: { "Emmara, Soul of the Accord": {} }, colorIdentity: { me: ["W", "G"], 1: ["B", "G"], 2: ["U", "R", "G"], 3: ["W", "U", "B", "R", "G"] } },
+};
+let fieldsChecked = false, manaChecked = false;
+
 const counts = {};
 const askKinds = {};
 let maxState = 0, stateBytes = 0, states = 0, errors = 0, idProblems = 0, seqProblems = 0;
@@ -55,6 +73,96 @@ let log = [], logProblems = 0, logAppends = 0;
 let cardOnlyMax = 0, oneCardV1Max = 0, oneCardMax = 0, oneCardCount = 0, oneCardOver = 0;
 let blockers = null, blockersSeen = 0, blockersProblems = 0, blockTurn = -1, pendingBlock = null, lastBlock = null, blockDone = null, blockFollowed = 0;
 let combatAssists = 0, expectChecked = 0;
+let extraProblems = 0, firstMana = null, lastMana = null, manaAssists = 0;
+const fieldSamples = {};
+const seenExtra = { basePT: 0, keywordLabels: 0, unblockable: 0, colorIdentity: 0, commanders: 0, commanderDamage: 0, turnOrder: 0 };
+const extraProblem = (what) => {
+  extraProblems++;
+  if (extraProblems <= 20) console.log("FIELDS:", what);
+};
+const KEYWORD_KEYS = new Set(["flying", "reach", "deathtouch", "trample", "lifelink", "first strike", "double strike", "vigilance", "menace",
+  "haste", "hexproof", "indestructible", "infect", "defender", "shroud", "protection", "ward", "can't be blocked"]);
+function checkCard(c) {
+  for (const k of c.keywords) if (!KEYWORD_KEYS.has(k)) extraProblem(`${c.name}: unknown keyword key ${k}`);
+  if (c.keywords.includes("can't be blocked")) { seenExtra.unblockable++; fieldSamples.unblockable ??= c.name; }
+  if ("basePower" in c || "baseToughness" in c) {
+    seenExtra.basePT++;
+    fieldSamples.basePT ??= `${c.name} ${c.power}/${c.toughness} (base ${c.basePower}/${c.baseToughness})`;
+    if (!Number.isInteger(c.basePower) || !Number.isInteger(c.baseToughness) || c.power == null) extraProblem(`${c.name}: bad base P/T`);
+    else if (c.basePower === c.power && c.baseToughness === c.toughness) extraProblem(`${c.name}: base P/T sent though equal`);
+  }
+  if (c.keywordLabels) {
+    seenExtra.keywordLabels++;
+    fieldSamples.keywordLabels ??= `${c.name} ${JSON.stringify(c.keywordLabels)}`;
+    for (const [k, v] of Object.entries(c.keywordLabels)) {
+      if (!c.keywords.includes(k)) extraProblem(`${c.name}: label for absent keyword ${k}`);
+      if (!Array.isArray(v) || !v.length || v.some((x) => typeof x !== "string" || !x)) extraProblem(`${c.name}: bad labels for ${k}`);
+    }
+  }
+}
+function checkPlayer(p) {
+  if (p.colorIdentity) {
+    seenExtra.colorIdentity++;
+    if (!Array.isArray(p.colorIdentity) || p.colorIdentity.some((x) => !"WUBRG".includes(x) || x.length !== 1)) extraProblem(`${p.name}: bad colorIdentity`);
+  }
+  if (p.commanders) {
+    seenExtra.commanders++;
+    for (const e of p.commanders) {
+      if (!cards.has(e.cardId)) extraProblem(`${p.name}: unknown commander ${e.cardId}`);
+      if (e.tax !== 2 * e.casts) extraProblem(`${p.name}: tax ${e.tax} for ${e.casts} casts`);
+    }
+  }
+  if (p.commanderDamage) {
+    seenExtra.commanderDamage++;
+    for (const e of p.commanderDamage) if (!(e.damage > 0) || !cards.has(e.cardId)) extraProblem(`${p.name}: bad commanderDamage ${JSON.stringify(e)}`);
+  }
+}
+function checkFieldExpect() {
+  const expect = stateFile && FIELD_EXPECT[stateFile];
+  if (!expect || fieldsChecked) return;
+  fieldsChecked = true;
+  for (const [name, want] of Object.entries(expect.cards)) {
+    const c = [...cards.values()].find((x) => x.name === name);
+    if (!c) { extraProblem(`fixture: no ${name}`); continue; }
+    for (const [k, v] of Object.entries(want)) {
+      const got = k === "keywords" ? [...c.keywords].sort() : c[k];
+      const exp = k === "keywords" ? [...v].sort() : v;
+      if (JSON.stringify(got) !== JSON.stringify(exp)) extraProblem(`fixture: ${name}.${k} ${JSON.stringify(got)} != ${JSON.stringify(exp)}`);
+    }
+  }
+}
+function checkMana(mana) {
+  manaAssists++;
+  if (!mana) return;
+  const expect = stateFile && FIELD_EXPECT[stateFile];
+  // the first assist after the board is set up (assists also arrive before the saved state is applied)
+  const boardUp = expect && [...cards.values()].some((c) => c.name in expect.cards);
+  if (boardUp && !manaChecked && game) {
+    manaChecked = true;
+    checkFieldExpect(); // board facts are read at the decision point that sent this assist, and flushed before it
+    for (const [who, want] of Object.entries(expect.colorIdentity || {})) {
+      const id = who === "me" ? game.localPlayerIds[0] : Number(who);
+      const got = players.get(id) && players.get(id).colorIdentity;
+      if (JSON.stringify(got) !== JSON.stringify(want)) extraProblem(`fixture: colorIdentity of ${id} ${JSON.stringify(got)} != ${JSON.stringify(want)}`);
+    }
+    for (const [who, want] of Object.entries(expect.mana || {})) {
+      const id = who === "me" ? game.localPlayerIds[0] : Number(who);
+      const e = mana.players.find((x) => x.id === id);
+      if (!e || !sameJson(e.open, want)) extraProblem(`fixture: mana of ${id} ${JSON.stringify(e && e.open)} != ${JSON.stringify(want)}`);
+    }
+  }
+  if (!firstMana) firstMana = mana;
+  if (mana.players.some((e) => e.total > 0)) lastMana = mana;
+  for (const e of mana.players) {
+    if (!players.has(e.id)) extraProblem(`mana for unknown player ${e.id}`);
+    let sum = 0;
+    for (const [k, n] of Object.entries(e.open)) {
+      if (!/^(any|W?U?B?R?G?C?)$/.test(k) || !k || !(n > 0)) extraProblem(`mana: bad entry ${k}:${n}`);
+      sum += n;
+    }
+    if (sum !== e.total) extraProblem(`mana: total ${e.total} != ${sum}`);
+  }
+}
 const problem = (what) => {
   blockersProblems++;
   if (blockersProblems <= 20) console.log("BLOCKERS:", what);
@@ -265,7 +373,8 @@ ws.onmessage = (ev) => {
   switch (m.t) {
     case "hello":
       if (m.version !== 2) { errors++; console.log("hello.version is", m.version, "not 2"); }
-      for (const cap of ["log.append", "selectables.players", "assist.combat", "assist.blockers"]) {
+      for (const cap of ["log.append", "selectables.players", "assist.combat", "assist.blockers", "assist.mana", "card.basePT",
+        "card.keywordLabels", "player.colorIdentity", "player.commander", "game.turnOrder"]) {
         if (!(m.caps || []).includes(cap)) { errors++; console.log("hello.caps lacks", cap); }
       }
       if (m.inMatch) {
@@ -329,6 +438,12 @@ ws.onmessage = (ev) => {
       for (const p of m.players || []) players.set(p.id, p);
       for (const c of m.cards || []) cards.set(c.id, c);
       for (const id of m.removedCards || []) cards.delete(id);
+      for (const c of m.cards || []) checkCard(c);
+      for (const p of m.players || []) checkPlayer(p);
+      if (m.game && m.game.turnOrder) {
+        seenExtra.turnOrder++;
+        for (const id of m.game.turnOrder) if (!players.has(id)) extraProblem(`turnOrder: unknown player ${id}`);
+      }
       for (const p of m.players || []) checkIds(`zones of ${p.name}`, Object.values(p.zones).flat());
       if (maxTurns && game && game.turn > maxTurns) {
         console.log(`reached turn ${game.turn}`);
@@ -402,6 +517,8 @@ ws.onmessage = (ev) => {
           inputDirty = true;
         }
         if (m.combat) checkIds("combat assist", [...m.combat.attackers.map((a) => a.id), ...m.combat.blockers.map((b) => b.id)]);
+      } else if (m.kind === "mana") {
+        checkMana(m.mana);
       } else {
         console.log("unknown assist kind", m.kind);
       }
@@ -456,12 +573,20 @@ function finish(code) {
   console.log(`one-card states: ${oneCardCount}, max ${oneCardMax} B, over 2 KB: ${oneCardOver}; card-only (no players/game) max ${cardOnlyMax} B (v1 would have sent up to ~${oneCardV1Max} B)`);
   console.log(`log: ${log.length} entries kept, ${logAppends} appends, problems ${logProblems}`);
   console.log(`assists: combat ${combatAssists}, blockers ${blockersSeen} (block followed ${blockFollowed}), blockers problems ${blockersProblems}`);
+  console.log(`fields seen (messages): ${JSON.stringify(seenExtra)}; mana assists ${manaAssists}; field problems ${extraProblems}`);
+  if (firstMana) console.log("first mana assist:", JSON.stringify(firstMana));
+  if (lastMana) console.log("last non-empty mana assist:", JSON.stringify(lastMana));
+  if (Object.keys(fieldSamples).length) console.log("samples:", JSON.stringify(fieldSamples));
   console.log(`unknown ids: ${idProblems}, seq gaps: ${seqProblems}, errors: ${errors}`);
   let rc = code;
-  if (errors > 0 || states === 0 || logProblems > 0 || blockersProblems > 0 || idProblems > 0) rc = 1;
+  if (errors > 0 || states === 0 || logProblems > 0 || blockersProblems > 0 || idProblems > 0 || extraProblems > 0) rc = 1;
   if (stateFile && PLAYER_TARGET_EXPECT[stateFile]) {
     console.log(`fixture ${stateFile}: player targets ${playerTargetSeen ? "as expected" : "NOT SEEN"}`);
     if (!playerTargetSeen) rc = 1;
+  }
+  if (stateFile && FIELD_EXPECT[stateFile]) {
+    console.log(`fixture ${stateFile}: fields ${fieldsChecked ? "checked" : "NOT CHECKED"}, mana ${manaChecked ? "checked" : "NOT CHECKED"}`);
+    if (!fieldsChecked || !manaChecked) rc = 1;
   }
   if (stateFile && BLOCKER_EXPECT[stateFile] && !expectChecked) {
     console.log(`fixture ${stateFile}: no blockers assist arrived`);
