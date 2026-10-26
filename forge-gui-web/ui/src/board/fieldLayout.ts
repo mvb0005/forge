@@ -48,20 +48,22 @@ export function layoutTable(
   const sides = (['top', 'bottom'] as const).map((side) => {
     const lanes = side === 'top' ? lt : lb
     const rest = side === 'top' ? topRest : bottomRest
+    // With the lands folded away (into the mana ribbon), other permanents join the front row.
+    const ends = lanes.lands.length ? lanes.walkers : [...lanes.walkers, ...lanes.others]
     const front: LaneItem[] = [
       ...columns.map((c) => ({ key: c.key, slots: c.slots })),
       ...rest.map((g) => ({ key: g.key, slots: 1 })),
-      ...lanes.walkers.map((g) => ({ key: g.key, slots: 1, end: true })),
+      ...ends.map((g) => ({ key: g.key, slots: 1, end: true })),
     ]
-    const back: LaneItem[] = [...lanes.lands.map((p) => ({ key: p.key, slots: 1 })), ...lanes.others.map((g) => ({ key: g.key, slots: 1, end: true }))]
-    const frontGroups = [...lanes.creatures, ...lanes.walkers]
+    const back: LaneItem[] = lanes.lands.length ? [...lanes.lands.map((p) => ({ key: p.key, slots: 1 })), ...lanes.others.map((g) => ({ key: g.key, slots: 1, end: true }))] : []
+    const frontGroups = [...lanes.creatures, ...ends]
     const share = !back.length ? 1 : !front.length && !columns.length ? 0.38 : fold ? 0.74 : 0.6
     const frontH = share === 1 ? H : (H - LANE_GAP) * share
     const backH = share === 1 ? 0 : H - LANE_GAP - frontH
     const fAttach = attachRows(frontGroups) * 0.13
     const fCombat = inCombat ? 0.1 : 0
     const bAttach = attachRows(lanes.others) * 0.13
-    return { side, lanes, rest, front, back, frontH, backH, fAttach, fCombat, bAttach }
+    return { side, lanes, rest, ends, front, back, frontH, backH, fAttach, fCombat, bAttach }
   })
 
   // Shared front tile size and step.
@@ -71,14 +73,31 @@ export function layoutTable(
   const sharedW = Math.min(...fits.map((f) => f.w))
   const sharedStep = Math.min(...sides.map((s) => fitLane(s.front, W, s.frontH, { ...FRONT, maxW: sharedW, slotY: 1.04 + s.fAttach + s.fCombat }).step))
 
+  const placed = sides.map((s, i) => {
+    const w = shared ? sharedW : fits[i].w
+    const step = shared ? sharedStep : fits[i].step
+    const rowH = w * CARD_RATIO * (1.04 + s.fAttach + s.fCombat)
+    return placeLane(s.front, W, s.frontH, w, step, rowH, s.side === 'top', !shared)
+  })
+  // Lined-up combat: both sides move together, so centre them by the wider side when each is one row.
+  let dx = 0
+  if (shared) {
+    const extent = sides.map((s, i) => {
+      const ys = new Set([...placed[i].values()].map((p) => p.y))
+      if (ys.size > 1) return Infinity
+      return Math.max(0, ...s.front.map((it) => placed[i].get(it.key)!.x + (it.slots - 1) * sharedStep + sharedW))
+    })
+    const widest = Math.max(...extent)
+    if (widest < W) dx = (W - widest) / 2
+  }
+
   const out = sides.map((s, i): SideLayout => {
     const w = shared ? sharedW : fits[i].w
     const step = shared ? sharedStep : fits[i].step
     const th = w * CARD_RATIO
     const tiles: TileSpec[] = []
     const isTop = s.side === 'top'
-    const rowH = th * (1.04 + s.fAttach + s.fCombat)
-    const pos = placeLane(s.front, W, s.frontH, w, step, rowH, isTop)
+    const pos = new Map([...placed[i]].map(([k, p]) => [k, { x: p.x + dx, y: p.y }]))
     const frontY0 = isTop ? PAD + (s.backH ? s.backH + LANE_GAP : 0) : PAD
     const attachTop = th * s.fAttach + (isTop ? 0 : th * s.fCombat)
     const shiftAmt = th * 0.09 * (isTop ? 1 : -1)
@@ -90,7 +109,7 @@ export function layoutTable(
       cols.push({ key: c.key, x: PAD + p.x, w: (c.slots - 1) * step + w })
       ;(isTop ? c.top : c.bottom).forEach((g, i) => push(g, p.x + i * step, p.y))
     }
-    for (const g of [...s.rest, ...s.lanes.walkers]) {
+    for (const g of [...s.rest, ...s.ends]) {
       const p = pos.get(g.key)!
       push(g, p.x, p.y)
     }

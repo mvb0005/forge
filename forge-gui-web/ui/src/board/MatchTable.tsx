@@ -1,27 +1,34 @@
 import { useRef, type CSSProperties, type ReactNode } from 'react'
+import { isCombat } from '../look/phase'
+import { TableHalf, TableMat } from '../look/TableHalf'
+import { TypeLine } from '../look/TypeLine'
+import { usePromptHint } from '../shell/PromptBar'
 import type { Region } from '../table/contract'
 import { CardLayer, useTableLayout } from '../table/CardLayer'
 import { useForge } from '../store'
 import { Arrows } from './Arrows'
-import { CombatArena } from './CombatArena'
-import { PhaseTracker, StackView } from './Center'
+import { BlockSlots } from './CombatArena'
+import { StackView } from './Center'
 import { SidePanel } from './Preview'
-import { OpponentStrip, SeatPanel } from './Seat'
+import { Piles, Ribbon, SeatPlate, StripSeat, useSeatColors } from './Seat'
 import { useBoardUi } from './uiStore'
 import { useSize } from './useSize'
 import './board.css'
 
 const at = (r: Region | undefined): CSSProperties => (r ? { position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h } : { display: 'none' })
+const MOVE: CSSProperties = { transition: 'transform 220ms cubic-bezier(0.2, 0.7, 0.2, 1)' }
 
-// The whole table. The chrome is placed from the layout's regions; every card is drawn by the card layer.
-// centerSlot is rendered in the middle strip, next to the stack (the shell puts the prompt bar there).
+// The whole table in the look (docs/DESIGN.md): two coloured halves, the type line between them (it
+// rises in combat), seats, ribbons, the action column and the log. The chrome is placed from the
+// layout's regions; every card is drawn by the card layer. centerSlot is the action plate.
 export function MatchTable({ centerSlot }: { centerSlot: ReactNode }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const { W, H } = useSize(rootRef)
   const viewport = { w: W, h: H }
   const { layout, meId, focusId } = useTableLayout(viewport)
   const players = useForge((s) => s.players)
-  const turn = useForge((s) => s.game?.turn ?? 0)
+  const game = useForge((s) => s.game)
+  const turn = game?.turn ?? 0
   const setFocus = useBoardUi((s) => s.setFocus)
   const me = meId != null ? players[meId] : undefined
   const opp = focusId != null ? players[focusId] : undefined
@@ -29,43 +36,98 @@ export function MatchTable({ centerSlot }: { centerSlot: ReactNode }) {
     .filter((p) => p.id !== meId && p.id !== focusId)
     .sort((a, b) => a.id - b.id)
   const r = layout.regions
+  const meColors = useSeatColors(me)
+  const oppColors = useSeatColors(opp)
+  const activeId = game?.activePlayerId ?? null
+  const band = r.split && r.top && r.bottom && isCombat(game?.phase ?? null) && Object.keys(r).some((k) => k.startsWith('lane:'))
+
+  const halves = r.split && (
+    <>
+      <TableHalf colors={oppColors} active={activeId != null && activeId === focusId} side="top" style={{ position: 'absolute', left: 0, top: 0, width: r.split.w, height: r.split.y }} />
+      <TableHalf colors={meColors} active={activeId === meId} side="bottom" style={{ position: 'absolute', left: 0, top: r.split.y, width: r.split.w, height: H - r.split.y }} />
+    </>
+  )
 
   return (
-    <div ref={rootRef} className="relative h-full w-full select-none overflow-hidden bg-table text-ink" onContextMenu={(e) => e.preventDefault()}>
-      {W > 0 && (
-        <>
+    <div ref={rootRef} className="relative h-full w-full select-none overflow-hidden" style={{ background: 'var(--lk-ink)' }} onContextMenu={(e) => e.preventDefault()}>
+      {W > 0 && r.split && (
+        <TableMat halves={halves} style={{ position: 'absolute', left: 0, top: 0, width: r.split.w, height: H }}>
+          {band && (
+            <div className="pointer-events-none" style={{ position: 'absolute', left: 0, right: 0, top: r.top.y - 20, height: r.bottom.y + r.bottom.h - r.top.y + 40, background: 'linear-gradient(rgb(255 106 61 / 0), rgb(255 106 61 / .1) 50%, rgb(255 106 61 / 0))' }} />
+          )}
           {r.strips && (
-            <div className="flex min-w-0 gap-2" style={at(r.strips)}>
+            <div style={{ ...at(r.strips), display: 'flex', gap: 12, zIndex: 7 }}>
               {strips.map((p) => (
-                <OpponentStrip key={p.id} player={p} onFocus={() => setFocus(p.id, turn)} />
+                <StripSeat key={p.id} player={p} width={Math.min(460, (r.strips.w - 12 * (strips.length - 1)) / Math.max(1, strips.length))} onFocus={() => setFocus(p.id, turn)} />
               ))}
             </div>
           )}
-          <div style={at(r.oppSeat)}>{opp && <SeatPanel player={opp} isMe={false} compact={false} />}</div>
-          <div className="felt rounded-2xl border border-line/70" style={at(r.top)} />
-          <div className="felt rounded-2xl border border-line/70" style={at(r.bottom)} />
-          <div className="pointer-events-none rounded-xl bg-table/35" style={at(r['top:back'])} />
-          <div className="pointer-events-none rounded-xl bg-table/35" style={at(r['bottom:back'])} />
-          <div className="rounded-xl border border-line/60 bg-panel/70" style={at(r.center)} />
-          <div className="flex items-center overflow-hidden" style={at(r.phase)}>
-            <PhaseTracker meId={meId} />
+          {opp && (
+            <div style={{ position: 'absolute', left: r.oppSeat.x + 12, top: 0, zIndex: 8, transform: `translateY(${r.oppSeat.y + 10}px)`, ...MOVE }}>
+              <SeatPlate player={opp} isMe={false} />
+            </div>
+          )}
+          {opp && <Ribbon player={opp} isMe={false} style={{ ...at(r.oppRibbon), display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 3 }} />}
+          {me && <Ribbon player={me} isMe style={{ ...at(r.meRibbon), display: 'flex', alignItems: 'center', zIndex: 3 }} />}
+          {game && (
+            <div style={{ position: 'absolute', left: r.line.x, top: 0, width: r.line.w, zIndex: 20, transform: `translateY(${r.line.y + (r.line.h - 48) / 2}px)`, ...MOVE }}>
+              <Line meId={meId} multi={Object.keys(players).length > 2} />
+            </div>
+          )}
+          <div style={{ ...at(r.stack), zIndex: 9 }}>
+            <StackView h={r.stack.h} />
           </div>
-          <div className="h-8 w-px bg-line" style={{ position: 'absolute', left: r.phase.x + r.phase.w + 16, top: r.center.y + 16 }} />
-          <div style={at(r.stack)}>
-            <StackView />
-          </div>
-          <div className="flex min-w-0 items-center justify-end" style={at(r.prompt)}>
+          <div style={{ position: 'absolute', left: r.act.x, top: 0, width: r.act.w, zIndex: 22, transform: `translateY(${r.act.y}px)`, ...MOVE }}>
             {centerSlot}
           </div>
-          <div style={at(r.meSeat)}>{me && <SeatPanel player={me} isMe compact={false} />}</div>
-          <div style={at(r.side)}>
-            <SidePanel />
-          </div>
+          {me && (
+            <div style={{ position: 'absolute', left: r.meSeat.x + 12, top: r.meSeat.y + 4, zIndex: 8 }}>
+              <SeatPlate player={me} isMe />
+            </div>
+          )}
+          {me && (
+            <div style={{ ...at(r.piles), zIndex: 8, display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end', padding: '0 10px 14px 0', boxSizing: 'border-box' }}>
+              <Piles player={me} />
+            </div>
+          )}
+          <BlockSlots layout={layout} />
           <CardLayer layout={layout} />
-          <CombatArena meId={meId} right={r.side.w + 12} />
-          <Arrows rootRef={rootRef} />
-        </>
+        </TableMat>
       )}
+      {W > 0 && (
+        <div style={at(r.side)}>
+          <SidePanel />
+        </div>
+      )}
+      {W > 0 && <Arrows rootRef={rootRef} />}
     </div>
+  )
+}
+
+function Line({ meId, multi }: { meId: number | null; multi: boolean }) {
+  const game = useForge((s) => s.game)!
+  const players = useForge((s) => s.players)
+  const hint = usePromptHint()
+  const net = useForge((s) => {
+    const after = s.combatAssist?.players.find((p) => p.id === meId)?.lifeAfter
+    const life = meId != null ? s.players[meId]?.life : undefined
+    return after != null && life != null ? life - after : 0
+  })
+  const active = game.activePlayerId != null ? players[game.activePlayerId] : undefined
+  const ids = game.turnOrder?.length ? game.turnOrder : Object.keys(players).map(Number).sort((a, b) => a - b)
+  const i = Math.max(0, ids.indexOf(game.activePlayerId ?? ids[0]))
+  const order = multi ? [...ids.slice(i), ...ids.slice(0, i)].filter((id) => players[id]).map((id) => ({ id, name: players[id].name, you: id === meId, out: players[id].hasLost })) : undefined
+  return (
+    <TypeLine
+      activeName={active?.name ?? ''}
+      you={game.activePlayerId === meId}
+      phase={game.phase}
+      turn={game.turn}
+      hint={hint}
+      ledger={net > 0 ? `Net −${net}` : undefined}
+      order={order}
+      activeId={game.activePlayerId ?? undefined}
+      gemLabels={!multi}
+    />
   )
 }

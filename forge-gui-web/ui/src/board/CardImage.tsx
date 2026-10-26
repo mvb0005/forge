@@ -123,7 +123,7 @@ function TextFrame({ card, width, height, bare }: { card: CardDto; width: number
   const textBoxH = height * 0.34
   const textBoxW = width - pad * 2
   const chars = Math.max(1, card.text.length)
-  const fit = Math.sqrt((textBoxH * textBoxW * 0.82) / (chars * 0.62))
+  const fit = Math.sqrt((textBoxH * textBoxW * 0.82) / (chars * 0.88)) // Libre Baskerville runs wide
   const textFs = Math.max(6, Math.min(width * 0.056, 15, fit * 0.98))
   const [a, b] = frameTint(card)
   const bar: CSSProperties = {
@@ -137,7 +137,7 @@ function TextFrame({ card, width, height, bare }: { card: CardDto; width: number
   return (
     <div className="absolute inset-0 flex flex-col" style={{ background: bg(card), padding: pad, gap: pad * 0.55 }}>
       <div className="flex items-center justify-between" style={{ ...bar, padding: `${nameFs * 0.22}px ${nameFs * 0.4}px`, gap: 4 }}>
-        <span className="truncate font-semibold text-ink" style={{ fontSize: nameFs, lineHeight: 1.15 }}>
+        <span className="truncate font-title font-bold text-ink" style={{ fontSize: nameFs, lineHeight: 1.15 }}>
           {name}
         </span>
         <ManaCost cost={card.manaCost} size={nameFs * 0.95} />

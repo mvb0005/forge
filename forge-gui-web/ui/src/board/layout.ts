@@ -235,8 +235,9 @@ export type Placed = { x: number; y: number }
 /**
  * Positions items in rows from the left; items marked `end` are pushed to the right end of the
  * last row when everything fits on one row. `fromBottom` stacks rows upward from the bottom edge.
+ * `center`: a single row is centred instead, ends right after the rest.
  */
-export function placeLane(items: LaneItem[], W: number, H: number, w: number, step: number, rowH: number, fromBottom: boolean) {
+export function placeLane(items: LaneItem[], W: number, H: number, w: number, step: number, rowH: number, fromBottom: boolean, center = false) {
   const out = new Map<string, Placed>()
   const cap = Math.max(1, Math.floor((W - w) / step + 1e-6) + 1)
   const rows: LaneItem[][] = [[]]
@@ -252,7 +253,15 @@ export function placeLane(items: LaneItem[], W: number, H: number, w: number, st
   }
   rows.forEach((row, r) => {
     const y = fromBottom ? H - (r + 1) * rowH : r * rowH
-    let x = 0
+    const slots = row.reduce((n, it) => n + Math.min(it.slots, cap), 0)
+    let x = center && rows.length === 1 ? Math.max(0, (W - (slots - 1) * step - w) / 2) : 0
+    if (center && rows.length === 1) {
+      for (const it of row) {
+        out.set(it.key, { x, y })
+        x += it.slots * step
+      }
+      return
+    }
     const starts = row.filter((it) => !it.end)
     const ends = row.filter((it) => it.end)
     for (const it of starts) {
