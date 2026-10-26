@@ -50,6 +50,9 @@ public final class MatchHost {
         JsonArray caps = new JsonArray();
         caps.add("log.append");
         caps.add("selectables.players");
+        for (String c : new String[] {"card.basePT", "card.keywordLabels", "player.colorIdentity", "player.commander", "game.turnOrder"}) {
+            caps.add(c);
+        }
         Assists.standard().caps().forEach(caps::add);
         hello.add("caps", caps);
         hello.addProperty("inMatch", s != null);

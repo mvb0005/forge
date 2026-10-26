@@ -19,6 +19,7 @@ import forge.game.card.CounterEnumType;
 import forge.game.card.CounterType;
 import forge.game.combat.CombatView;
 import forge.game.keyword.Keyword;
+import forge.game.keyword.KeywordView;
 import forge.game.player.PlayerView;
 import forge.game.spellability.StackItemView;
 import forge.game.zone.ZoneType;
@@ -39,7 +40,7 @@ final class ViewProjector {
     private static final Keyword[] BADGES = {
             Keyword.FLYING, Keyword.REACH, Keyword.DEATHTOUCH, Keyword.TRAMPLE, Keyword.LIFELINK, Keyword.FIRST_STRIKE,
             Keyword.DOUBLE_STRIKE, Keyword.VIGILANCE, Keyword.MENACE, Keyword.HASTE, Keyword.HEXPROOF,
-            Keyword.INDESTRUCTIBLE, Keyword.INFECT, Keyword.DEFENDER,
+            Keyword.INDESTRUCTIBLE, Keyword.INFECT, Keyword.DEFENDER, Keyword.SHROUD, Keyword.PROTECTION,
     };
     private static final CardType.CoreType[] CORE_TYPES = {
             CardType.CoreType.Creature, CardType.CoreType.Land, CardType.CoreType.Artifact, CardType.CoreType.Enchantment,
@@ -170,6 +171,12 @@ final class ViewProjector {
             local.add(p.getId());
         }
         o.add("localPlayerIds", local);
+        List<Integer> order = gui.facts().turnOrder();
+        if (!order.isEmpty()) {
+            JsonArray a = new JsonArray();
+            order.forEach(a::add);
+            o.add("turnOrder", a);
+        }
         o.addProperty("gameOver", gv.isGameOver());
         o.addProperty("winner", gv.isGameOver() ? gv.getWinningPlayerName() : null);
         return o;
@@ -209,6 +216,47 @@ final class ViewProjector {
         o.add("zones", zones);
         o.addProperty("avatarImg", imgUrl(p.getAvatarCardImageKey()));
         o.addProperty("hasLost", p.getHasLost());
+        String identity = gui.facts().colorIdentity(p.getId());
+        if (identity != null) {
+            JsonArray a = new JsonArray();
+            for (char ch : identity.toCharArray()) {
+                a.add(String.valueOf(ch));
+            }
+            o.add("colorIdentity", a);
+        }
+        List<CardView> own = p.getCommanders();
+        if (own != null && !own.isEmpty()) {
+            JsonArray a = new JsonArray();
+            for (CardView c : own) {
+                JsonObject e = new JsonObject();
+                e.addProperty("cardId", c.getId());
+                e.addProperty("casts", p.getCommanderCast(c));
+                e.addProperty("tax", 2 * p.getCommanderCast(c));
+                a.add(e);
+            }
+            o.add("commanders", a);
+        }
+        JsonArray dealt = new JsonArray();
+        List<PlayerView> sources = new ArrayList<>();
+        sources.add(p);
+        sources.addAll(p.getOpponents());
+        for (PlayerView q : sources) {
+            if (q.getCommanders() == null) {
+                continue;
+            }
+            for (CardView c : q.getCommanders()) {
+                int d = p.getCommanderDamage(c);
+                if (d > 0) {
+                    JsonObject e = new JsonObject();
+                    e.addProperty("cardId", c.getId());
+                    e.addProperty("damage", d);
+                    dealt.add(e);
+                }
+            }
+        }
+        if (!dealt.isEmpty()) {
+            o.add("commanderDamage", dealt);
+        }
         return o;
     }
 
@@ -264,22 +312,37 @@ final class ViewProjector {
         boolean creature = state != null && state.isCreature();
         o.addProperty("power", creature ? state.getPower() : null);
         o.addProperty("toughness", creature ? state.getToughness() : null);
+        int[] base = creature && c.getZone() == ZoneType.Battlefield ? gui.facts().basePT(c.getId()) : null;
+        if (base != null && (base[0] != state.getPower() || base[1] != state.getToughness())) {
+            o.addProperty("basePower", base[0]);
+            o.addProperty("baseToughness", base[1]);
+        }
         o.addProperty("loyalty", state != null && state.isPlaneswalker() ? parseInt(state.getLoyalty()) : null);
         o.addProperty("defense", state != null && state.isBattle() ? parseInt(state.getDefense()) : null);
         o.addProperty("damage", visible ? c.getDamage() : 0);
         o.add("counters", visible ? counters(c.getCounters(), false) : new JsonObject());
         JsonArray kw = new JsonArray();
+        JsonObject labels = new JsonObject();
         if (state != null && state.getKeywords() != null) {
             for (Keyword k : BADGES) {
                 if (state.hasKeyword(k)) {
-                    kw.add(k == Keyword.FIRST_STRIKE ? "first strike" : k == Keyword.DOUBLE_STRIKE ? "double strike" : k.name().toLowerCase());
+                    String key = k == Keyword.FIRST_STRIKE ? "first strike" : k == Keyword.DOUBLE_STRIKE ? "double strike" : k.name().toLowerCase();
+                    kw.add(key);
+                    labels(state, k, key, labels);
                 }
             }
             if (state.hasWard()) {
                 kw.add("ward");
+                labels(state, Keyword.WARD, "ward", labels);
+            }
+            if (creature && c.getZone() == ZoneType.Battlefield && gui.facts().unblockable(c.getId())) {
+                kw.add("can't be blocked");
             }
         }
         o.add("keywords", kw);
+        if (labels.size() > 0) {
+            o.add("keywordLabels", labels);
+        }
         o.addProperty("tapped", c.isTapped());
         o.addProperty("sick", visible && c.isSick());
         o.addProperty("phasedOut", c.isPhasedOut());
@@ -295,6 +358,20 @@ final class ViewProjector {
         int sprocket = visible ? c.getSprocket() : 0;
         o.addProperty("sprocket", sprocket > 0 ? sprocket : null);
         return o;
+    }
+
+    /** The keyword's full titles ("Ward {2}", "Protection from red") when they say more than the key. */
+    private static void labels(CardStateView state, Keyword k, String key, JsonObject out) {
+        JsonArray a = new JsonArray();
+        for (KeywordView v : state.getKeywords().getValues(k)) {
+            String title = v.title() == null ? null : v.title().replace("from from ", "from "); // "Protection from black" titles twice
+            if (title != null && !title.equalsIgnoreCase(key) && !a.contains(new com.google.gson.JsonPrimitive(title))) {
+                a.add(title);
+            }
+        }
+        if (!a.isEmpty()) {
+            out.add(key, a);
+        }
     }
 
     JsonArray stack(GameView gv) {

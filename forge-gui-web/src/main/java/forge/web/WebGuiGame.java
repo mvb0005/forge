@@ -125,6 +125,7 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     private int askSeq;
 
     private final Assists assists = Assists.standard();
+    private final BoardFacts facts = new BoardFacts();
     // latches of the game threads waiting in awaitInput for the human. Usually one; paying mana can nest a second
     // (InputPayMana runs the mana ability on another game-pool thread, which may ask again). WebEdt owns the game
     // while every one of them is waiting.
@@ -147,6 +148,10 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
             this.id = id;
             this.msg = msg;
         }
+    }
+
+    BoardFacts facts() {
+        return facts;
     }
 
     public WebGuiGame(HostedMatch match) {
@@ -208,9 +213,9 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         }
         synchronized (io) {
             if (flushCount > 0) {
-                System.out.printf("Web stats: %d flushes, avg %.2f ms, p95 %.2f ms, max %.2f ms; %d state messages, avg %d B, max %d B; assist computes: %s%n",
+                System.out.printf("Web stats: %d flushes, avg %.2f ms, p95 %.2f ms, max %.2f ms; %d state messages, avg %d B, max %d B; assist computes: %s; board facts %s%n",
                         flushCount, flushNanos / 1e6 / flushCount, flushTimes.p95Nanos() / 1e6, flushTimes.maxNanos() / 1e6,
-                        stateCount, stateCount == 0 ? 0 : stateBytes / stateCount, stateMaxBytes, assists.stats());
+                        stateCount, stateCount == 0 ? 0 : stateBytes / stateCount, stateMaxBytes, assists.stats(), facts.stats());
             }
         }
     }
@@ -302,6 +307,11 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
                             cards.add(c);
                         }
                     }
+                }
+            }
+            for (PlayerView p : gv.getPlayers()) {
+                if (p.getCommanders() != null) {
+                    cards.addAll(p.getCommanders());
                 }
             }
             ViewProjector.stackCards(gv, cards);
@@ -483,6 +493,11 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         }
         List<JsonObject> out;
         List<Integer> players;
+        try {
+            facts.update(game);
+        } catch (RuntimeException e) {
+            System.err.println("Board facts failed: " + e);
+        }
         try {
             out = assists.update(game, seat, Assists.decisionKey(game, seat, input));
             players = selectablePlayers(game, input);

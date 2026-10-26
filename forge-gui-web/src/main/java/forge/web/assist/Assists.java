@@ -35,7 +35,7 @@ public final class Assists {
     }
 
     public static Assists standard() {
-        return new Assists(new CombatAssist(), new BlockersAssist());
+        return new Assists(new CombatAssist(), new BlockersAssist(), new ManaAssist());
     }
 
     /** The `caps` entries for the registered kinds. */
@@ -50,7 +50,8 @@ public final class Assists {
         List<JsonObject> changed = new ArrayList<>();
         for (AssistProducer p : producers) {
             String kind = p.kind();
-            if (decision.equals(keys.get(kind))) {
+            String key = decision + '#' + p.key(game, seat);
+            if (key.equals(keys.get(kind))) {
                 continue;
             }
             JsonElement payload;
@@ -65,7 +66,7 @@ public final class Assists {
                 continue;
             }
             times.get(kind).add(System.nanoTime() - t0);
-            keys.put(kind, decision);
+            keys.put(kind, key);
             JsonObject m = new JsonObject();
             m.addProperty("t", "assist");
             m.addProperty("kind", kind);

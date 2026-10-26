@@ -39,10 +39,22 @@ A client ignores caps it doesn't know and must not rely on a feature whose cap i
 | `selectables.players` | `selectables.playerIds` is sent |
 | `assist.combat` | `assist` kind `combat` |
 | `assist.blockers` | `assist` kind `blockers` |
+| `assist.mana` | `assist` kind `mana` |
+| `card.basePT` | `CardDto.basePower` / `baseToughness` |
+| `card.keywordLabels` | `CardDto.keywordLabels`, and the keyword keys `shroud`, `protection`, `can't be blocked` |
+| `player.colorIdentity` | `PlayerDto.colorIdentity` |
+| `player.commander` | `PlayerDto.commanders` / `commanderDamage` |
+| `game.turnOrder` | `GameDto.turnOrder` |
 
 Changes from v1: `caps`; `GameDto.log` replaced by `state.logAppend`/`logReset`;
 `selectables.playerIds`; assists are computed when the engine asks the human for input (not on
-every state change); assist kind `blockers`.
+every state change); assist kind `blockers`. Anything added after that is an optional field behind
+one of the caps above. A client that doesn't know the cap ignores the field.
+
+**Board facts.** Some fields need the game model, which the state flush never reads: base P/T,
+`can't be blocked`, `colorIdentity` and `turnOrder`. The server reads them at each decision point
+(when it computes assists) and the next state carries them, so between decision points (most of an
+AI turn) they can lag the board. They are absent until the first decision point of a match.
 
 ### `lobby`
 `{ t:"lobby", decks:{ id:string, name:string, colors:string }[], states:string[] }`, sent after
@@ -87,6 +99,7 @@ type GameDto = {
   localPlayerIds: number[];          // seats this browser controls (normally one)
   gameOver: boolean;
   winner: string | null;             // display name, when gameOver
+  turnOrder?: number[];              // players still in the game, in turn order (direction included); board fact
 };
 
 type PlayerDto = {
@@ -108,6 +121,9 @@ type PlayerDto = {
   };
   avatarImg: string | null;
   hasLost: boolean;
+  colorIdentity?: string[];          // e.g. ["W","U"], WUBRG order, [] = colourless; board fact, fixed for the match
+  commanders?: { cardId: number; casts: number; tax: number }[]; // this player's commanders (Commander games only)
+  commanderDamage?: { cardId: number; damage: number }[];        // combat damage this player took from each commander, > 0 only
 };
 
 type ZoneName = "hand"|"library"|"battlefield"|"graveyard"|"exile"|"command"|"stack"|"other";
@@ -128,13 +144,19 @@ type CardDto = {
   text: string;               // current rules text
   power: number | null;       // null when not a creature
   toughness: number | null;
+  basePower?: number;         // creatures on the battlefield, only when base and current P/T differ (both sent)
+  baseToughness?: number;
   loyalty: number | null;
   defense: number | null;
   damage: number;
   counters: Record<string, number>;
   keywords: string[];         // only the badge-worthy ones, lowercase: flying, reach, deathtouch, trample,
                               // lifelink, first strike, double strike, vigilance, menace, haste,
-                              // hexproof, indestructible, infect, ward, defender
+                              // hexproof, indestructible, infect, ward, defender, shroud, protection,
+                              // "can't be blocked" (creatures on the battlefield; board fact)
+  keywordLabels?: Record<string, string[]>; // key in keywords -> the engine's full titles, when they say more
+                              // than the key: { ward: ["Ward {2}"], protection: ["Protection from red"],
+                              // hexproof: ["Hexproof from black"] }. One entry per instance; absent when none
   tapped: boolean;
   sick: boolean;              // summoning sick and not hasty
   phasedOut: boolean;
@@ -168,6 +190,17 @@ type CombatDto = {
   }[];
 };
 ```
+
+Notes on the optional fields:
+- `basePower`/`baseToughness`: the P/T after characteristic-defining and "becomes X/Y" effects
+  (layers 7a-7b), before counters, pumps and anthems (Forge's `Card.getCurrentPower`). Current above
+  base is raised, below is lowered. Sent only when they differ, to keep one-card messages small; absent
+  means "same as current" (or not known yet).
+- `commanders[].tax` is the engine's commander tax, 2 x `casts` (casts from the command zone).
+  Every player's commanders are always among the state's cards (hidden when not visible, e.g. in a
+  library), so the ids in `commanders` and `commanderDamage` are always known.
+- `colorIdentity`: the commanders' colour identity in Commander, otherwise the colours of the deck's
+  cards, otherwise (saved boards) the colours of the cards the player owns.
 
 ### `prompt`
 `{ t:"prompt", playerId:number, message:string, cardId:number|null }`: the current
@@ -285,6 +318,22 @@ another reason; otherwise "Must block another attacker" (a lure effect). When fe
 block an attacker than its `minBlockers`, the engine would reject any block on it, so the ones not
 already blocking it move to `cannotBlock` with "Menace: needs a second blocker" (menace) or
 "Needs N blockers".
+
+#### kind `mana`
+`{ t:"assist", kind:"mana", mana: ManaAssist | null }`: per player, what their untapped permanents
+could add right now with a free tap mana ability. The floating pool is `PlayerDto.mana`, not this.
+```ts
+type ManaAssist = {
+  players: { id: number; total: number; open: Record<string, number> }[];
+};
+```
+Each source counts once, under one key, with the mana it adds: `"W"` to `"G"`, `"C"` for one kind;
+several letters in WUBRGC order (`"WG"`, `"URG"`) for a source that adds one of those (a dual land);
+`"any"` for any colour. `total` is the sum of the values. Example: `{ W:2, U:1, C:1, any:1, WG:1 }`,
+`total: 6`. Only abilities whose cost includes `{T}` and no mana count (lands, rocks, dorks that
+aren't summoning sick; filters and signets don't), and the engine's `canPlay` must allow them.
+Like every assist it is computed at decision points (again whenever the board or the set of tapped
+permanents changed), so during most of an AI turn it shows the board at your last decision.
 
 ### `error`
 `{ t:"error", message:string }`: protocol or server error, shown to the user.
