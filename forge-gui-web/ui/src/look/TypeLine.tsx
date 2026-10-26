@@ -34,14 +34,14 @@ export const TypeLine = memo(function TypeLine({ activeName, you, phase, turn, h
       }}
     >
       <span className="lk-title" title={turn ? `Turn ${turn}` : undefined} style={{ fontWeight: 700, fontSize: 19, whiteSpace: 'nowrap', letterSpacing: '0.01em' }}>
-        {turnOf(activeName, you)}
+        {activeName || you ? turnOf(activeName, you) : 'Opening Hands'}
         {words && <span style={{ color: 'var(--lk-parchment-dim)' }}> — </span>}
         {words}
       </span>
       <PhaseGems phase={phase} size={14} labels={gemLabels} />
       {ledger && <span className="lk-title" style={{ fontWeight: 700, fontSize: 16, whiteSpace: 'nowrap', color: combat ? 'var(--lk-ember-light)' : 'var(--lk-parchment-dim)' }}>{ledger}</span>}
       <span style={{ flex: 1 }} />
-      {hint && <span style={{ fontSize: 17, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{hint}</span>}
+      {hint && <span style={{ fontSize: 15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{hint}</span>}
       {order && order.length > 2 && (
         <span className="lk-title" aria-label="Turn order" style={{ display: 'flex', gap: 6, alignItems: 'center', fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap' }}>
           {order.map((s, i) => (

@@ -1,11 +1,11 @@
 import { chooseFocus, combatRoles, groupKey } from '../board/layout'
 import type { PlayerDto } from '../protocol'
 import type { ForgeState } from '../store'
-import { tableMode } from './layouts'
+import { foldsLands, tableMode } from './layouts'
 
 // Store subscriptions for the card layer (docs/PLAN.md, "Subscriptions by id"). The layer
 // subscribes to one string: the table's structure. It changes when a card changes zone, row or
-// group, taps, gets a combat role or a highlight; it doesn't change for P/T, damage or text on a
+// group, taps, gets a combat role or a highlight, or when a player's lands unfold from the ribbon; it doesn't change for P/T, damage or text on a
 // card that stays in its group. Card elements subscribe to their own card.
 
 type Focus = { playerId: number; turn: number } | null
@@ -22,7 +22,7 @@ export function seatIds(s: ForgeState, userFocus: Focus) {
 let last: { deps: unknown[]; sig: string } | null = null
 
 export function tableSignature(s: ForgeState, meId: number | null, focusId: number | null): string {
-  const deps = [s.cards, s.players, s.combat, s.highlighted, s.stack, meId, focusId]
+  const deps = [s.cards, s.players, s.combat, s.game?.phase, s.highlighted, s.stack, s.selectable, meId, focusId]
   if (last && last.deps.every((d, i) => d === deps[i])) return last.sig
   const sig = compute(s, meId, focusId)
   last = { deps, sig }
@@ -32,7 +32,7 @@ export function tableSignature(s: ForgeState, meId: number | null, focusId: numb
 function compute(s: ForgeState, meId: number | null, focusId: number | null) {
   if (meId == null) return ''
   const roles = combatRoles(s.combat)
-  const out: string[] = [tableMode(s.combat), String(meId), String(focusId), String(Object.keys(s.players).length)]
+  const out: string[] = [tableMode(s.combat, s.game?.phase), String(meId), String(focusId), String(Object.keys(s.players).length)]
   const field = (p: PlayerDto | undefined) => {
     if (!p) return
     // Group partition: each card names the lowest id sharing its group key (cards are visited in
@@ -55,7 +55,8 @@ function compute(s: ForgeState, meId: number | null, focusId: number | null) {
         `${id}:${k === null ? '' : heads.get(k)}:${lane}:${c.tapped ? 't' : ''}:${c.attachedToId ?? ''}:${c.attachmentIds.join('+')}:${c.heldExileIds.length}:${roles.get(id)?.key ?? ''}`,
       )
     })
-    out.push('|', p.zones.hand.join(','), p.zones.graveyard.slice(-3).join(','), p.zones.exile.slice(-3).join(','), p.zones.command.join(','))
+    const fold = foldsLands(p.zones.battlefield.map((id) => s.cards[id]).filter(Boolean), s.selectable.cardIds)
+    out.push('|', fold ? 'fold' : 'lands', p.zones.hand.join(','), p.zones.graveyard.slice(-3).join(','), p.zones.exile.slice(-3).join(','), p.zones.command.join(','))
   }
   field(s.players[meId])
   if (focusId != null) field(s.players[focusId])

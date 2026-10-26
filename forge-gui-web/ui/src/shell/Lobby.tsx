@@ -31,12 +31,12 @@ function DeckPicker({ label, decks, value, onChange }: { label: string; decks: D
   const random = decks.filter((d) => d.id.startsWith('random:'))
   const named = decks.filter((d) => !d.id.startsWith('random:') && d.name.toLowerCase().includes(q.toLowerCase()))
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-line bg-panel">
+    <div className="flex min-h-0 flex-1 flex-col rounded-xl lk-plate">
       <div className="relative overflow-hidden rounded-t-xl border-b border-line px-5 pb-4 pt-5">
         <div className="absolute inset-x-0 top-0 h-1" style={{ background: stripeOf(current?.colors ?? '') }} />
         <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-dim">{label}</div>
         <div className="mt-1.5 flex items-center gap-3">
-          <span className="min-w-0 flex-1 truncate text-xl font-semibold">{current?.name ?? 'Choose a deck'}</span>
+          <span className="min-w-0 flex-1 truncate font-title text-xl font-bold">{current?.name ?? 'Choose a deck'}</span>
           {current && <ColorPips colors={current.colors} size={20} />}
         </div>
         <div className="mt-0.5 text-xs text-ink-dim">{current ? guildish(current.colors) : ' '}</div>
@@ -115,9 +115,9 @@ export function Lobby() {
   const states = useMemo(() => lobby.states.map((s) => ({ path: s, name: s.split(/[\\/]/).pop()!.replace(/\.txt$/, '') })), [lobby.states])
 
   return (
-    <div className="flex h-full flex-col bg-table">
+    <div className="flex h-full flex-col" style={{ background: 'radial-gradient(ellipse 80% 60% at 30% 0%, #2a2118 0%, #120e0a 55%, #0a0806 100%)' }}>
       <header className="flex items-center gap-3 px-8 pb-2 pt-6">
-        <span className="text-2xl font-bold tracking-tight">Forge</span>
+        <span className="font-title text-3xl font-bold">Forge</span>
         <span className="rounded bg-panel-2 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wider text-ink-dim">web</span>
         <span className="flex-1" />
         <span className="flex items-center gap-2 text-xs text-ink-dim">
@@ -131,10 +131,10 @@ export function Lobby() {
           <h1 className="text-sm font-semibold uppercase tracking-wider text-ink-dim">New match</h1>
           <div className="flex min-h-0 flex-1 items-stretch gap-4">
             <DeckPicker label="Your deck" decks={decks} value={mine} onChange={setMine} />
-            <div className="grid w-10 shrink-0 place-items-center text-sm font-bold text-ink-dim">VS</div>
+            <div className="grid w-10 shrink-0 place-items-center font-title text-lg font-bold text-ink-dim">VS</div>
             <DeckPicker label={opponents > 1 ? `Opponents' deck ×${opponents}` : "Opponent's deck"} decks={decks} value={theirs} onChange={setTheirs} />
           </div>
-          <div className="flex items-center gap-5 rounded-xl border border-line bg-panel px-5 py-4">
+          <div className="flex items-center gap-5 rounded-xl lk-plate px-5 py-4">
             <div>
               <div className="mb-1.5 text-[11px] uppercase tracking-wider text-ink-dim">Opponents</div>
               <div className="inline-flex rounded-lg border border-line bg-table p-0.5">
@@ -157,7 +157,7 @@ export function Lobby() {
 
         <aside className="flex min-h-0 w-80 shrink-0 flex-col gap-4">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-dim">Saved boards</h2>
-          <ul className="shell-scroll flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto rounded-xl border border-line bg-panel p-2">
+          <ul className="shell-scroll flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto rounded-xl lk-plate p-2">
             {states.map((s) => (
               <li key={s.path}>
                 <button type="button" disabled={!connected || !!starting} onClick={() => startState(s.path)} title={s.path}

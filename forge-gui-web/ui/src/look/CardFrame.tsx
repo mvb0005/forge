@@ -16,7 +16,7 @@ const k0 = DESIGN_H / DESIGN_W
 
 export type Highlight = 'playable' | 'choose' | 'chosen' | 'attacking' | 'blocking' | 'targeted'
 
-const RING: Record<Highlight, string> = {
+export const RING: Record<Highlight, string> = {
   playable: '0 0 0 2.5px var(--lk-frost), 0 0 22px 4px var(--lk-frost-soft)',
   choose: '0 0 0 2.5px var(--lk-gold)',
   chosen: '0 0 0 2px var(--lk-ink), 0 0 0 5.5px var(--lk-brass), 0 0 16px 3px var(--lk-brass-soft)',
@@ -47,13 +47,15 @@ export type CardFrameProps = {
   verdict?: 'dies' | 'survives' | null
   count?: number // token group size
   rotate?: boolean // turn the face a quarter when tapped (off when the layer rotates the slot)
+  words?: boolean // keyword words on the rail; defaults to whether the card is drawn large enough to read them
+  mini?: boolean // a card without art draws its short text frame (it's too small to read rules text)
 }
 
 /**
  * The battlefield card skin: art, keyword rail, counter gem, P/T plate, status marks, highlight ring.
  * The outer box is `width` wide; the face is laid out at DESIGN_W and scaled, so a new width is a transform.
  */
-export const CardFrame = memo(function CardFrame({ card, width, art, highlight = null, dim = null, base = null, choosingTargets = false, verdict = null, count = 1, rotate = false }: CardFrameProps) {
+export const CardFrame = memo(function CardFrame({ card, width, art, highlight = null, dim = null, base = null, choosingTargets = false, verdict = null, count = 1, rotate = false, words, mini = false }: CardFrameProps) {
   const k = width / DESIGN_W
   const src = art === undefined ? card.img : art
   const pw = card.types.includes('Planeswalker') && card.loyalty != null
@@ -70,7 +72,7 @@ export const CardFrame = memo(function CardFrame({ card, width, art, highlight =
           {src ? (
             <img src={src} alt={card.name} draggable={false} decoding="async" loading="lazy" style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }} />
           ) : (
-            <CardImage card={card} width={DESIGN_W} bare />
+            <CardImage card={card} width={DESIGN_W} bare mini={mini} />
           )}
           {(dim || card.sick || tapped) && <span style={{ ...fill, borderRadius: 0, background: dim ? 'var(--lk-shade-dim)' : 'var(--lk-shade)' }} />}
         </div>
@@ -82,7 +84,7 @@ export const CardFrame = memo(function CardFrame({ card, width, art, highlight =
         )}
 
         <span style={{ position: 'absolute', left: -9, top: 26 }}>
-          <KeywordRail keywords={card.keywords} size={28} choosingTargets={choosingTargets} words={k >= 0.66} />
+          <KeywordRail keywords={card.keywords} labels={card.keywordLabels} size={28} choosingTargets={choosingTargets} words={words ?? k >= 0.66} />
         </span>
         {counters.length > 0 && (
           <span className="lk-tap" style={{ position: 'absolute', left: -7, top: -8, display: 'flex', gap: 3, ...upright }}>

@@ -5,9 +5,9 @@ export type PTTone = 'printed' | 'raised' | 'lowered'
 export type BasePT = { power: number; toughness: number }
 
 /**
- * Parchment when printed, frost when raised, ember when damaged or lowered. Comparing needs the base
- * (printed) P/T, which CardDto doesn't carry yet (server: basePower/baseToughness). Without it only
- * damage can be shown.
+ * Parchment when printed, frost when raised, ember when damaged or lowered. Base P/T is
+ * CardDto.basePower/baseToughness, sent only when it differs from current. Absent means the same as
+ * current, or not known yet, so only marked damage can change the tone.
  */
 export function ptTone(power: number, toughness: number, damage = 0, base?: BasePT | null): PTTone {
   if (damage > 0) return 'lowered'

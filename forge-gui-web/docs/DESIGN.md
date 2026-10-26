@@ -10,7 +10,9 @@ when, and lists the open questions (`Q-xx`) referenced below.
 Magic's own vocabulary, built from card-frame materials.
 
 - **Table.** Each player's half is tinted in their colour identity with flat tones (no land art).
-  The active player's half is brighter.
+  One colour is one tone. Two or more split the half into equal bands in WUBRG order, with a short
+  seam between them (Q-01). The active player's half is brighter.
+- **Log.** A column to the right of the table, always visible.
 - **Type line.** The divider between the players reads like a card's type line:
   "Vex's Turn — Combat · Declare Blockers". In combat it moves up and turns ember.
 - **Phase track.** Five gems (Beginning, Main, Combat, Main, End) styled as rarity symbols; past
@@ -18,7 +20,8 @@ Magic's own vocabulary, built from card-frame materials.
 - **Life.** Engraved on a loyalty-shield shape. During combat it previews the result ("→ 14").
 - **Lands.** Folded into a mana ribbon of mana symbols with counts; untapped mana you can use now
   glows. Expands to the real cards on demand.
-- **Type.** Cinzel for names, numbers and banners; Crimson Pro for text (D-07).
+- **Type.** Faustina for names, numbers, banners and buttons, in mixed case; Libre Baskerville for
+  rules and body text (D-07).
 - **Colour meanings** (one meaning each): frost = you can play or activate it; gold (breathing) =
   choose this now; brass ring = chosen; ember = attacking, threat, damage; steel = blocking,
   protection.
@@ -31,7 +34,7 @@ Magic's own vocabulary, built from card-frame materials.
 | Glance | none | Only what changes your next decision: art, P/T, dangerous-keyword rings, verdict icons, life (with combat preview), phase, open-mana count |
 | Peek | hover (~120 ms intent delay) | A short, phase-aware answer; related cards light up. After ~300 ms the card itself grows in place to full readable size, over its neighbours (D-09) |
 | Inspect | deliberate (gesture is Q-03) | Pinned panel: full text, P/T by source, abilities and costs, history this turn |
-| Survey | key or click | Threat lens (hold Alt), zone shelves, the log, Tab fan-out of all boards |
+| Survey | key or click | Threat lens (hold Alt), zone shelves, Tab fan-out of all boards |
 
 Rules: the peek answer never covers what you're about to click (the grown card may cover its
 neighbours, and shrinks the moment the pointer leaves); the board never moves on hover; anything

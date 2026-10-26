@@ -5,7 +5,7 @@ import { toneBackground } from './tones'
 const fill: CSSProperties = { position: 'absolute', inset: 0, pointerEvents: 'none' }
 
 /**
- * One player's half of the table, in their colour identity (flat tones, D-05; blend rule in tones.ts).
+ * One player's half of the table, in their colour identity (flat tones, D-05; bands in tones.ts).
  * The active player's half is brighter (an opacity cross-fade). Other playmats replace the tones via tokens.
  */
 export const TableHalf = memo(function TableHalf({ colors, active = false, side = 'bottom', style, children }: {

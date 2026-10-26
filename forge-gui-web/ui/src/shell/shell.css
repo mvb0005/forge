@@ -20,3 +20,26 @@
 .shell-fade { animation: shell-fade 150ms ease-out; }
 
 .shell-scroll { scrollbar-width: thin; scrollbar-color: var(--color-line) transparent; }
+
+/* The look's metal and plates for the shell (dialogs, lobby, toasts). */
+.lk-plate {
+  background: linear-gradient(#211a13, #0f0c09);
+  box-shadow: 0 0 0 2px #0a0806, 0 0 0 3.5px var(--lk-metal), 0 22px 48px rgb(0 0 0 / .7);
+  color: var(--lk-parchment);
+}
+.lk-btn-metal {
+  color: var(--lk-on-parchment);
+  background: linear-gradient(var(--lk-metal-bright), var(--lk-metal-deep));
+  box-shadow: 0 0 0 1.5px var(--lk-ink), 0 0 0 2.5px var(--lk-metal), 0 6px 14px rgb(0 0 0 / .5);
+}
+.lk-btn-metal:hover { filter: brightness(1.08); }
+.lk-btn-plate {
+  background: linear-gradient(var(--lk-plate-top), var(--lk-ink-2));
+  box-shadow: 0 0 0 1.5px var(--lk-ink), 0 0 0 2.5px var(--lk-metal-line), 0 6px 14px rgb(0 0 0 / .45);
+}
+.lk-btn-plate:hover { box-shadow: 0 0 0 1.5px var(--lk-ink), 0 0 0 2.5px var(--lk-metal), 0 6px 14px rgb(0 0 0 / .45); }
+.lk-btn-ember {
+  color: var(--lk-on-ember);
+  background: linear-gradient(var(--lk-ember-text), var(--lk-ember-deep));
+  box-shadow: 0 0 0 1.5px var(--lk-ink), 0 0 0 2.5px var(--lk-ember), 0 6px 14px rgb(0 0 0 / .5);
+}

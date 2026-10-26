@@ -12,10 +12,10 @@ export function answer(id: number, value: unknown) {
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
 const variants: Record<Variant, string> = {
-  primary: 'bg-accent text-table hover:brightness-110 font-semibold',
-  secondary: 'bg-panel-2 text-ink hover:bg-line border border-line',
+  primary: 'lk-btn-metal font-title font-bold',
+  secondary: 'lk-btn-plate font-title font-bold text-ink',
   ghost: 'text-ink-dim hover:text-ink hover:bg-panel-2',
-  danger: 'bg-danger text-table hover:brightness-110 font-semibold',
+  danger: 'lk-btn-ember font-title font-bold',
 }
 
 export function Btn({ variant = 'secondary', className = '', ...p }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
@@ -23,7 +23,7 @@ export function Btn({ variant = 'secondary', className = '', ...p }: ButtonHTMLA
     <button
       type="button"
       {...p}
-      className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-sm transition duration-150 select-none
+      className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-[15px] transition duration-150 select-none
         disabled:opacity-35 disabled:pointer-events-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2
         ${variants[variant]} ${className}`}
     />
@@ -67,8 +67,8 @@ export function CardTile({ card, width, state, onClick, onDoubleClick, children 
 }) {
   const peek = usePeek({ kind: 'card', id: card.id })
   const ring =
-    state === 'selected' ? 'ring-3 ring-accent -translate-y-1'
-    : state === 'choice' ? 'ring-2 ring-target/50 hover:ring-target hover:-translate-y-0.5'
+    state === 'selected' ? 'ring-4 ring-accent -translate-y-1'
+    : state === 'choice' ? 'ring-2 ring-target/60 hover:ring-target hover:-translate-y-0.5'
     : state === 'disabled' ? 'opacity-40 grayscale'
     : ''
   return (
@@ -86,7 +86,7 @@ export function CardTile({ card, width, state, onClick, onDoubleClick, children 
 }
 
 export function Kbd({ children }: { children: ReactNode }) {
-  return <kbd className="rounded border border-line bg-table px-1.5 py-px font-mono text-[10px] text-ink-dim">{children}</kbd>
+  return <kbd className="rounded border border-current/30 px-1.5 py-px font-sans text-[11px] leading-none">{children}</kbd>
 }
 
 export function Stepper({ value, onChange, min, max }: { value: number; onChange: (v: number) => void; min: number; max: number }) {

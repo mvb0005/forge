@@ -12,13 +12,28 @@ one WebSocket.
 
 | Path | What |
 |---|---|
-| `src/main/java/forge/web/` | Server: `WebMain` (startup), `WebServer` (HTTP + WebSocket), `MatchHost` (lobby, starting matches), `WebGuiGame` (the engine's GUI interface: state sync, prompts, asks), `ViewProjector` (engine views → DTOs) |
-| `src/main/java/forge/web/assist/` | Engine-computed help for the UI (`AssistProducer`) |
-| `ui/src/` | React app: `protocol.ts` (types), `store.ts` (state), `net.ts` (socket) |
-| `ui/src/table/` | Card layer contract and the peek (hover) provider registry |
-| `ui/src/board/` | Battlefield, hand, seats, stack |
-| `ui/src/shell/` | Lobby, prompt bar, dialogs |
-| `tools/smoke.mjs` | Plays a whole game automatically against a running server |
+| `src/main/java/forge/web/` | Server. `WebMain`, `WebServer`, `MatchHost`, `WebGuiGame` (the engine's GUI interface), `ViewProjector` (views to DTOs), `BoardFacts` (facts the views don't carry, read at decision points) |
+| `src/main/java/forge/web/assist/` | Engine-computed help (`AssistProducer`): combat outcomes, legal blockers, open mana |
+| `ui/src/` | React app: `protocol.ts`, `store.ts`, `net.ts` |
+| `ui/src/table/` | The one card layer: per-mode layouts and structural signatures |
+| `ui/src/look/` | Visual language: tokens, card frame, type line, shields, mana ribbon, keyword rail |
+| `ui/src/board/` | Table, seats, combat lanes, zones. Cards are drawn only by the card layer |
+| `ui/src/shell/` | Lobby, action plate, dialogs |
+| `ui/src/popover/` | Hover peek and pinned inspect |
+| `ui/src/bench/` | Performance page for the budgets in PLAN.md |
+| `tools/smoke.mjs` | Plays a game against a running server and checks the wire |
+
+## Dev pages
+
+`/?preview` and `/?bench` work against the built UI. The others are dev-server only.
+
+| URL | What |
+|---|---|
+| `/?preview` | Table from a fixture. `?preview=pod` picks one |
+| `/?bench=pod` or `/?bench=commander` | Client performance budgets. Measure a production build, window focused |
+| `/?look` | Every look component. `/?look=live&scene=main` drives the real table from a scene |
+| `/?dialogs` | Every dialog |
+| `/?peek` | The popover system |
 
 ## Build
 
@@ -54,4 +69,5 @@ node forge-gui-web/tools/smoke.mjs                      # a full game, random de
 node forge-gui-web/tools/smoke.mjs --state token-pod-turn12.txt
 ```
 
-Dev pages without a server: `/?preview` (board fixtures) and `/?dialogs` (every dialog).
+Saved boards for the smoke test live in `tools/states/`, including `fields-badges.txt` (base P/T,
+keyword labels, colour identity).

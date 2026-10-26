@@ -1,13 +1,23 @@
 import { CARD_RATIO } from '../board/layout'
 import { layoutTable, PAD } from '../board/fieldLayout'
-import type { CardDto, PlayerDto } from '../protocol'
+import type { CardDto, PhaseName, PlayerDto } from '../protocol'
 import type { LayoutFn, LayoutInput, LayoutResult, Placement, Region, TableMode } from './contract'
-import { STACK, stackItemX, tableFrame } from './frame'
+import { STACK, stackItemY, tableFrame } from './frame'
 
 // Layout functions per table mode. 'main' and 'combat' share one pass; combat lines attackers up
 // against their blockers and folds the back lanes. 'fanout' (M7) is the main layout for now.
+// Lands fold into the player's mana ribbon (invisible anchors there, so they fly in and out) unless
+// one of them can be chosen right now; then that player's lands are drawn as cards again.
 
 const ZONE_W = 40
+export const PILE_X = [0, 78, 156] // library, graveyard, exile/command inside the piles region
+
+const isFoldedLand = (c: CardDto) => c.types.includes('Land') && !c.types.includes('Creature') && c.attachedToId == null
+
+/** A player's lands fold into the ribbon unless one of them can be chosen now. */
+export function foldsLands(cards: CardDto[], selectable?: Set<number>) {
+  return !selectable?.size || !cards.some((c) => isFoldedLand(c) && selectable.has(c.id))
+}
 const PILE_SHOWN = 3 // newest cards of a graveyard/exile kept as anchors, so arrivals and departures fly
 
 function table(input: LayoutInput, combat: boolean): LayoutResult {
@@ -15,7 +25,7 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
   const me = players[meId] as PlayerDto | undefined
   const opp = focusId != null ? players[focusId] : undefined
   const opps = Object.values(players).filter((p) => p.id !== meId)
-  const frame = tableFrame(viewport, opps.length > 1, stack.length)
+  const frame = tableFrame(viewport, opps.length > 1, stack.length, combat)
   const placements = new Map<number, Placement>()
   const regions: Record<string, Region> = {}
   for (const [k, r] of Object.entries(frame)) if (r) regions[k] = r
@@ -25,11 +35,22 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
 
   // Battlefields: the focused opponent on top, you at the bottom.
   const list = (p?: PlayerDto) => (p ? p.zones.battlefield.map((id) => cards[id]).filter((c): c is CardDto => !!c) : [])
-  const topCards = list(opp)
-  const botCards = list(me)
+  const folded = new Map<number, Region>()
+  const unfolded = (p: PlayerDto | undefined, ribbon: Region) => {
+    const all = list(p)
+    if (!foldsLands(all, input.selectable)) return all
+    const rest: CardDto[] = []
+    for (const c of all) {
+      if (isFoldedLand(c)) folded.set(c.id, ribbon)
+      else rest.push(c)
+    }
+    return rest
+  }
+  const topCards = unfolded(opp, frame.oppRibbon)
+  const botCards = unfolded(me, frame.meRibbon)
   const shown = new Set([...topCards, ...botCards].map((c) => c.id))
   const size = { W: Math.min(frame.top.w, frame.bottom.w) - 2, H: Math.min(frame.top.h, frame.bottom.h) - 2 }
-  const maxW = Math.min(176, Math.max(90, size.W / 7))
+  const maxW = Math.min(260, Math.max(90, size.W / 7))
   const sides = layoutTable(topCards, botCards, combat ? input.combat : null, input.highlighted, (id) => shown.has(id), size, maxW, combat)
   for (const side of ['top', 'bottom'] as const) {
     const felt = frame[side]
@@ -52,7 +73,7 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
         x,
         y,
         w: t.w,
-        rot: t.top.tapped ? 90 : 0,
+        rot: t.top.tapped && t.role !== 'attacker' ? 90 : 0, // attackers stand upright in their lanes
         z,
         edge,
         count: t.ids.length > 1 ? t.ids.length : undefined,
@@ -103,8 +124,8 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
     const visible = i < STACK.shown
     put(id, {
       kind: visible ? 'stack' : 'zone',
-      x: frame.stack.x + (visible ? stackItemX(i) + STACK.thumbX : frame.stack.w - STACK.more),
-      y: frame.stack.y + STACK.itemY + STACK.thumbY,
+      x: frame.stack.x + STACK.thumbX,
+      y: frame.stack.y + frame.stack.h - (visible ? stackItemY(i) : 0) + STACK.thumbY,
       w: STACK.thumbW,
       rot: 0,
       z: 7000 + STACK.shown - i,
@@ -112,19 +133,23 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
     })
   })
 
-  // Invisible anchors at each shown seat's piles, so cards fly into and out of them.
-  const anchors = (p: PlayerDto | undefined, seat: Region, isMe: boolean) => {
-    if (!p) return
-    const base = seat.y + seat.h - 60
-    const pile = (ids: number[], x: number, y: number, n = PILE_SHOWN) =>
-      ids.slice(-n).forEach((id) => put(id, { kind: 'zone', x, y, w: ZONE_W, rot: 0, z: 1, opacity: 0 }))
-    pile(p.zones.graveyard, seat.x + 10, base)
-    pile(p.zones.exile, seat.x + 60, base)
-    pile(p.zones.command, seat.x + 110, base)
-    if (!isMe) pile(p.zones.hand, seat.x + seat.w - ZONE_W - 10, seat.y + 40, p.zones.hand.length)
+  // Invisible anchors at the piles and in the mana ribbons, so cards fly into and out of them.
+  const anchor = (id: number, x: number, y: number) => put(id, { kind: 'zone', x, y, w: ZONE_W, rot: 0, z: 1, opacity: 0 })
+  for (const [id, r] of folded) anchor(id, r.x + 20, r.y)
+  const pile = (ids: number[], x: number, y: number, n = PILE_SHOWN) => ids.slice(-n).forEach((id) => anchor(id, x, y))
+  if (me) {
+    const { x, y } = frame.piles
+    pile(me.zones.graveyard, x + PILE_X[1], y + 8)
+    pile(me.zones.exile, x + PILE_X[2], y + 8)
+    pile(me.zones.command, x + PILE_X[2], y + 8)
   }
-  anchors(me, frame.meSeat, true)
-  anchors(opp, frame.oppSeat, false)
+  if (opp) {
+    const { x, y } = frame.oppSeat
+    pile(opp.zones.graveyard, x + 20, y + 110)
+    pile(opp.zones.exile, x + 60, y + 110)
+    pile(opp.zones.command, x + 100, y + 110)
+    pile(opp.zones.hand, x + 20, y + 90, opp.zones.hand.length)
+  }
 
   return { placements, regions }
 }
@@ -135,5 +160,6 @@ export const fanoutLayout: LayoutFn = mainLayout
 
 export const LAYOUTS: Record<TableMode, LayoutFn> = { main: mainLayout, combat: combatLayout, fanout: fanoutLayout }
 
-/** The table follows the turn: combat mode while attackers are declared. */
-export const tableMode = (combat: LayoutInput['combat']): TableMode => (combat?.bands.length ? 'combat' : 'main')
+/** The table follows the turn: combat mode from the declare-attackers step on, while there is a combat. */
+export const tableMode = (combat: LayoutInput['combat'], phase?: PhaseName | null): TableMode =>
+  combat?.bands.length || phase === 'COMBAT_DECLARE_ATTACKERS' ? 'combat' : 'main'

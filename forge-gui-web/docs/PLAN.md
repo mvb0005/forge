@@ -37,7 +37,7 @@ fast on huge boards and be easy to extend.
 | D-04 | Single player first; rooms and remote seats parked | locked |
 | D-05 | Look: v2 card-frame language (type-line divider, rarity-gem phases, loyalty-shield life, mana ribbon) with v3 combat lanes. Each half is tinted in its player's colour identity, but with flat tones, not blurred land art (Matt liked the colours, not the land backgrounds) | locked |
 | D-06 | Default help level "Player" (verdicts, ledger as peek); "Coach" and "Purist" optional | working assumption |
-| D-07 | Fonts Cinzel + Crimson Pro (open-licence look-alikes of Beleren / Plantin) | working assumption |
+| D-07 | Fonts Faustina (titles, names, numbers, buttons; mixed case) + Libre Baskerville (rules and body text), bundled via @fontsource. Matt picked these on 2026-10-25 over Cinzel + Crimson Pro | locked |
 | D-08 | Desktop app via Tauri later; browser for development | locked |
 | D-09 | Hovering any card shows it big: after a dwell (~300 ms) the card itself grows in place, over its neighbours (they don't move), with the short peek answer beside it. Leaving shrinks it at once | locked |
 | D-11 | Blocking one member of an attacking group: drop a blocker on the group's defend slot and one member animates out of the group into its own lane with that blocker; the group's count drops by one. Menace attackers always show two block slots (the second marked "second blocker needed"), and Confirm stays disabled with that reason until both are filled or the slot is empty, using `minBlockers` from the `blockers` assist | locked |
@@ -77,6 +77,8 @@ fast on huge boards and be easy to extend.
   - peek providers: `(entity, context) → sections`, shown by one popover system that owns the
     intent delay, far-side placement and keyboard focus;
   - keyword tiers: a data table (keyword → tier, icon, label, rule text).
+- **Look.** `ui/src/look` owns the visual language: frames, type line, shields, ribbons, glyphs
+  and tokens. The board and the shell compose those components; they don't draw a second card style.
 - **Theme.** All colours, fonts and metals are CSS tokens. Playmats and frame metals are token
   sets; components never hard-code colours.
 
@@ -131,15 +133,25 @@ Each milestone ends playable. Exit criteria are the definition of done.
 | ID | Milestone | Depends on | Status |
 |---|---|---|---|
 | M0 | Bridge and first board (done: server, protocol v1, lobby, dialogs, board, combat assist) | | done |
-| M1 | Foundations: assist registry, protocol v2, card layer, table modes, popover system, perf fixtures | | todo |
-| M2 | The look: type-line divider, shields, mana ribbon, colour-identity playmat, keyword rail, card tile | D-05, Q-01, Q-02 | todo |
+| M1 | Foundations: assist registry, protocol v2, card layer, table modes, popover system, perf fixtures | | doing |
+| M2 | The look: type-line divider, shields, mana ribbon, colour-identity playmat, keyword rail, card tile | D-05, Q-11 | doing |
 | M3 | Phase motion: mode transitions, banners, combat band opening, zone flights | M1 | todo |
 | M4 | Combat lanes with engine assists: legal blockers, outcomes including triggers, block-slot hints | M1, Q-04, Q-05 | todo |
 | M5 | Disclosure: peek content per object, inspect panel, "why?" on disabled things, threat lens | M1, Q-03 | todo |
 | M6 | Zones: rail, shelves, castable badges, seen-cards memory | M1, Q-06, Q-08 | todo |
-| M7 | Multiplayer: seat strips, auto-focus, fan-out | M1, Q-09 | todo |
+| M7 | Multiplayer: auto-focus and fan-out. Seat strips are already on the table | M1, Q-09 | todo |
 | M8 | Customization and accessibility | M2 | todo |
 | M9 | Desktop packaging (Tauri) | | parked |
+
+M1 is done except M1.2: a zone move or a phase change still sends a whole `PlayerDto`.
+
+M2 is on the live table: colour-identity halves, type line and phase gems, life shield (combat
+preview and commander damage), mana ribbon, keyword rail, card frame and seat strips. The ribbon's
+symbols are presentation, read from lands and rocks on the board. While you hold priority the
+open-mana total comes from the `mana` assist; otherwise it comes from the ribbon, so the two don't
+disagree. Clicking a ribbon source selects that card. Opening the ribbon into the cards themselves
+is still the design (DESIGN.md) and is not built. Planeswalkers and battles as attack targets are
+Q-11. Choosing a playmat is M8; the token sets already exist and `/?look` can show them.
 
 ### M1 tasks
 
@@ -153,12 +165,12 @@ Each milestone ends playable. Exit criteria are the definition of done.
 | M1.6 | Popover system and peek-provider registry | Intent delay, far-side placement, keyboard focus; two sample providers | done (ui/src/popover; I pins Inspect, Q-03; integration into tiles with M1.4) |
 | M1.7 | Perf fixtures and a benchmark page (token pod, 4-player Commander) | Budgets measured and recorded in this file | done (measured; the start of a phase transition misses 60 fps, see Measured) |
 
-## Open questions (need more thought)
+## Questions
 
 | ID | Question | Options and current lean | Blocks |
 |---|---|---|---|
-| Q-01 | ~~Confirm the look~~ Resolved by D-05. Still open: the exact flat tone per colour pair | Lean: one token pair per colour, blended for multicolour | M2 |
-| Q-02 | Mana symbols | Draw our own SVG set, or use an open-source mana-symbol font (licence to check). Lean: our own, small set | M2 |
+| Q-01 | Flat tones for a multicolour identity | Resolved: one token per colour. Two or more split the half into equal bands in WUBRG order with a short seam (`tones.ts`), not a blend | |
+| Q-02 | Mana symbols | Resolved: our own SVG set (`ManaSymbol`): colours, colourless, numbers, X, hybrids, twobrid, phyrexian, snow, tap, untap | |
 | Q-03 | Inspect gesture. Right-click is already "remove from combat" in Forge (button 3 in InputAttack/InputBlock). The big card on hover is D-09; this is only the pinned panel | Hold (long-press) and a key (Space/I) to inspect; right-click keeps Forge's meaning. Lean: that | M5 |
 | Q-04 | Huge attacks: 20–60 attackers (token armies) in lanes | Direction set by D-10 (a group is one lane, ×N). Splitting is D-11. Still open: the `blockers` assist field for X (lean: per attacker, per blocker group, `killWith: n \| null`) | M4 |
 | Q-05 | "Will vs could trigger": how exact can the engine be? | Spike: mode matching is easy; evaluating trigger conditions against hypothetical blocks may be approximate or slow. Decide after the spike | M4 |

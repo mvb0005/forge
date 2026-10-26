@@ -10,7 +10,7 @@ export function identity(colors: string | Iterable<string>): ManaLetter[] {
 }
 
 /**
- * Q-01 blend rule. Colourless gets the neutral tone. One colour is flat. Two or more split the half
+ * Q-01 band rule. Colourless gets the neutral tone. One colour is flat. Two or more split the half
  * into equal bands in WUBRG order (like the v2 land washes, side by side), each band flat, with a
  * short soft seam (SEAM % of the width) so the bands read as one table, not stripes.
  */
@@ -39,8 +39,8 @@ export function toneBackground(colors: string | Iterable<string>, hi = false): s
 const BASIC: Record<string, ManaLetter> = { Plains: 'W', Island: 'U', Swamp: 'B', Mountain: 'R', Forest: 'G' }
 
 /**
- * Fallback colour identity from what a player has on the battlefield: basic land types, then permanents'
- * colours. Presentation only, until the server sends PlayerDto.colorIdentity.
+ * Fallback colour identity from the battlefield when PlayerDto.colorIdentity is absent (before the
+ * first decision point, or an older server): basic land types, then the permanents' colours.
  */
 export function boardIdentity(cards: CardDto[]): ManaLetter[] {
   const lands = new Set<string>()

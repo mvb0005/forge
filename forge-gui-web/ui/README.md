@@ -1,32 +1,16 @@
-# React + TypeScript + Vite
+# Forge web UI
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19, TypeScript and Vite. The server, the wire contract and how to run a match are in
+[../README.md](../README.md). What to build is [../docs/PLAN.md](../docs/PLAN.md); how the table
+should look is [../docs/DESIGN.md](../docs/DESIGN.md).
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```
+npm install
+npm run dev      # http://127.0.0.1:5173, proxies /ws and /img to the server on port 7777
+npm run build
+npm test
+npx tsc -p tsconfig.app.json --noEmit
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Dev routes: `/?preview`, `/?bench=pod`, `/?look`, `/?dialogs`, `/?peek`. Preview and bench also
+work from a production build; the others are dev-server only.

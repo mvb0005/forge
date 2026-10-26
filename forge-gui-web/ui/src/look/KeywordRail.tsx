@@ -24,8 +24,9 @@ export function railKeywords(keywords: string[]) {
  * Keyword icons down a card's left edge. Tier 1 shows its word, the rest show words on hover.
  * `choosingTargets` swaps protected keywords' icons for a lock (DESIGN.md tier 2).
  */
-export const KeywordRail = memo(function KeywordRail({ keywords, size = 26, choosingTargets = false, words = true }: {
+export const KeywordRail = memo(function KeywordRail({ keywords, labels, size = 26, choosingTargets = false, words = true }: {
   keywords: string[]
+  labels?: Record<string, string[]> // the engine's full titles ("Ward {2}", "Protection from black"), when sent
   size?: number
   choosingTargets?: boolean
   words?: boolean
@@ -37,8 +38,9 @@ export const KeywordRail = memo(function KeywordRail({ keywords, size = 26, choo
       {ks.map((k) => {
         const info = KEYWORDS[k]
         const g = choosingTargets && info.tier === 2 ? MARK_GLYPH.lock : KEYWORD_GLYPH[k]
+        const full = labels?.[k]?.join(' · ')
         return (
-          <span key={k} title={`${info.label}: ${info.rule}`} style={{ position: 'relative', width: size, height: size, flex: 'none' }}>
+          <span key={k} title={`${full ?? info.label}: ${info.rule}`} style={{ position: 'relative', width: size, height: size, flex: 'none' }}>
             <span
               className="lk-rail-word lk-text"
               data-on={words && info.tier === 1 ? '1' : '0'}
@@ -49,7 +51,7 @@ export const KeywordRail = memo(function KeywordRail({ keywords, size = 26, choo
                 color: WORD[info.tier], fontSize: size * 0.52, fontWeight: 700, whiteSpace: 'nowrap',
               }}
             >
-              {info.label}
+              {full ?? info.label}
             </span>
             <span style={{ position: 'absolute', inset: 0, borderRadius: 999, background: 'var(--lk-ink-2)', display: 'grid', placeItems: 'center', boxShadow: RING[info.tier] }}>
               <Icon g={g ?? MARK_GLYPH.warn} size={size * 0.6} color={INK[info.tier]} />
