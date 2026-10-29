@@ -3,10 +3,13 @@ package forge.web;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonNull;
+import forge.LobbyPlayer;
 import forge.card.ColorSet;
 import forge.card.MagicColor;
 import forge.deck.Deck;
 import forge.deck.DeckgenUtil;
+import forge.deck.io.DeckSerializer;
 import forge.game.GameRules;
 import forge.game.GameState;
 import forge.game.GameType;
@@ -14,39 +17,138 @@ import forge.game.player.RegisteredPlayer;
 import forge.gamemodes.match.HostedMatch;
 import forge.gui.interfaces.IGuiGame;
 import forge.item.PaperCard;
+import forge.localinstance.properties.ForgeConstants;
 import forge.model.FModel;
 import forge.player.GamePlayerUtil;
+import forge.player.LobbyPlayerHuman;
 import forge.web.assist.Assists;
 
+import java.io.File;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Stream;
 
-/** Owns the browser connection and the lobby; starts matches and hands game messages to the session. */
+/**
+ * Owns the one table: one socket, the lobby, and the running match.
+ * When Access is configured the seat is a person (their email). A match stays theirs until it ends.
+ */
 public final class MatchHost {
+    /** Someone else already has this table, or another window has this seat. */
+    static final int SEAT_TAKEN = 4000;
+    /** This socket was closed because the same seat reconnected. */
+    static final int SEAT_REPLACED = 4001;
+    /** Cloudflare Access did not name a person. */
+    static final int SIGN_IN = 4003;
     private static final String[] PAIRS = {"WU", "UB", "BR", "RG", "GW", "WB", "UR", "BG", "RW", "GU"};
+    /** Filenames in res/quest/precons, without the extension. Constructed theme decks, not commander lists. */
+    private static final String[] PRECONS = {
+            "Angelic Might",
+            "Spellweaver",
+            "Zombies Unleashed",
+            "Goblin Assault",
+            "Elvish Predation",
+            "Azorius Guild Kit",
+            "Dimir Guild Kit",
+            "Rakdos Guild Kit",
+            "Gruul Guild Kit",
+            "Selesnya Guild Kit",
+            "Orzhov Guild Kit",
+            "Izzet Guild Kit",
+            "Golgari Guild Kit",
+            "Simic Guild Kit",
+            "Boros Guild Kit",
+            "Sliver Evolution",
+            "Sarkhan, Dragonsoul",
+            "Morph Mayhem",
+            "Huatli, Dinosaur Knight",
+            "Vampire Onslaught",
+    };
+    private static volatile List<Deck> loadedPrecons;
 
     private final Path repoRoot;
+    private final AccessIdentity access;
+    private final PlayLog playLog;
+    private final Object seat = new Object();
     private volatile ClientChannel channel;
+    private String seatToken;
+    private String ownerEmail;
+    private String ownerName;
+    private String gameId;
     private volatile WebGuiGame session;
 
-    public MatchHost(Path repoRoot) {
+    public MatchHost(Path repoRoot, AccessIdentity access, PlayLog playLog) {
         this.repoRoot = repoRoot;
+        this.access = access;
+        this.playLog = playLog;
     }
 
-    void onConnect(ClientChannel ch) {
-        channel = ch;
-        WebGuiGame s = session;
+    void onConnect(ClientChannel ch, String requested, String jwt) {
+        String email = null;
+        if (access != null) {
+            try {
+                email = access.email(jwt);
+            } catch (AuthException e) {
+                System.err.println("Play sign-in refused: " + e.getMessage());
+                ch.close(SIGN_IN, "Sign in through Cloudflare Access");
+                return;
+            }
+        }
+        ClientChannel previous;
+        WebGuiGame s;
+        String token;
+        String who;
+        String seated;
+        synchronized (seat) {
+            boolean held = channel != null;
+            if (email != null) {
+                boolean mine = email.equalsIgnoreCase(ownerEmail);
+                boolean reserved = session != null && ownerEmail != null;
+                if ((held || reserved) && !mine) {
+                    String name = ownerName == null ? "Someone" : ownerName;
+                    ch.close(SEAT_TAKEN, name + " is already at this table");
+                    return;
+                }
+                if (!mine) {
+                    ownerEmail = email;
+                    ownerName = AccessIdentity.displayName(email);
+                    seatToken = UUID.randomUUID().toString();
+                }
+            } else {
+                boolean mine = requested != null && requested.equals(seatToken);
+                if (held && !mine) {
+                    ch.close(SEAT_TAKEN, "This seat is open in another window");
+                    return;
+                }
+                if (!mine) {
+                    seatToken = UUID.randomUUID().toString();
+                    ownerEmail = null;
+                    ownerName = null;
+                }
+            }
+            previous = channel;
+            channel = ch;
+            token = seatToken;
+            s = session;
+            who = ownerName == null ? "You" : ownerName;
+            seated = ownerEmail;
+        }
         JsonObject hello = new JsonObject();
         hello.addProperty("t", "hello");
         hello.addProperty("version", 2);
+        hello.addProperty("seat", token);
+        hello.addProperty("who", who);
+        if (seated != null) {
+            hello.addProperty("email", seated);
+        }
         JsonArray caps = new JsonArray();
         caps.add("log.append");
         caps.add("selectables.players");
@@ -62,15 +164,22 @@ public final class MatchHost {
         } else {
             ch.send(lobby());
         }
+        if (previous != null) {
+            previous.close(SEAT_REPLACED, "This seat reconnected");
+        }
     }
 
     void onDisconnect(ClientChannel ch) {
-        if (channel == ch) {
-            channel = null;
-            WebGuiGame s = session;
-            if (s != null) {
-                s.onDisconnect(ch);
+        WebGuiGame s = null;
+        synchronized (seat) {
+            if (channel != ch) {
+                return;
             }
+            channel = null;
+            s = session;
+        }
+        if (s != null) {
+            s.onDisconnect(ch);
         }
     }
 
@@ -163,6 +272,13 @@ public final class MatchHost {
             d.addProperty("colors", canonicalColors(pair));
             decks.add(d);
         }
+        for (Deck deck : precons()) {
+            JsonObject d = new JsonObject();
+            d.addProperty("id", "precon:" + deck.getName());
+            d.addProperty("name", deck.getName());
+            d.addProperty("colors", deckColors(deck));
+            decks.add(d);
+        }
         try {
             for (Deck deck : FModel.getDecks().getConstructed()) {
                 JsonObject d = new JsonObject();
@@ -180,6 +296,11 @@ public final class MatchHost {
             states.add(p.getFileName().toString());
         }
         o.add("states", states);
+        String email;
+        synchronized (seat) {
+            email = ownerEmail;
+        }
+        o.add("games", playLog.recent(email, 12));
         return o;
     }
 
@@ -221,7 +342,44 @@ public final class MatchHost {
                 return d;
             }
         }
+        if (id != null && id.startsWith("precon:")) {
+            String name = id.substring("precon:".length());
+            for (Deck d : precons()) {
+                if (name.equals(d.getName())) {
+                    return d;
+                }
+            }
+        }
         throw new IllegalArgumentException("Unknown deck " + id);
+    }
+
+    private static List<Deck> precons() {
+        List<Deck> cached = loadedPrecons;
+        if (cached != null) {
+            return cached;
+        }
+        synchronized (MatchHost.class) {
+            if (loadedPrecons != null) {
+                return loadedPrecons;
+            }
+            List<Deck> loaded = new ArrayList<>();
+            for (String name : PRECONS) {
+                File file = new File(ForgeConstants.QUEST_PRECON_DIR, name + ".dck");
+                try {
+                    Deck deck = DeckSerializer.fromFile(file);
+                    if (deck == null || deck.getMain() == null || deck.getMain().isEmpty()) {
+                        System.err.println("Skipping precon " + file);
+                        continue;
+                    }
+                    loaded.add(deck);
+                } catch (Exception e) {
+                    System.err.println("Skipping precon " + name);
+                    e.printStackTrace();
+                }
+            }
+            loadedPrecons = loaded;
+            return loaded;
+        }
     }
 
     private static String str(JsonObject o, String key, String dflt) {
@@ -238,9 +396,11 @@ public final class MatchHost {
         } catch (Exception ignored) {
         }
 
+        Deck mine = deckFor(deck);
+        Deck opp = deckFor(oppDeck);
         List<RegisteredPlayer> players = new ArrayList<>();
-        RegisteredPlayer human = new RegisteredPlayer(deckFor(deck));
-        human.setPlayer(GamePlayerUtil.getGuiPlayer());
+        RegisteredPlayer human = new RegisteredPlayer(mine);
+        human.setPlayer(seatedPlayer());
         players.add(human);
         for (int i = 1; i <= opponents; i++) {
             RegisteredPlayer ai = new RegisteredPlayer(deckFor(oppDeck));
@@ -249,7 +409,7 @@ public final class MatchHost {
         }
         GameRules rules = new GameRules(GameType.Constructed);
         rules.setGamesPerMatch(1);
-        launch(rules, null, players, human, null);
+        launch(rules, null, players, human, null, deck, nameOf(mine, deck), oppDeck, nameOf(opp, oppDeck), opponents);
     }
 
     private void startState(JsonObject msg) throws Exception {
@@ -275,7 +435,7 @@ public final class MatchHost {
         RegisteredPlayer human = null;
         for (int p = 0; p < state.getPlayerCount(); p++) {
             RegisteredPlayer rp = new RegisteredPlayer(new Deck());
-            rp.setPlayer(p == 0 ? GamePlayerUtil.getGuiPlayer() : GamePlayerUtil.createAiPlayer("AI " + p, p));
+            rp.setPlayer(p == 0 ? seatedPlayer() : GamePlayerUtil.createAiPlayer("AI " + p, p));
             rp.setStartingHand(0);
             if (p == 0) {
                 human = rp;
@@ -284,10 +444,23 @@ public final class MatchHost {
         }
         GameRules rules = new GameRules(type);
         rules.setGamesPerMatch(1);
-        launch(rules, commander ? EnumSet.of(type) : null, players, human, state);
+        String label = "state:" + name;
+        launch(rules, commander ? EnumSet.of(type) : null, players, human, state, label, name, label, name, Math.max(0, players.size() - 1));
     }
 
-    private void launch(GameRules rules, Set<GameType> variants, List<RegisteredPlayer> players, RegisteredPlayer human, GameState state) {
+    private LobbyPlayer seatedPlayer() {
+        synchronized (seat) {
+            return ownerName == null ? GamePlayerUtil.getGuiPlayer() : new LobbyPlayerHuman(ownerName);
+        }
+    }
+
+    private static String nameOf(Deck deck, String fallback) {
+        String n = deck == null ? null : deck.getName();
+        return n == null || n.isBlank() ? fallback : n;
+    }
+
+    private void launch(GameRules rules, Set<GameType> variants, List<RegisteredPlayer> players, RegisteredPlayer human, GameState state,
+            String deckId, String deckName, String oppId, String oppName, int opponents) {
         HostedMatch match = new HostedMatch();
         WebGuiGame gui = new WebGuiGame(match);
         session = gui;
@@ -299,6 +472,7 @@ public final class MatchHost {
             match.setStartGameHook(() -> state.applyToGameNow(match.getGame()));
         }
         match.setOnMatchOver(() -> {
+            endGame(gui);
             if (session == gui) {
                 session = null;
             }
@@ -308,13 +482,75 @@ public final class MatchHost {
                 c.send(lobby());
             }
         });
+        beginGame(deckId, deckName, oppId, oppName, opponents);
         Map<RegisteredPlayer, IGuiGame> guis = Map.of(human, gui.gui());
         try {
             match.startMatch(rules, variants, players, guis, null);
         } catch (RuntimeException e) {
+            endGame(gui);
             session = null;
             gui.dispose();
             throw e;
         }
+    }
+
+    /** The record the tracker can read. Written before the match blocks, closed when it ends. */
+    private void beginGame(String deckId, String deckName, String oppId, String oppName, int opponents) {
+        String id = UUID.randomUUID().toString();
+        String email;
+        String name;
+        synchronized (seat) {
+            email = ownerEmail;
+            name = ownerName == null ? "You" : ownerName;
+            gameId = id;
+        }
+        JsonObject g = new JsonObject();
+        g.addProperty("id", id);
+        if (email != null) {
+            g.addProperty("email", email);
+        }
+        g.addProperty("name", name);
+        g.addProperty("startedAt", Instant.now().toString());
+        g.add("endedAt", JsonNull.INSTANCE);
+        g.addProperty("status", "playing");
+        g.addProperty("deck", deckId);
+        g.addProperty("deckName", deckName);
+        g.addProperty("opponentDeck", oppId);
+        g.addProperty("opponentDeckName", oppName);
+        g.addProperty("opponents", opponents);
+        g.add("winner", JsonNull.INSTANCE);
+        g.add("turn", JsonNull.INSTANCE);
+        g.add("summary", JsonNull.INSTANCE);
+        g.add("log", new JsonArray());
+        try {
+            playLog.begin(g);
+        } catch (RuntimeException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void endGame(WebGuiGame gui) {
+        String id;
+        synchronized (seat) {
+            id = gameId;
+            gameId = null;
+        }
+        if (id == null) {
+            return;
+        }
+        try {
+            playLog.finish(id, gui.outcome());
+        } catch (RuntimeException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /** Games for the person this token names, or local games when Access is not configured. */
+    JsonObject gamesApi(String jwt, String id) {
+        String email = access == null ? null : access.email(jwt);
+        if (id == null || id.isEmpty()) {
+            return playLog.list(email);
+        }
+        return playLog.one(email, id);
     }
 }

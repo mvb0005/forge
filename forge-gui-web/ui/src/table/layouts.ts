@@ -1,22 +1,21 @@
+import { orderedHand } from '../board/handOrder'
 import { CARD_RATIO } from '../board/layout'
 import { layoutTable, PAD, type SideLayout } from '../board/fieldLayout'
-import type { CardDto, CombatDto, PhaseName, PlayerDto } from '../protocol'
+import type { CardDto, PhaseName, PlayerDto } from '../protocol'
 import type { LayoutFn, LayoutInput, LayoutResult, Placement, Region, TableMode } from './contract'
-import { COL_HEAD, RIBBON_H, STACK, stackItemY, tableFrame, type Frame } from './frame'
+import { STACK, stackItemY, tableFrame, type Frame } from './frame'
 
 // Layout functions per table mode. 'main' and 'combat' share one pass; combat lines attackers up
-// against their blockers and folds the back lanes. On your turn, with two or more opponents, the
-// top half becomes one column per opponent and each defender's combat stays in that column.
-// 'fanout' (Tab, Q-09) is still the main layout. Lands fold into the mana ribbon (invisible anchors
-// there, so they fly in and out) unless one of them can be chosen right now; then that player's
-// lands are drawn as cards again.
+// against their blockers and folds the back lanes. With two or more opponents every player, you
+// included, keeps a full-width band on every turn, and the active player's band is the tall one.
+// Lands fold into the mana ribbon (invisible anchors there, so they fly in and out) unless one of
+// them can be chosen right now.
 
 const COL_GAP = 8
 
-/** Your turn — a local player is active — with two or more opponents: draw every opponent battlefield. */
-export function showEveryOpponent(game: { activePlayerId: number | null; localPlayerIds: number[] }, opponents: number) {
-  const active = game.activePlayerId
-  return opponents >= 2 && active != null && game.localPlayerIds.includes(active)
+/** Two or more opponents: every player's battlefield stays up, whoever's turn it is. */
+export function showEveryOpponent(opponents: number) {
+  return opponents >= 2
 }
 
 /** Opponents in turn order, or by id when the game has no turn order. */
@@ -27,14 +26,6 @@ export function opponentIds(players: Record<number, PlayerDto>, meId: number, tu
     ids.sort((a, b) => (rank.get(a) ?? 1e9) - (rank.get(b) ?? 1e9) || a - b)
   } else ids.sort((a, b) => a - b)
   return ids
-}
-
-function defenderSeat(band: CombatDto['bands'][number], cards: Record<number, CardDto>, seats: Set<number>) {
-  const d = band.defender
-  if (!d) return null
-  if (d.kind === 'player') return seats.has(d.id) ? d.id : null
-  const ctrl = cards[d.id]?.controllerId
-  return ctrl != null && seats.has(ctrl) ? ctrl : null
 }
 
 const ZONE_W = 40
@@ -105,91 +96,71 @@ function paintSide(
   }
 }
 
-function placeColumns(
+function placeBands(
   input: LayoutInput,
   combat: boolean,
   frame: Frame,
   ids: number[],
   regions: Record<string, Region>,
-  placements: Map<number, Placement>,
   put: (id: number, p: Placement) => void,
   unfolded: (p: PlayerDto | undefined, ribbon: Region) => CardDto[],
 ) {
   const { players, cards, meId } = input
-  const me = players[meId]
-  const n = ids.length
+  const order = [...ids, meId]
   const gap = COL_GAP
-  const colW = (frame.top.w - gap * (n - 1)) / n
-  const seats = new Set(ids)
-  const cols = ids.map((id, i) => {
-    const field: Region = { x: frame.top.x + i * (colW + gap), y: frame.top.y, w: colW, h: frame.top.h }
-    const ribbon: Region = { x: field.x, y: field.y - RIBBON_H, w: field.w, h: RIBBON_H }
-    const seat: Region = { x: field.x, y: ribbon.y - COL_HEAD, w: field.w, h: COL_HEAD }
-    const half: Region = { x: field.x, y: seat.y, w: field.w, h: frame.split.y - seat.y }
-    regions[`half:${id}`] = half
+  const active = input.game.activePlayerId
+  const weight = (id: number) => (active != null && id === active ? 2 : 1)
+  const inner = frame.top.h - gap * (order.length - 1)
+  const sum = order.reduce((n, id) => n + weight(id), 0)
+  const gutter = frame.oppSeat
+  let y = frame.top.y
+  const bands = order.map((id) => {
+    const h = inner * weight(id) / sum
+    const field: Region = { x: frame.top.x, y, w: frame.top.w, h }
+    // The chip sits in the dark column beside the mat, and stops above the control panel.
+    const seatBottom = Math.min(y + h, frame.act.y - 4)
+    const seatH = Math.max(44, seatBottom - y)
+    const seat: Region = { x: frame.act.x, y: seatBottom - seatH, w: frame.act.w, h: seatH }
+    const ribbonH = Math.min(56, h)
+    const ribbon: Region = { x: gutter.x, y: y + h - ribbonH, w: gutter.w, h: ribbonH }
+    regions[`half:${id}`] = { x: gutter.x, y, w: field.x + field.w - gutter.x, h }
     regions[`seat:${id}`] = seat
     regions[`ribbon:${id}`] = ribbon
     regions[`field:${id}`] = field
+    y += h + gap
     return { id, field, ribbon, seat }
   })
 
-  const myAll = unfolded(me, frame.meRibbon)
-  const myById = new Map(myAll.map((c) => [c.id, c]))
-  const bySeat = new Map<number, Set<number>>()
-  for (const band of input.combat?.bands ?? []) {
-    const seat = defenderSeat(band, cards, seats)
-    if (seat == null) continue
-    const set = bySeat.get(seat) ?? new Set<number>()
-    for (const id of band.attackerIds) if (myById.has(id)) set.add(id)
-    if (set.size) bySeat.set(seat, set)
-  }
-  const hostIds = new Set<number>()
-  for (const set of bySeat.values()) for (const id of set) hostIds.add(id)
-  const withHost = (set: Set<number> | undefined) => {
-    if (!set?.size) return [] as CardDto[]
-    const out: CardDto[] = []
-    for (const c of myAll) if (set.has(c.id) || (c.attachedToId != null && set.has(c.attachedToId))) out.push(c)
-    return out
-  }
-  const rest = myAll.filter((c) => !hostIds.has(c.id) && !(c.attachedToId != null && hostIds.has(c.attachedToId)))
-  const laneH = frame.bottom.y + frame.bottom.h - frame.top.y
-
-  for (const col of cols) {
-    const theirs = unfolded(players[col.id], col.ribbon)
-    const mine = withHost(bySeat.get(col.id))
-    const size = { W: col.field.w - 2, H: col.field.h - 2 }
-    const maxW = Math.min(260, Math.max(90, size.W / 7))
-    const shown = new Set([...theirs, ...mine].map((c) => c.id))
-    const lay = layoutTable(theirs, mine, mine.length ? input.combat : null, input.highlighted, (id) => shown.has(id), size, maxW, combat)
-    paintSide(lay.top, col.field, 'bottom', size, regions, cards, put, null, null)
-    if (mine.length) {
-      paintSide(lay.bottom, { x: col.field.x, y: frame.bottom.y, w: col.field.w, h: frame.bottom.h }, 'top', size, regions, cards, put, null, { y: col.field.y, h: laneH })
-    }
+  for (const band of bands) {
+    const mine = band.id === meId
+    const row = unfolded(players[band.id], band.ribbon)
+    const size = { W: band.field.w - 2, H: band.field.h - 2 }
+    const maxW = Math.min(220, Math.max(64, Math.min(size.W / 8, size.H / CARD_RATIO)))
+    const shown = new Set(row.map((c) => c.id))
+    const lay = layoutTable(mine ? [] : row, mine ? row : [], combat ? input.combat : null, input.highlighted, (id) => shown.has(id), size, maxW, combat)
+    const lane = combat ? { y: band.field.y, h: band.field.h } : null
+    paintSide(mine ? lay.bottom : lay.top, band.field, mine ? 'top' : 'bottom', size, regions, cards, put, mine ? 'bottom:back' : null, lane)
   }
 
-  let attackH = 0
-  if (hostIds.size) {
-    let low = frame.bottom.y
-    for (const p of placements.values()) {
-      if (p.edge === 'top' && p.kind === 'field') low = Math.max(low, p.y + p.w * CARD_RATIO)
-    }
-    attackH = Math.min(low - frame.bottom.y + 8, Math.max(0, frame.bottom.h - 72))
+  const opp = ids.map((id) => regions[`field:${id}`]).filter((r): r is Region => !!r)
+  if (opp.length) {
+    const y0 = Math.min(...opp.map((f) => f.y))
+    const y1 = Math.max(...opp.map((f) => f.y + f.h))
+    regions.top = { x: frame.top.x, y: y0, w: frame.top.w, h: y1 - y0 }
   }
-  const restFelt: Region = { x: frame.bottom.x, y: frame.bottom.y + attackH, w: frame.bottom.w, h: Math.max(36, frame.bottom.h - attackH) }
-  const restSize = { W: restFelt.w - 2, H: restFelt.h - 2 }
-  const restMax = Math.min(260, Math.max(90, restSize.W / 7))
-  const restShown = new Set(rest.map((c) => c.id))
-  const restLay = layoutTable([], rest, hostIds.size ? null : combat ? input.combat : null, input.highlighted, (id) => restShown.has(id), restSize, restMax, combat)
-  const restLane = hostIds.size || !combat ? null : { y: frame.top.y, h: frame.bottom.y + frame.bottom.h - frame.top.y }
-  paintSide(restLay.bottom, restFelt, 'top', restSize, regions, cards, put, 'bottom:back', restLane)
-  return cols
+  const mineField = regions[`field:${meId}`]
+  if (mineField) {
+    regions.bottom = mineField
+    regions.split = { x: 0, y: mineField.y, w: frame.split.w, h: 0 }
+  }
+  return bands
 }
 
 function table(input: LayoutInput, combat: boolean): LayoutResult {
   const { viewport, players, cards, meId, focusId, stack } = input
   const me = players[meId] as PlayerDto | undefined
   const ids = opponentIds(players, meId, input.game.turnOrder)
-  const fanout = showEveryOpponent(input.game, ids.length)
+  const fanout = showEveryOpponent(ids.length)
   const opp = !fanout && focusId != null ? players[focusId] : undefined
   const frame = tableFrame(viewport, !fanout && ids.length > 1, stack.length, combat, fanout)
   const placements = new Map<number, Placement>()
@@ -212,7 +183,7 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
     return rest
   }
 
-  const cols = fanout ? placeColumns(input, combat, frame, ids, regions, placements, put, unfolded) : null
+  const cols = fanout ? placeBands(input, combat, frame, ids, regions, put, unfolded) : null
   if (!fanout) {
     // One opponent full size on top, you at the bottom. Other opponents are strips.
     const topCards = unfolded(opp, frame.oppRibbon)
@@ -225,8 +196,8 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
     paintSide(sides.bottom, frame.bottom, 'top', size, regions, cards, put, 'bottom:back', { y: frame.top.y, h: frame.bottom.y + frame.bottom.h - frame.top.y })
   }
 
-  // Your hand: fanned along the bottom.
-  const hand = me ? me.zones.hand : []
+  // Your hand: fanned along the bottom, in mana-value order unless you have arranged it.
+  const hand = me ? orderedHand(me.zones.hand, cards, input.handOrder ?? null) : []
   if (hand.length) {
     const { w: W, h: H } = frame.hand
     const n = hand.length

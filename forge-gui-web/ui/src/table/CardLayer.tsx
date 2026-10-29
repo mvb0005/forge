@@ -1,8 +1,10 @@
 import { createPortal } from 'react-dom'
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { CardImage } from '../board/CardImage'
 import { groupBattlefield } from '../board/layout'
+import { orderedHand } from '../board/handOrder'
+import { send } from '../net'
 import { clickCards, HeldExile, useCardLook } from '../board/Tile'
 import { useBoardUi } from '../board/uiStore'
 import { CardFrame, DESIGN_H, DESIGN_W } from '../look/CardFrame'
@@ -34,15 +36,16 @@ const reducedMotion = () => !!window.matchMedia?.('(prefers-reduced-motion: redu
 /** Layout for the table: recomputed only when the structural signature or the viewport changes. */
 export function useTableLayout(viewport: View) {
   const userFocus = useBoardUi((s) => s.focus)
+  const handOrder = useBoardUi((s) => s.handOrder)
   const { meId, focusId } = useForge(useShallow((s) => seatIds(s, userFocus)))
   const sig = useForge((s) => tableSignature(s, meId, focusId))
   const layout = useMemo((): LayoutResult => {
     const s = useForge.getState()
     if (!s.game || meId == null) return { placements: new Map(), regions: { ...tableFrame(viewport, false, 0) } as LayoutResult['regions'] }
     const mode = tableMode(s.combat, s.game.phase)
-    return LAYOUTS[mode]({ mode, viewport, meId, focusId, game: s.game, players: s.players, cards: s.cards, combat: s.combat, highlighted: s.highlighted, stack: s.stack, selectable: s.selectable.cardIds })
+    return LAYOUTS[mode]({ mode, viewport, meId, focusId, game: s.game, players: s.players, cards: s.cards, combat: s.combat, highlighted: s.highlighted, stack: s.stack, selectable: s.selectable.cardIds, handOrder })
     // sig stands for everything structural in the store, so the rest is read through getState.
-  }, [sig, viewport.w, viewport.h, meId, focusId])
+  }, [sig, viewport.w, viewport.h, meId, focusId, handOrder])
   return { layout, meId, focusId }
 }
 
@@ -166,6 +169,31 @@ const sameProps = (a: CardViewProps, b: CardViewProps) => a.id === b.id && a.gho
 // Tapped cards are drawn smaller so the quarter-turned face fits the untapped footprint.
 const TAPPED_W = Math.round((DESIGN_W * 63) / 88)
 
+/** Drag a hand card sideways. Past a few pixels it takes a new place; a click still plays the card. */
+function slideHand(e: ReactPointerEvent<HTMLElement>, id: number, drag: RefObject<{ x: number; y: number; moved: boolean } | null>) {
+  const d = drag.current
+  if (!d) return
+  if (!d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 8) return
+  d.moved = true
+  const nodes = [...document.querySelectorAll<HTMLElement>('[data-hand]')].map((el) => {
+    const r = el.getBoundingClientRect()
+    return { id: Number(el.dataset.hand), x: r.left + r.width / 2 }
+  }).filter((n) => n.id).sort((a, b) => a.x - b.x)
+  const others = nodes.filter((n) => n.id !== id)
+  if (!others.length) return
+  const s = useForge.getState()
+  const meId = s.game?.localPlayerIds[0]
+  if (meId == null) return
+  const ids = s.players[meId]?.zones.hand ?? []
+  const order = orderedHand(ids, s.cards, useBoardUi.getState().handOrder)
+  if (!order.includes(id)) return
+  let to = others.findIndex((n) => e.clientX < n.x)
+  if (to < 0) to = others.length
+  const next = order.filter((x) => x !== id)
+  next.splice(to, 0, id)
+  if (next.join() !== order.join()) useBoardUi.getState().setHandOrder(next)
+}
+
 const CardView = memo(function CardView({ id, p, ghost, from }: CardViewProps) {
   if (import.meta.env.DEV) renderCounts.set(id, (renderCounts.get(id) ?? 0) + 1)
   const faceId = p.faceId ?? id
@@ -183,6 +211,8 @@ const CardView = memo(function CardView({ id, p, ghost, from }: CardViewProps) {
   })
   const [pileOpen, setPileOpen] = useState(false)
   const pileTimer = useRef<number | undefined>(undefined)
+  const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null)
+  const suppressClick = useRef(false)
   useEffect(() => () => window.clearTimeout(pileTimer.current), [])
   if (!card) return null
 
@@ -199,6 +229,7 @@ const CardView = memo(function CardView({ id, p, ghost, from }: CardViewProps) {
       ref={ref}
       data-entity={`card:${id}`}
       data-ids={ids.join(' ')}
+      data-hand={p.kind === 'hand' && !ghost ? id : undefined}
       tabIndex={active ? 0 : undefined}
       className={`absolute left-0 top-0 outline-none ${active ? 'pointer-events-auto cursor-pointer' : ''}`}
       style={{ width: DESIGN_W, height: DESIGN_H, transform: tf(b), transformOrigin: '0 0', opacity: b.o, zIndex: pileOpen ? 5000 : p.z }}
@@ -211,7 +242,28 @@ const CardView = memo(function CardView({ id, p, ghost, from }: CardViewProps) {
         if (active) peek.onPointerLeave()
         pileHover(false)
       }}
-      onClick={active ? onClick : undefined}
+      onPointerDown={p.kind === 'hand' && !ghost ? (e) => {
+        if (e.button !== 0) return
+        drag.current = { x: e.clientX, y: e.clientY, moved: false }
+        e.currentTarget.setPointerCapture(e.pointerId)
+      } : undefined}
+      onPointerMove={p.kind === 'hand' && !ghost ? (e) => slideHand(e, id, drag) : undefined}
+      onPointerUp={p.kind === 'hand' && !ghost ? () => {
+        if (drag.current?.moved) {
+          suppressClick.current = true
+          const order = useBoardUi.getState().handOrder
+          const index = order?.indexOf(id) ?? -1
+          if (index >= 0) send({ t: 'reorderHand', cardId: id, index })
+        }
+        drag.current = null
+      } : undefined}
+      onClick={active ? (e) => {
+        if (suppressClick.current) {
+          suppressClick.current = false
+          return
+        }
+        onClick(e)
+      } : undefined}
       onContextMenu={active ? onClick : undefined}
     >
       <div className="absolute inset-0" style={{ opacity: card.phasedOut ? 0.32 : undefined }}>

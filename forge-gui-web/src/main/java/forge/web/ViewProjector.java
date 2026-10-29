@@ -59,7 +59,8 @@ final class ViewProjector {
         if (key == null || key.isEmpty()) {
             return null;
         }
-        return "/img/card/" + URLEncoder.encode(key, StandardCharsets.UTF_8).replace("+", "%20");
+        // Relative, so the same payload works at / and at /play/.
+        return "img/card/" + URLEncoder.encode(key, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     static JsonElement ref(Object o) {

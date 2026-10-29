@@ -99,6 +99,17 @@ describe('table layouts', () => {
     expect(open.regions['bottom:back'].h).toBeGreaterThan(0)
   })
 
+  it('keeps the seam and the control panel in place when combat starts', () => {
+    const s = fixture('pod')
+    const main = run(input(s, { combat: null }))
+    const combat = run(input(s))
+    expect(combat.regions.line).toEqual(main.regions.line)
+    expect(combat.regions.act).toEqual(main.regions.act)
+    expect(combat.regions.bottom).toEqual(main.regions.bottom)
+    expect(combat.regions.tray.h).toBe(0)
+    expect(Object.keys(combat.regions).some((k) => k.startsWith('lane:'))).toBe(true)
+  })
+
   it('combat mode lines attackers up and folds the back lanes', () => {
     const s = fixture('pod')
     const land = s.players![1].zones.battlefield.find((id) => s.cards![id].types.includes('Land') && !s.cards![id].types.includes('Creature'))!
@@ -130,7 +141,7 @@ describe('table layouts', () => {
     expect(fight.get(soldiers[0])!.count).toBe(soldiers.length - 4)
   })
 
-  it('on your turn draws every opponent battlefield, and on theirs only the focused one', () => {
+  it('keeps every player on the table, and gives the active player the taller band', () => {
     const s = fixture('four')
     const covered = (placements: Map<number, Placement>) => {
       const n = new Map<number, number>()
@@ -141,9 +152,13 @@ describe('table layouts', () => {
     const again = run(input(s, { game: { ...s.game!, activePlayerId: 1, priorityPlayerId: 1 }, focusId: 4 }))
     expect(again.placements).toEqual(mine.placements)
     expect(mine.regions.strips).toBeUndefined()
-    for (const id of [2, 3, 4]) expect(mine.regions[`half:${id}`]).toBeTruthy()
-    expect(mine.regions['half:2'].x).toBeLessThan(mine.regions['half:3'].x)
-    expect(mine.regions['half:3'].x).toBeLessThan(mine.regions['half:4'].x)
+    for (const id of [1, 2, 3, 4]) expect(mine.regions[`half:${id}`]).toBeTruthy()
+    expect(mine.regions['half:2'].y).toBeLessThan(mine.regions['half:3'].y)
+    expect(mine.regions['half:3'].y).toBeLessThan(mine.regions['half:4'].y)
+    expect(mine.regions['half:4'].y).toBeLessThan(mine.regions['half:1'].y)
+    expect(mine.regions['half:1'].h).toBeGreaterThan(mine.regions['half:2'].h * 1.5)
+    expect(mine.regions['half:2'].h).toBeCloseTo(mine.regions['half:4'].h)
+    for (const id of [1, 2, 3, 4]) expect(mine.regions[`seat:${id}`].x).toBeGreaterThan(mine.regions[`field:${id}`].x + mine.regions[`field:${id}`].w - 1)
     const seen = covered(mine.placements)
     for (const pid of [1, 2, 3, 4]) for (const id of s.players![pid].zones.battlefield) expect(seen.get(id), `card ${id}`).toBe(1)
     for (const [, p] of mine.placements) {
@@ -151,18 +166,20 @@ describe('table layouts', () => {
       expect(inside(p, p.edge === 'bottom' ? mine.regions.top : mine.regions.bottom), `field ${p.x},${p.y}`).toBe(true)
     }
     const ordered = run(input(s, { game: { ...s.game!, activePlayerId: 1, turnOrder: [1, 4, 2, 3] }, combat: null, mode: 'main' }))
-    expect(ordered.regions['half:4'].x).toBeLessThan(ordered.regions['half:2'].x)
-    expect(ordered.regions['half:2'].x).toBeLessThan(ordered.regions['half:3'].x)
+    expect(ordered.regions['half:4'].y).toBeLessThan(ordered.regions['half:2'].y)
+    expect(ordered.regions['half:2'].y).toBeLessThan(ordered.regions['half:3'].y)
 
     const theirs = run(input(s))
-    expect(theirs.regions.strips).toBeTruthy()
-    expect(Object.keys(theirs.regions).some((k) => k.startsWith('half:'))).toBe(false)
+    expect(theirs.regions.strips).toBeUndefined()
+    for (const id of [1, 2, 3, 4]) expect(theirs.regions[`half:${id}`]).toBeTruthy()
+    expect(theirs.regions['half:4'].h).toBeGreaterThan(theirs.regions['half:2'].h * 1.5)
+    expect(theirs.regions['half:2'].h).toBeCloseTo(theirs.regions['half:3'].h)
+    expect(theirs.regions['half:1'].h).toBeCloseTo(theirs.regions['half:2'].h)
     const focusSeen = covered(theirs.placements)
-    for (const id of [...s.players![1].zones.battlefield, ...s.players![4].zones.battlefield]) expect(focusSeen.get(id), `card ${id}`).toBe(1)
-    for (const id of [...s.players![2].zones.battlefield, ...s.players![3].zones.battlefield]) expect(focusSeen.get(id), `card ${id}`).toBeUndefined()
+    for (const pid of [1, 2, 3, 4]) for (const id of s.players![pid].zones.battlefield) expect(focusSeen.get(id), `card ${id}`).toBe(1)
   })
 
-  it('on your turn lines each attacker up with the defender column', () => {
+  it('keeps each attacker on their own band', () => {
     const s = fixture('four')
     const base = input(s, { game: { ...s.game!, activePlayerId: 1, phase: 'COMBAT_DECLARE_ATTACKERS' } })
     const spirit = Object.values(base.cards).find((c) => c.name === 'Selfless Spirit')!
@@ -181,19 +198,15 @@ describe('table layouts', () => {
       expect(p?.kind, `card ${id}`).toBe('field')
       return p!
     }
-    const sx = (p: Placement, r: Region) => p.x >= r.x - 1 && p.x + p.w <= r.x + r.w + 1
-    expect(sx(at(spirit.id), lay.regions['field:2'])).toBe(true)
+    const sx = (p: Placement, r: Region) => p.x >= r.x - 1 && p.x + p.w <= r.x + r.w + 1 && p.y >= r.y - 1 && p.y <= r.y + r.h
+    expect(sx(at(spirit.id), lay.regions['field:1'])).toBe(true)
+    expect(sx(at(knight.id), lay.regions['field:1'])).toBe(true)
     expect(sx(at(atraxa.id), lay.regions['field:2'])).toBe(true)
-    expect(Math.abs(at(spirit.id).x - at(atraxa.id).x)).toBeLessThan(1)
-    expect(sx(at(knight.id), lay.regions['field:4'])).toBe(true)
     expect(lay.placements.get(urza.id)?.kind).toBe('field')
     const home = Object.values(base.cards).filter((c) => c.name === 'Knight Ally' && c.id !== knight.id)
     expect(home.length).toBeGreaterThan(0)
     expect(lay.placements.get(home[0].id) ?? [...lay.placements.values()].some((p) => p.memberIds?.includes(home[0].id))).toBeTruthy()
-    for (const [, p] of lay.placements) {
-      if (p.kind !== 'field') continue
-      expect(inside(p, p.edge === 'bottom' ? lay.regions.top : lay.regions.bottom), `field ${p.x},${p.y}`).toBe(true)
-    }
+    for (const id of [1, 2, 3, 4]) expect(lay.regions[`half:${id}`]).toBeTruthy()
   })
 
   it('signature includes every battlefield drawn, and a P/T change does not rebuild it', () => {
@@ -211,7 +224,7 @@ describe('table layouts', () => {
     expect(tableSignature(tapped, 1, 2)).not.toBe(sig)
     const theirs = tableSignature(s as ForgeState, 1, 4)
     expect(has(theirs, krenko.id)).toBe(true)
-    expect(has(theirs, atraxa.id)).toBe(false)
+    expect(has(theirs, atraxa.id)).toBe(true)
     expect(sig).not.toBe(theirs)
   })
 

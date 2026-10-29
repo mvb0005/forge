@@ -9,4 +9,7 @@ import com.google.gson.JsonObject;
  */
 public interface ClientChannel {
     void send(JsonObject message);
+
+    /** Close the socket with a private-use status. 4000 is "seat taken"; 4001 is "this socket was replaced". */
+    void close(int code, String reason);
 }

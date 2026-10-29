@@ -5,6 +5,17 @@ export type Sym = string // normalised, upper case, no braces: "2", "W", "W/U", 
 
 const TOKEN = /\d+(?:\/[WUBRG])?|[WUBRGCSXYZTQE](?:\/[WUBRGCP])*/g
 
+/** Mana value. {2}{W} is 3, {W/U} is 1, {2/W} is 2, {X}{R} is 1. No cost is 0. */
+export function cmc(cost: string | null | undefined): number {
+  let n = 0
+  for (const s of parseCost(cost)) {
+    const info = symInfo(s)
+    if (info.generic && /^\d+$/.test(info.generic)) n += Number(info.generic)
+    else if (info.colors.length || info.phyrexian) n += 1
+  }
+  return n
+}
+
 export function parseCost(cost: string | null | undefined): Sym[] {
   if (!cost) return []
   const s = cost.trim().toUpperCase()

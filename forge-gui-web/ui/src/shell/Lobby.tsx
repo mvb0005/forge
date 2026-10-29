@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { send } from '../net'
+import type { SavedGame } from '../protocol'
 import { useForge } from '../store'
 import { Btn, ColorPips, Kbd } from './ui'
 
@@ -75,9 +76,24 @@ function DeckPicker({ label, decks, value, onChange }: { label: string; decks: D
   )
 }
 
+function when(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
+function gameLabel(g: SavedGame) {
+  if (g.summary) return g.summary
+  if (g.status === 'playing') return 'In progress'
+  if (g.status === 'abandoned') return 'Abandoned'
+  return g.status
+}
+
 export function Lobby() {
   const lobby = useForge((s) => s.lobby)!
   const connected = useForge((s) => s.connected)
+  const email = useForge((s) => s.email)
+  const games = lobby.games ?? []
   const decks = lobby.decks
   const pick = (key: string, fallback: number) => {
     const saved = remember(key)
@@ -122,9 +138,20 @@ export function Lobby() {
         <span className="flex-1" />
         <span className="flex items-center gap-2 text-xs text-ink-dim">
           <span className={`h-2 w-2 rounded-full ${connected ? 'bg-playable' : 'bg-danger'}`} />
-          {connected ? 'Connected' : 'Offline'}
+          {email ?? (connected ? 'Connected' : 'Offline')}
         </span>
       </header>
+      {games.length > 0 && (
+        <div className="shell-scroll flex gap-2 overflow-x-auto px-8 pb-1">
+          {games.map((g) => (
+            <div key={g.id} className="w-56 shrink-0 rounded-lg border border-line bg-panel/60 px-3 py-2">
+              <div className="truncate text-xs font-semibold">{gameLabel(g)}</div>
+              <div className="truncate text-[11px] text-ink-dim">{g.deckName} vs {g.opponentDeckName}</div>
+              <div className="text-[11px] text-ink-dim">{when(g.endedAt ?? g.startedAt)}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <main className="flex min-h-0 flex-1 gap-6 px-8 pb-8 pt-4">
         <section className="flex min-h-0 min-w-0 flex-[3] flex-col gap-4">

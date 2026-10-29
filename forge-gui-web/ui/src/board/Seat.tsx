@@ -1,10 +1,11 @@
 import { useEffect, useMemo, type CSSProperties, type MouseEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { RING } from '../look/CardFrame'
-import { LifeShield, type CommanderHit, type ShieldRim } from '../look/LifeShield'
-import { foldLands, ManaRibbon, type RibbonSource } from '../look/ManaRibbon'
+import type { CommanderHit } from '../look/LifeShield'
+import { foldLands, type RibbonSource } from '../look/ManaRibbon'
 import { ManaSymbol } from '../look/ManaSymbol'
-import { SeatStrip, type SeatStatus } from '../look/SeatStrip'
+import { ManaRow } from './LandTray'
+import { landChips } from './lands'
 import { boardIdentity, identity } from '../look/tones'
 import { send } from '../net'
 import { usePeek } from '../popover/usePeek'
@@ -81,89 +82,79 @@ export function useSeatColors(p: PlayerDto | undefined) {
   return sent != null ? identity(sent).join('') : board.join('')
 }
 
-function pickSource(src: RibbonSource) {
+export function Ribbon({ player, isMe, style }: { player: PlayerDto; isMe: boolean; style?: CSSProperties }) {
+  const cards = useRibbonCards(player)
+  const sources = useMemo(() => ribbonSources(cards), [cards])
+  const extras = useMemo(() => landChips(cards).filter((c) => c.ability), [cards])
+  const usable = useForge((s) => isMe && s.game?.priorityPlayerId != null && s.game.localPlayerIds.includes(s.game.priorityPlayerId))
+  return (
+    <div style={{ ...style, overflow: 'visible', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
+      <ManaRow sources={sources} extras={extras} usable={usable} align={isMe ? 'start' : 'center'} onPick={isMe ? pickIds : undefined} />
+    </div>
+  )
+}
+
+function pickIds(ids: number[]) {
   const s = useForge.getState()
-  const ids = src.ids ?? []
   const open = ids.filter((id) => !s.cards[id]?.tapped)
   const { cardId } = pickFromGroup(open.length ? open : ids, s.cards, s.selectable.cardIds, s.playable, s.highlighted)
   if (cardId != null) send({ t: 'selectCard', cardId, shift: false, button: 1 })
 }
 
-export function Ribbon({ player, isMe, style }: { player: PlayerDto; isMe: boolean; style?: CSSProperties }) {
-  const cards = useRibbonCards(player)
-  const sources = useMemo(() => ribbonSources(cards), [cards])
-  const usable = useForge((s) => isMe && s.game?.priorityPlayerId === player.id)
-  const n = useOpenMana(player, sources)
-  return (
-    <div style={style}>
-      <ManaRibbon sources={sources} usable={usable} size={isMe ? 26 : 24} summary={isMe ? undefined : `${n} untapped`} onPick={isMe ? pickSource : undefined} />
-    </div>
-  )
+type Fact = { key: string; text: string; danger?: boolean }
+
+function playerFacts(p: PlayerDto, hits: CommanderHit[], mana: number | null): Fact[] {
+  const out: Fact[] = []
+  if (p.poison > 0) out.push({ key: 'poison', text: `Poison ${p.poison}`, danger: true })
+  for (const h of hits) if (h.amount > 0) out.push({ key: `cmd:${h.name}`, text: `${h.name} ${h.amount}`, danger: true })
+  for (const [k, n] of Object.entries(p.counters)) {
+    if (n > 0) out.push({ key: k, text: `${k.charAt(0) + k.slice(1).toLowerCase().replace(/_/g, ' ')} ${n}` })
+  }
+  if (mana != null) out.push({ key: 'mana', text: `Mana ${mana}` })
+  return out
 }
 
-/** Life shield and name. The shield is the player for clicks, targets and arrows. `compact` is the column header on your turn. */
+/** The same plaque at every seat: life, name, hand, library, then whatever the game has changed. */
 export function SeatPlate({ player: p, isMe, compact = false }: { player: PlayerDto; isMe: boolean; compact?: boolean }) {
   const mark = usePlayerMark(p.id)
   const active = useForge((s) => s.game?.activePlayerId === p.id)
   const attacked = useForge((s) => !!s.combat?.bands.some((b) => b.defender?.kind === 'player' && b.defender.id === p.id))
-  const after = useForge((s) => s.combatAssist?.players.find((x) => x.id === p.id))
+  const after = useForge((s) => s.combatAssist?.players.find((x) => x.id === p.id)?.lifeAfter ?? null)
   const ribbon = useRibbonCards(isMe ? undefined : p)
   const sources = useMemo(() => ribbonSources(ribbon), [ribbon])
   const open = useOpenMana(isMe ? undefined : p, sources)
   const hits = useCommanderHits(p)
-  const counters = Object.entries(p.counters).filter(([, n]) => n > 0)
-  const rim: ShieldRim = attacked ? 'ember' : active ? (isMe ? 'bright' : 'active') : 'metal'
-  if (compact) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, opacity: p.hasLost ? 0.5 : 1 }}>
-        <button
-          type="button"
-          data-entity={`player:${p.id}`}
-          title={mark === 'choose' ? `Choose ${p.name}` : `${p.name}: ${p.life} life`}
-          style={{ border: 0, padding: 0, background: 'none', cursor: 'pointer', filter: mark ? MARK_SHADOW[mark] : undefined, flex: 'none' }}
-          onClick={(e) => clickPlayer(e, p.id)}
-          onContextMenu={(e) => clickPlayer(e, p.id)}
-        >
-          <LifeShield life={p.life} preview={after?.lifeAfter ?? null} lethal={!!after?.lethal} poison={p.poison} width={48} rim={rim} commander={hits} />
-        </button>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-          <div className="lk-title" style={{ fontWeight: 700, fontSize: 16, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-          <OppZones player={p} />
-        </div>
-      </div>
-    )
-  }
-  const sub = isMe ? null : attacked || active ? (
-    <span style={{ color: open ? 'var(--lk-ember-light)' : undefined }}>{open} open · {p.handCount} in hand</span>
-  ) : (
-    `${p.handCount} in hand · ${p.libraryCount} library`
-  )
+  const facts = playerFacts(p, hits, compact && !isMe ? open : null)
+  const edge = attacked ? 'var(--lk-ember)' : active ? 'var(--lk-parchment)' : 'transparent'
+  const preview = after != null && after !== p.life ? after : null
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14, opacity: p.hasLost ? 0.5 : 1 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 8 : 12, minWidth: 0, maxWidth: '100%', padding: compact ? '2px 6px' : '6px 8px 6px 6px', borderRadius: 8, background: 'rgb(16 12 9 / .55)', boxShadow: `inset 3px 0 0 ${edge}`, opacity: p.hasLost ? 0.45 : 1 }}>
       <button
         type="button"
         data-entity={`player:${p.id}`}
         title={mark === 'choose' ? `Choose ${isMe ? 'yourself' : p.name}` : `${p.name}: ${p.life} life`}
-        style={{ border: 0, padding: 0, background: 'none', cursor: 'pointer', filter: mark ? MARK_SHADOW[mark] : undefined, flex: 'none' }}
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, border: 0, padding: 0, background: 'none', cursor: 'pointer', filter: mark ? MARK_SHADOW[mark] : undefined, flex: 'none', color: preview != null && preview < p.life ? 'var(--lk-ember-light)' : 'inherit' }}
         onClick={(e) => clickPlayer(e, p.id)}
         onContextMenu={(e) => clickPlayer(e, p.id)}
       >
-        <LifeShield life={p.life} preview={after?.lifeAfter ?? null} lethal={!!after?.lethal} poison={p.poison} width={isMe ? 92 : 80} rim={rim} commander={hits} />
+        <span className="lk-title" style={{ fontWeight: 700, fontSize: compact ? 26 : 34, lineHeight: 0.9, fontVariantNumeric: 'tabular-nums' }}>{preview ?? p.life}</span>
+        {preview != null && <span style={{ fontSize: 10, color: 'var(--lk-parchment-mute)', textDecoration: 'line-through' }}>{p.life}</span>}
       </button>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
-        <div className="lk-title" style={{ fontWeight: 700, fontSize: 24, lineHeight: 1, whiteSpace: 'nowrap' }}>{isMe ? 'You' : p.name}</div>
-        {sub && <div style={{ fontSize: 14, color: 'var(--lk-parchment-dim)', whiteSpace: 'nowrap' }}>{sub}</div>}
-        {!isMe && <OppZones player={p} />}
-        {counters.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {counters.map(([k, n]) => (
-              <span key={k} className="lk-title" style={chip}>
-                {k.charAt(0) + k.slice(1).toLowerCase().replace(/_/g, ' ')} <b>{n}</b>
-              </span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+        <div className="lk-title" style={{ fontWeight: 700, fontSize: compact ? 15 : 18, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{isMe ? 'You' : p.name}</div>
+        <div style={{ display: 'flex', gap: 8, fontSize: compact ? 11 : 12, color: 'var(--lk-parchment-dim)', whiteSpace: 'nowrap' }}>
+          <span>Hand <b className="lk-title" style={{ color: 'var(--lk-parchment)' }}>{p.handCount}</b></span>
+          <span>Library <b className="lk-title" style={{ color: 'var(--lk-parchment)' }}>{p.libraryCount}</b></span>
+        </div>
+        {facts.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {facts.map((f) => (
+              <span key={f.key} style={{ ...chip, color: f.danger ? 'var(--lk-ember-light)' : undefined }}>{f.text}</span>
             ))}
           </div>
         )}
-        <Pool player={p} isMe={isMe} />
+        {!compact && !isMe && <OppZones player={p} />}
+        {!compact && <Pool player={p} isMe={isMe} />}
       </div>
     </div>
   )
@@ -347,38 +338,22 @@ function ZoneCard({ card, w }: { card: CardDto; w: number }) {
   )
 }
 
-function stripStatus(s: ForgeState, id: number): SeatStatus {
-  const combat = !!s.combat?.bands.length
-  if (s.game?.activePlayerId === id) return combat ? 'attacking' : 'active'
-  if (combat && s.combat!.bands.some((b) => b.defender?.kind === 'player' && b.defender.id === id)) return 'defending'
-  return 'waiting'
-}
-
-/** Multiplayer: an opponent not drawn full size. Click focuses it; while choosing (or with shift) it's the player. */
+/** Multiplayer: an opponent not drawn full size. The plaque matches the seats on the table. Click focuses it. */
 export function StripSeat({ player: p, width, onFocus }: { player: PlayerDto; width: number; onFocus: () => void }) {
   const mark = usePlayerMark(p.id)
-  const status = useForge((s) => stripStatus(s, p.id))
-  const preview = useForge((s) => s.combatAssist?.players.find((x) => x.id === p.id)?.lifeAfter ?? null)
-  const cards = useRibbonCards(p)
-  const sources = useMemo(() => ribbonSources(cards), [cards])
-  const colors = useSeatColors(p)
-  const hits = useCommanderHits(p)
-  const cmd = p.commanders?.[0]
-  const cmdName = useForge((s) => (cmd ? (s.cards[cmd.cardId]?.name.split(',')[0] ?? 'Commander') : null))
   return (
     <div
       role="button"
       tabIndex={0}
-      data-entity={`player:${p.id}`}
       title={mark === 'choose' ? `Choose ${p.name}` : 'Click to show this board'}
-      style={{ cursor: 'pointer', borderRadius: 14, filter: mark ? MARK_SHADOW[mark] : undefined }}
+      style={{ width, cursor: 'pointer', borderRadius: 8, filter: mark ? MARK_SHADOW[mark] : undefined }}
       onClick={(e) => {
         if (e.shiftKey || mark === 'choose') clickPlayer(e, p.id)
         else onFocus()
       }}
       onContextMenu={(e) => clickPlayer(e, p.id)}
     >
-      <SeatStrip player={p} colors={colors} status={status} open={sources} preview={preview} width={width} commander={cmd && cmdName ? { name: cmdName, tax: cmd.tax } : undefined} cmdDamage={hits.length ? hits : undefined} />
+      <SeatPlate player={p} isMe={false} compact />
     </div>
   )
 }

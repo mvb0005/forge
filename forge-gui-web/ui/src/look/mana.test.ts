@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseCost, symInfo } from './mana'
+import { cmc, parseCost, symInfo } from './mana'
 
 describe('parseCost', () => {
   it('reads the braced form the server sends', () => {
@@ -22,6 +22,17 @@ describe('parseCost', () => {
     expect(parseCost('')).toEqual([])
     expect(parseCost(null)).toEqual([])
     expect(parseCost('no cost')).toEqual([])
+  })
+})
+
+describe('cmc', () => {
+  it('counts generic and coloured pips, and treats X and a missing cost as zero', () => {
+    expect(cmc('{2}{W}{U}')).toBe(4)
+    expect(cmc('{W/U}')).toBe(1)
+    expect(cmc('{2/W}')).toBe(2)
+    expect(cmc('{X}{R}')).toBe(1)
+    expect(cmc('')).toBe(0)
+    expect(cmc(null)).toBe(0)
   })
 })
 
