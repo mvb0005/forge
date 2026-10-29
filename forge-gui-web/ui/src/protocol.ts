@@ -139,9 +139,26 @@ export type Ask = { t: 'ask'; id: number } & (
   | { kind: 'arrange'; title: string; cardIds: number[]; manipulableIds: number[]; toTop: boolean; toBottom: boolean; toAnywhere: boolean }
 )
 
+export type SavedGame = {
+  id: string
+  email?: string
+  name: string
+  startedAt: string
+  endedAt: string | null
+  status: 'playing' | 'finished' | 'abandoned' | string
+  deck: string
+  deckName: string
+  opponentDeck: string
+  opponentDeckName: string
+  opponents: number
+  winner: string | null
+  turn: number | null
+  summary: string | null
+}
+
 export type ServerMessage =
-  | { t: 'hello'; version: number; caps?: string[]; inMatch: boolean }
-  | { t: 'lobby'; decks: { id: string; name: string; colors: string }[]; states: string[] }
+  | { t: 'hello'; version: number; caps?: string[]; inMatch: boolean; seat?: string; who?: string; email?: string }
+  | { t: 'lobby'; decks: { id: string; name: string; colors: string }[]; states: string[]; games?: SavedGame[] }
   | {
       t: 'state'; seq: number; full: boolean; game?: GameWire; players?: PlayerDto[]; cards?: CardDto[]
       removedCards?: number[]; stack?: StackItemDto[]; combat?: CombatDto | null

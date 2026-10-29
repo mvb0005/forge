@@ -1,9 +1,9 @@
 import type { Region } from './contract'
 
-// The table's chrome rectangles for a viewport: the two battlefield halves, the type line between
-// them (it rises above the opponent's half in combat), the seats, mana ribbons, the action column
-// (stack, action plate, piles), the hand and the log. Pure, so the card layout and the chrome agree
-// on every pixel without measuring the DOM.
+// The table's chrome rectangles for a viewport: the two battlefield halves, the seam between
+// them, the seats, mana ribbons, the action column (stack, control panel, piles), the hand and
+// the log. Combat does not insert a bar. The ring is drawn around the cards that step into it.
+// The seam and the control panel stay put. Pure, so the card layout and the chrome agree.
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi))
 
@@ -11,8 +11,9 @@ const GAP = 8
 const EDGE = 18 // inside the mat's rim
 export const LINE_H = 64
 export const STRIP_H = 104
-export const RIBBON_H = 46
-export const COL_HEAD = 64 // compact life and name above each opponent column on your turn
+export const RIBBON_H = 50 // the mana ribbon. Abilities open out of it, onto the mat.
+export const COL_HEAD = 64 // the same player plaque, compact, above each opponent column
+export const ACT_H = 96 // the control panel. It does not move when combat starts.
 
 // Stack items in the action column, top of the stack nearest the type line. Spells show their own
 // card (from the card layer) in the thumbnail slot; StackView draws the rest of the item around it.
@@ -40,10 +41,11 @@ export type Frame = {
   bottom: Region // your battlefield (cards)
   hand: Region
   piles: Region // your library, graveyard, exile, command
+  tray: Region // unused strip. Combat is a ring around the cards, so this stays empty.
   split: Region // y where the two coloured halves meet (h = 0)
 }
 
-export function tableFrame(view: { w: number; h: number }, strips: boolean, stackLen: number, combat = false, fanout = false): Frame {
+export function tableFrame(view: { w: number; h: number }, strips: boolean, stackLen: number, _combat = false, fanout = false): Frame {
   const sideW = clamp(view.w * 0.15, 220, 300)
   const leftW = Math.max(400, view.w - sideW)
   const seatW = clamp(view.w * 0.1, 150, 210)
@@ -58,19 +60,46 @@ export function tableFrame(view: { w: number; h: number }, strips: boolean, stac
   const stripR = strips ? { x: x0, y, w: innerW, h: STRIP_H } : null
   if (strips) y += STRIP_H + GAP
   const half = Math.max(80, (view.h - EDGE - y - LINE_H - handH - 3 * GAP) / 2)
-  // Main: opponent, type line, you. Combat: the type line rises, the battle band is the two halves meeting.
-  // Fan-out (your turn, several opponents) keeps that vertical split and reserves a header row in the top half.
-  const lineY = combat ? y : y + half + GAP
-  const topY = combat ? y + LINE_H + GAP : y
-  const bottomY = y + half + LINE_H + 2 * GAP
+  // The seam stays between the two halves. Combat draws a ring across it; nothing else moves.
+  const lineY = y + half + GAP
+  const topY = y
+  const bottomY = lineY + LINE_H + GAP
   const head = fanout ? COL_HEAD : 0
+  const trayH = 0
+  void _combat
   const topH = half - RIBBON_H - head
   const top = { x: feltX, y: topY + RIBBON_H + head, w: feltW, h: fanout ? Math.max(36, topH) : half - RIBBON_H }
-  const bottom = { x: feltX, y: bottomY, w: feltW, h: half - RIBBON_H }
+  const bottom = { x: feltX, y: bottomY + trayH, w: feltW, h: Math.max(36, half - RIBBON_H - trayH) }
   const hand = { x: feltX, y: bottomY + half + GAP, w: feltW, h: handH }
   const line = { x: x0, y: lineY, w: innerW, h: LINE_H }
   const sh = stackHeight(stackLen)
-  const stackBase = combat ? bottomY + half - GAP : lineY - GAP
+  if (fanout) {
+    // Every player, including you, is a full-width band from the top rim down to the hand.
+    // placeBands divides this board and makes the active player's band taller.
+    const hand = { x: feltX, y: view.h - EDGE - handH, w: feltW, h: handH }
+    const boardTop = EDGE
+    const boardH = Math.max(160, hand.y - GAP - boardTop)
+    const board = { x: feltX, y: boardTop, w: feltW, h: boardH }
+    const act = { x: actX, y: hand.y - GAP - ACT_H, w: actW, h: ACT_H }
+    return {
+      side: { x: leftW, y: 0, w: view.w - leftW, h: view.h },
+      strips: null,
+      oppSeat: { x: x0, y: boardTop, w: seatW, h: boardH },
+      oppRibbon: { x: feltX, y: boardTop, w: feltW, h: 0 },
+      top: board,
+      line: { x: x0, y: boardTop + boardH, w: innerW, h: 0 },
+      stack: { x: actX, y: Math.max(EDGE, act.y - GAP - sh), w: actW, h: sh },
+      act,
+      meSeat: { x: x0, y: hand.y, w: seatW, h: handH },
+      meRibbon: { x: feltX, y: hand.y - RIBBON_H, w: feltW, h: RIBBON_H },
+      bottom: { x: board.x, y: board.y, w: board.w, h: board.h },
+      hand,
+      piles: { x: actX, y: hand.y, w: actW, h: handH },
+      tray: { x: feltX, y: boardTop + boardH, w: feltW, h: 0 },
+      split: { x: 0, y: boardTop + boardH, w: leftW, h: 0 },
+    }
+  }
+  const stackBase = lineY - GAP
   return {
     side: { x: leftW, y: 0, w: view.w - leftW, h: view.h },
     strips: stripR,
@@ -79,12 +108,13 @@ export function tableFrame(view: { w: number; h: number }, strips: boolean, stac
     top,
     line,
     stack: { x: actX, y: stackBase - sh, w: actW, h: sh },
-    act: { x: actX, y: combat ? topY : bottomY, w: actW, h: half },
+    act: { x: actX, y: hand.y - GAP - ACT_H, w: actW, h: ACT_H },
     meSeat: { x: x0, y: bottomY + half - RIBBON_H, w: seatW, h: handH + RIBBON_H + GAP },
     meRibbon: { x: feltX, y: bottomY + half - RIBBON_H, w: feltW, h: RIBBON_H },
     bottom,
     hand,
     piles: { x: actX, y: hand.y, w: actW, h: handH },
-    split: { x: 0, y: combat ? topY + half + GAP / 2 : lineY + LINE_H / 2, w: leftW, h: 0 },
+    tray: { x: feltX, y: bottomY, w: feltW, h: trayH },
+    split: { x: 0, y: lineY + LINE_H / 2, w: leftW, h: 0 },
   }
 }

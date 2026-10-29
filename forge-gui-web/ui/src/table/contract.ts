@@ -35,7 +35,7 @@ export type LayoutInput = {
   mode: TableMode
   viewport: { w: number; h: number }
   meId: number
-  focusId: number | null // opponent drawn full size when it is not your turn
+  focusId: number | null // the opponent a duel draws full size. A multiplayer table draws every opponent.
   game: GameDto
   players: Record<number, PlayerDto>
   cards: Record<number, CardDto>
@@ -43,6 +43,7 @@ export type LayoutInput = {
   highlighted: Set<string>
   stack: StackItemDto[]
   selectable?: Set<number> // card ids you may choose now (lands unfold from the ribbon when one is)
+  handOrder?: number[] | null // your arranged hand; absent means mana-value order
 }
 
 export type LayoutResult = {

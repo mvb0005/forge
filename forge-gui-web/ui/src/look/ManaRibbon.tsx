@@ -9,7 +9,7 @@ export type RibbonSource = { sym: Sym; untapped: number; total: number; label?: 
 
 const BASIC: Record<string, string> = { Plains: 'W', Island: 'U', Swamp: 'B', Mountain: 'R', Forest: 'G', Wastes: 'C' }
 
-function landSym(c: CardDto): { sym: Sym; label?: string } {
+export function landSym(c: CardDto): { sym: Sym; label?: string } {
   const basics = Object.keys(BASIC).filter((b) => c.typeLine.includes(b))
   let cs = basics.map((b) => BASIC[b])
   if (!cs.length) {

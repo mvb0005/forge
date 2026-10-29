@@ -33,10 +33,10 @@ function compute(s: ForgeState, meId: number | null, focusId: number | null) {
   if (meId == null) return ''
   const roles = combatRoles(s.combat)
   const opps = opponentIds(s.players, meId, s.game?.turnOrder)
-  const every = s.game != null && showEveryOpponent(s.game, opps.length)
-  // On your turn the mark names every opponent column, so a focus click does not rebuild.
-  // On another turn it stays the focused id, matching the single board that is drawn.
-  const mark = every ? `all:${opps.join(',')}` : String(focusId)
+  const every = showEveryOpponent(opps.length)
+  const active = every ? s.game?.activePlayerId ?? null : null
+  // Every band is drawn. The active player is named so their taller band rebuilds the table.
+  const mark = every ? `all:${opps.join(',')}:${active ?? '-'}` : String(focusId)
   const out: string[] = [tableMode(s.combat, s.game?.phase), String(meId), mark, String(Object.keys(s.players).length)]
   const field = (p: PlayerDto | undefined) => {
     if (!p) return
