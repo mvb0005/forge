@@ -8,7 +8,12 @@ function isTyping(t: EventTarget | null) {
 }
 
 // Forge's pass-priority prompt is a status dump ("Priority: You / Turn: 8 / ... / Stack: Empty"); say what it means instead.
+// The engine asks the commander question (CR 903.9a) in the rule's own words; say it as a question.
+const COMMAND_ZONE = /^(.+?): If a commander is in a graveyard or in exile .* its owner may put it into the command zone\.?$/s
+
 function promptText(message: string | undefined, stackTop: string | undefined) {
+  const cmd = message?.match(COMMAND_ZONE)
+  if (cmd) return `Move ${cmd[1]} to the command zone?`
   if (!message?.startsWith('Priority:')) return message
   return stackTop ? `Respond to ${stackTop}, or pass to let it resolve` : 'Play a card or ability, or pass'
 }

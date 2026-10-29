@@ -32,7 +32,7 @@ export function Scoreboard({ name, you, phase, turn, hint, net, order, activeId 
         {net != null && net > 0 && <b className="lk-title" style={{ fontSize: 13, color: 'var(--lk-ember-light)' }}>−{net}</b>}
       </div>
       {words && <div style={{ fontSize: 12, lineHeight: 1.3, color: 'var(--lk-parchment-dim)' }}>{words}</div>}
-      {hint && <div style={{ fontSize: 13, lineHeight: 1.3, color: 'var(--lk-parchment)' }}>{hint}</div>}
+      {hint && <div title={typeof hint === 'string' ? hint : undefined} style={{ fontSize: 13, lineHeight: 1.3, color: 'var(--lk-parchment)', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{hint}</div>}
       {order && order.length > 2 && (
         <div className="lk-title" style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.35 }}>
           {order.map((s, i) => (

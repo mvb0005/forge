@@ -56,6 +56,25 @@ describe('table layouts', () => {
     })
   }
 
+  for (const players of [4, 2]) {
+    it(`draws your commander face up in its slot, clear of the hand (${players} players)`, () => {
+      const s = fixture('four')
+      if (players === 2) {
+        delete s.players![3]
+        delete s.players![4]
+        s.game = { ...s.game!, activePlayerId: 2 }
+        s.combat = null
+      }
+      const i = input(s, { combat: players === 2 ? null : undefined })
+      const { placements, regions } = run(i)
+      const id = i.players[i.meId].commanders![0].cardId
+      const p = placements.get(id)!
+      expect(p.kind).toBe('command')
+      expect(regions[`command:${id}`]).toMatchObject({ x: p.x, y: p.y, w: p.w })
+      for (const h of i.players[i.meId].zones.hand) expect(placements.get(h)!.x, `hand card ${h}`).toBeGreaterThanOrEqual(p.x + p.w)
+    })
+  }
+
   it('keys a group by its lowest id with the rest as members', () => {
     const s = fixture('pod')
     const { placements } = run(input(s))

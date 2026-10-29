@@ -65,6 +65,7 @@ function compute(s: ForgeState, meId: number | null, focusId: number | null) {
     out.push('|', fold ? 'fold' : 'lands', p.zones.hand.join(','), p.zones.graveyard.slice(-3).join(','), p.zones.exile.slice(-3).join(','), p.zones.command.join(','))
   }
   field(s.players[meId])
+  out.push(`cmd:${s.players[meId]?.commanders?.map((c) => c.cardId).join(',') ?? ''}`)
   if (every) for (const id of opps) field(s.players[id])
   else if (focusId != null) field(s.players[focusId])
   for (const item of s.stack) out.push(`s${item.id}:${item.sourceCardId}:${item.sourceCardId != null ? s.cards[item.sourceCardId]?.zone : ''}`)
