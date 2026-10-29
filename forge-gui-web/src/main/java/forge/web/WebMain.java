@@ -19,6 +19,7 @@ import forge.util.ImageFetcher;
 import org.jupnp.UpnpServiceConfiguration;
 
 import java.io.File;
+import java.net.InetAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -51,6 +52,14 @@ public final class WebMain {
             }
         }
 
+        AccessIdentity access = AccessIdentity.fromEnv();
+        if (access == null && !InetAddress.getByName(bind).isLoopbackAddress()) {
+            // Without Access anyone who can reach the port gets the table and the game history.
+            System.err.println("Refusing to listen on " + bind + " without Cloudflare Access."
+                    + " Set CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD, or bind 127.0.0.1.");
+            System.exit(2);
+        }
+
         Path cwd = Path.of("").toAbsolutePath().normalize();
         Path assets = Files.isDirectory(cwd.resolve("res")) ? cwd : cwd.resolve("forge-gui");
         Path repoRoot = assets.getParent() != null ? assets.getParent() : cwd;
@@ -77,7 +86,6 @@ public final class WebMain {
         }
 
         Path uiDir = ui != null ? Path.of(ui) : repoRoot.resolve("forge-gui-web").resolve("ui").resolve("dist");
-        AccessIdentity access = AccessIdentity.fromEnv();
         System.out.println(access == null ? "Play auth: open (a local seat, not a person)" : "Play auth: Cloudflare Access");
         MatchHost host = new MatchHost(repoRoot, access, PlayLog.open());
         WebServer server = new WebServer(port, Files.isDirectory(uiDir) ? uiDir : null, host);

@@ -47,6 +47,17 @@ public class AccessAndPlayLogTest {
     }
 
     @Test
+    public void unknownKeyIdIsRefusedWithoutFetching() throws Exception {
+        KeyPair pair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
+        // The issuer is unreachable, so a fetch would fail with a different message.
+        AccessIdentity access = new AccessIdentity("https://unreachable.invalid", "aud-1", Map.of("k", pair.getPublic()));
+        String token = jwt(pair, "made-up", "{\"alg\":\"RS256\",\"kid\":\"made-up\"}",
+                "{\"iss\":\"https://unreachable.invalid\",\"aud\":\"aud-1\",\"exp\":" + (Instant.now().getEpochSecond() + 600) + ",\"email\":\"a@b.c\"}");
+        AuthException refused = expectThrows(AuthException.class, () -> access.email(token));
+        assertEquals(refused.getMessage(), "unknown key");
+    }
+
+    @Test
     public void playLogKeepsAGameAndAbandonsOneThatWasStillRunning() throws Exception {
         Path dir = Files.createTempDirectory("play-log");
         Path file = dir.resolve("games.json");

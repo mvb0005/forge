@@ -29,17 +29,19 @@ final class AccessIdentity {
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     private final Map<String, PublicKey> keys = new HashMap<>();
     private long fetchedAt;
+    private long triedAt;
 
     private AccessIdentity(String issuer, String audience) {
         this.issuer = issuer;
         this.audience = audience;
     }
 
-    /** Injected keys, for tests. A key that is already present is never fetched. */
+    /** Injected keys, for tests. Nothing is ever fetched. */
     AccessIdentity(String issuer, String audience, Map<String, PublicKey> keys) {
         this(issuer, audience);
         this.keys.putAll(keys);
         this.fetchedAt = Long.MAX_VALUE;
+        this.triedAt = Long.MAX_VALUE;
     }
 
     /** Null when this process is local play and Access is not configured. */
@@ -152,9 +154,18 @@ final class AccessIdentity {
     private PublicKey key(String kid) {
         synchronized (keys) {
             PublicKey found = keys.get(kid);
-            if (found != null && System.currentTimeMillis() - fetchedAt < 3_600_000L) {
+            long now = System.currentTimeMillis();
+            if (found != null && now - fetchedAt < 3_600_000L) {
                 return found;
             }
+            // Anyone can send a token with a made-up key id, so fetch at most once a minute.
+            if (now - triedAt < 60_000L) {
+                if (found == null) {
+                    throw new AuthException("unknown key");
+                }
+                return found;
+            }
+            triedAt = now;
             fetch();
             found = keys.get(kid);
             if (found == null) {
