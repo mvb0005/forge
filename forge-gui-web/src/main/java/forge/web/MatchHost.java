@@ -10,6 +10,8 @@ import forge.card.MagicColor;
 import forge.deck.Deck;
 import forge.deck.DeckgenUtil;
 import forge.deck.io.DeckSerializer;
+import forge.StaticData;
+import forge.util.MyRandom;
 import forge.game.GameRules;
 import forge.game.GameState;
 import forge.game.GameType;
@@ -29,12 +31,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -73,6 +79,12 @@ public final class MatchHost {
             "Vampire Onslaught",
     };
     private static volatile List<Deck> loadedPrecons;
+    /** "Arcane Wizardry [C17] [2017]": name, set, year. */
+    private static final Pattern PRECON_FILE = Pattern.compile("^(.*?) \\[([^\\]]+)\\] \\[(\\d{4})\\]$");
+    private static volatile List<CommanderPrecon> commanderPrecons;
+
+    /** A commander precon as the lobby lists it; the deck itself is read when a match starts. */
+    private record CommanderPrecon(String file, String name, String detail, String colors) {}
 
     private final Path repoRoot;
     private final AccessIdentity access;
@@ -89,6 +101,9 @@ public final class MatchHost {
         this.repoRoot = repoRoot;
         this.access = access;
         this.playLog = playLog;
+        Thread index = new Thread(MatchHost::commanderPrecons, "commander-precons");
+        index.setDaemon(true);
+        index.start();
     }
 
     void onConnect(ClientChannel ch, String requested, String jwt) {
@@ -152,6 +167,7 @@ public final class MatchHost {
         JsonArray caps = new JsonArray();
         caps.add("log.append");
         caps.add("selectables.players");
+        caps.add("match.commander");
         for (String c : new String[] {"card.basePT", "card.keywordLabels", "player.colorIdentity", "player.commander", "game.turnOrder"}) {
             caps.add(c);
         }
@@ -291,6 +307,7 @@ public final class MatchHost {
             e.printStackTrace();
         }
         o.add("decks", decks);
+        o.add("commanderDecks", commanderDecks());
         JsonArray states = new JsonArray();
         for (Path p : stateFiles()) {
             states.add(p.getFileName().toString());
@@ -302,6 +319,151 @@ public final class MatchHost {
         }
         o.add("games", playLog.recent(email, 12));
         return o;
+    }
+
+    private static JsonArray commanderDecks() {
+        JsonArray decks = new JsonArray();
+        decks.add(lobbyDeck("cmdr:random", "Random commander", "", "Generated around a random legend"));
+        decks.add(lobbyDeck("cmdr:randomprecon", "Random precon", "", "A different precon for each player"));
+        for (CommanderPrecon p : commanderPrecons()) {
+            decks.add(lobbyDeck("cmdr:precon:" + p.file(), p.name(), p.colors(), p.detail()));
+        }
+        try {
+            for (Deck deck : FModel.getDecks().getCommander()) {
+                decks.add(lobbyDeck("cmdr:deck:" + deck.getName(), deck.getName(), commanderColors(deck.getCommanders()), "Your deck"));
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return decks;
+    }
+
+    private static JsonObject lobbyDeck(String id, String name, String colors, String detail) {
+        JsonObject d = new JsonObject();
+        d.addProperty("id", id);
+        d.addProperty("name", name);
+        d.addProperty("colors", colors);
+        if (detail != null && !detail.isEmpty()) {
+            d.addProperty("detail", detail);
+        }
+        return d;
+    }
+
+    private static String commanderColors(List<PaperCard> commanders) {
+        int mask = 0;
+        for (PaperCard c : commanders) {
+            mask |= c.getRules().getColorIdentity().getColor();
+        }
+        return ViewProjector.colors(ColorSet.fromMask(mask));
+    }
+
+    /**
+     * The commander precons by file name, with the commanders' colour identity. Only each file's
+     * [Commander] lines are read (looked up in the card db); the whole deck is parsed when a match starts.
+     */
+    private static List<CommanderPrecon> commanderPrecons() {
+        List<CommanderPrecon> cached = commanderPrecons;
+        if (cached != null) {
+            return cached;
+        }
+        synchronized (CommanderPrecon.class) {
+            if (commanderPrecons != null) {
+                return commanderPrecons;
+            }
+            long t0 = System.nanoTime();
+            List<CommanderPrecon> list = new ArrayList<>();
+            File[] files = new File(ForgeConstants.COMMANDER_PRECON_DIR).listFiles((d, n) -> n.endsWith(".dck"));
+            if (files != null) {
+                Arrays.sort(files);
+                for (File f : files) {
+                    String file = f.getName().substring(0, f.getName().length() - 4);
+                    Matcher m = PRECON_FILE.matcher(file);
+                    String name = m.matches() ? m.group(1) : file;
+                    String detail = m.matches() ? m.group(2) + " · " + m.group(3) : "";
+                    try {
+                        list.add(new CommanderPrecon(file, name, detail, commanderColors(commandersIn(f.toPath()))));
+                    } catch (Exception e) {
+                        System.err.println("Skipping commander precon " + f + ": " + e);
+                    }
+                }
+            }
+            System.err.println("Indexed " + list.size() + " commander precons in " + (System.nanoTime() - t0) / 1_000_000 + " ms");
+            commanderPrecons = list;
+            return list;
+        }
+    }
+
+    private static List<PaperCard> commandersIn(Path file) throws java.io.IOException {
+        List<PaperCard> out = new ArrayList<>();
+        boolean in = false;
+        for (String line : Files.readAllLines(file)) {
+            String l = line.trim();
+            if (l.startsWith("[")) {
+                in = l.equalsIgnoreCase("[Commander]");
+                continue;
+            }
+            if (!in || l.isEmpty()) {
+                continue;
+            }
+            String name = l.replaceFirst("^\\d+\\s+", "");
+            int bar = name.indexOf('|');
+            if (bar >= 0) {
+                name = name.substring(0, bar);
+            }
+            PaperCard c = StaticData.instance().getCommonCards().getCard(name.trim());
+            if (c != null) {
+                out.add(c);
+            }
+        }
+        return out;
+    }
+
+    private static Deck commanderDeckFor(String id, boolean forAi) {
+        Deck deck = null;
+        if ("cmdr:random".equals(id)) {
+            deck = DeckgenUtil.generateCommanderDeck(forAi, GameType.Commander);
+        } else if (id != null && id.startsWith("cmdr:precon:")) {
+            File f = new File(ForgeConstants.COMMANDER_PRECON_DIR, id.substring("cmdr:precon:".length()) + ".dck");
+            if (f.isFile()) {
+                deck = DeckSerializer.fromFile(f);
+            }
+        } else if (id != null && id.startsWith("cmdr:deck:")) {
+            deck = FModel.getDecks().getCommander().get(id.substring("cmdr:deck:".length()));
+        }
+        if (deck == null) {
+            throw new IllegalArgumentException("Unknown commander deck " + id);
+        }
+        if (deck.getCommanders().isEmpty()) {
+            throw new IllegalArgumentException(deck.getName() + " has no commander");
+        }
+        return deck;
+    }
+
+    /** Precon ids for n seats, all different (while there are enough). */
+    private static List<String> randomPrecons(int n, Set<String> taken) {
+        List<String> ids = new ArrayList<>();
+        for (CommanderPrecon p : commanderPrecons()) {
+            String id = "cmdr:precon:" + p.file();
+            if (!taken.contains(id)) {
+                ids.add(id);
+            }
+        }
+        if (ids.isEmpty()) {
+            throw new IllegalArgumentException("No commander precons found");
+        }
+        Collections.shuffle(ids, MyRandom.getRandom());
+        List<String> out = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            out.add(ids.get(i % ids.size()));
+        }
+        return out;
+    }
+
+    /** "Arcane Wizardry" for a precon's "Arcane Wizardry [C17] [2017]". */
+    private static String shortName(Deck deck) {
+        String n = deck.getName() == null ? "" : deck.getName();
+        Matcher m = PRECON_FILE.matcher(n);
+        return m.matches() ? m.group(1) : n;
     }
 
     private static String canonicalColors(String s) {
@@ -388,6 +550,10 @@ public final class MatchHost {
     }
 
     private void startMatch(JsonObject msg) {
+        if ("commander".equals(str(msg, "format", "constructed"))) {
+            startCommander(msg);
+            return;
+        }
         String deck = str(msg, "deck", "random:RG");
         String oppDeck = str(msg, "opponentDeck", "random:UB");
         int opponents = 1;
@@ -409,7 +575,45 @@ public final class MatchHost {
         }
         GameRules rules = new GameRules(GameType.Constructed);
         rules.setGamesPerMatch(1);
-        launch(rules, null, players, human, null, deck, nameOf(mine, deck), oppDeck, nameOf(opp, oppDeck), opponents);
+        launch(rules, null, players, human, null, "constructed", deck, nameOf(mine, deck), oppDeck, nameOf(opp, oppDeck), opponents);
+    }
+
+    /** Commander the way the desktop lobby starts it (GameLobby): forVariants with the Commander variant applied. */
+    private void startCommander(JsonObject msg) {
+        String deck = str(msg, "deck", "cmdr:randomprecon");
+        String oppDeck = str(msg, "opponentDeck", "cmdr:randomprecon");
+        int opponents = 3;
+        try {
+            opponents = Math.max(1, Math.min(3, msg.get("opponents").getAsInt()));
+        } catch (Exception ignored) {
+        }
+        String myId = deck.equals("cmdr:randomprecon") ? randomPrecons(1, Set.of()).get(0) : deck;
+        List<String> oppIds = new ArrayList<>();
+        if (oppDeck.equals("cmdr:randomprecon")) {
+            oppIds.addAll(randomPrecons(opponents, Set.of(myId)));
+        } else {
+            for (int i = 0; i < opponents; i++) {
+                oppIds.add(oppDeck);
+            }
+        }
+        Set<GameType> variants = EnumSet.of(GameType.Commander);
+        int seats = opponents + 1;
+        Deck mine = commanderDeckFor(myId, false);
+        List<RegisteredPlayer> players = new ArrayList<>();
+        RegisteredPlayer human = RegisteredPlayer.forVariants(seats, variants, mine, null, false, null, null);
+        human.setPlayer(seatedPlayer());
+        players.add(human);
+        List<String> oppNames = new ArrayList<>();
+        for (int i = 1; i <= opponents; i++) {
+            Deck d = commanderDeckFor(oppIds.get(i - 1), true);
+            oppNames.add(shortName(d));
+            RegisteredPlayer ai = RegisteredPlayer.forVariants(seats, variants, d, null, false, null, null);
+            ai.setPlayer(GamePlayerUtil.createAiPlayer("AI " + i, i));
+            players.add(ai);
+        }
+        GameRules rules = new GameRules(GameType.Commander);
+        rules.setGamesPerMatch(1);
+        launch(rules, variants, players, human, null, "commander", myId, shortName(mine), oppDeck, String.join(", ", oppNames), opponents);
     }
 
     private void startState(JsonObject msg) throws Exception {
@@ -445,7 +649,7 @@ public final class MatchHost {
         GameRules rules = new GameRules(type);
         rules.setGamesPerMatch(1);
         String label = "state:" + name;
-        launch(rules, commander ? EnumSet.of(type) : null, players, human, state, label, name, label, name, Math.max(0, players.size() - 1));
+        launch(rules, commander ? EnumSet.of(type) : null, players, human, state, commander ? "commander" : "constructed", label, name, label, name, Math.max(0, players.size() - 1));
     }
 
     private LobbyPlayer seatedPlayer() {
@@ -460,7 +664,7 @@ public final class MatchHost {
     }
 
     private void launch(GameRules rules, Set<GameType> variants, List<RegisteredPlayer> players, RegisteredPlayer human, GameState state,
-            String deckId, String deckName, String oppId, String oppName, int opponents) {
+            String format, String deckId, String deckName, String oppId, String oppName, int opponents) {
         HostedMatch match = new HostedMatch();
         WebGuiGame gui = new WebGuiGame(match);
         session = gui;
@@ -482,7 +686,7 @@ public final class MatchHost {
                 c.send(lobby());
             }
         });
-        beginGame(deckId, deckName, oppId, oppName, opponents);
+        beginGame(format, deckId, deckName, oppId, oppName, opponents);
         Map<RegisteredPlayer, IGuiGame> guis = Map.of(human, gui.gui());
         try {
             match.startMatch(rules, variants, players, guis, null);
@@ -495,7 +699,7 @@ public final class MatchHost {
     }
 
     /** The record the tracker can read. Written before the match blocks, closed when it ends. */
-    private void beginGame(String deckId, String deckName, String oppId, String oppName, int opponents) {
+    private void beginGame(String format, String deckId, String deckName, String oppId, String oppName, int opponents) {
         String id = UUID.randomUUID().toString();
         String email;
         String name;
@@ -518,6 +722,7 @@ public final class MatchHost {
         g.addProperty("opponentDeck", oppId);
         g.addProperty("opponentDeckName", oppName);
         g.addProperty("opponents", opponents);
+        g.addProperty("format", format);
         g.add("winner", JsonNull.INSTANCE);
         g.add("turn", JsonNull.INSTANCE);
         g.add("summary", JsonNull.INSTANCE);

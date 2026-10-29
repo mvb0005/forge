@@ -10,7 +10,7 @@ import { BlockSlots } from './CombatArena'
 import { Scoreboard } from './Scoreboard'
 import { StackView } from './Center'
 import { SidePanel } from './Preview'
-import { Piles, Ribbon, SeatPlate, StripSeat, useSeatColors } from './Seat'
+import { CommandSlots, Piles, Ribbon, SeatPlate, StripSeat, useSeatColors } from './Seat'
 import { useBoardUi } from './uiStore'
 import { useSize } from './useSize'
 import './board.css'
@@ -120,6 +120,7 @@ export function MatchTable({ centerSlot }: { centerSlot: ReactNode }) {
             </div>
           )}
           <BlockSlots layout={layout} />
+          <CommandSlots regions={r} />
           <CardLayer layout={layout} />
         </TableMat>
       )}

@@ -267,7 +267,7 @@ const CardView = memo(function CardView({ id, p, ghost, from }: CardViewProps) {
       onContextMenu={active ? onClick : undefined}
     >
       <div className="absolute inset-0" style={{ opacity: card.phasedOut ? 0.32 : undefined }}>
-        {p.kind === 'field' || p.kind === 'attach' ? (
+        {p.kind === 'field' || p.kind === 'attach' || p.kind === 'command' ? (
           <FieldFace ids={ids} card={card} tapped={p.rot === 90} count={p.count ?? 1} words={p.w >= DESIGN_W * 0.66} label={p.label} />
         ) : p.kind === 'hand' ? (
           <div className="absolute inset-0 origin-bottom transition-[translate] duration-150 hover:-translate-y-5" style={{ transform: `rotate(${p.rot}deg)` }}>

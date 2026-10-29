@@ -1,6 +1,7 @@
 // Smoke test for the Forge web bridge: plays a whole game against the AI with default answers.
-// usage: node tools/smoke.mjs [--port 7777] [--deck random:RG] [--opp random:UB] [--opponents 1]
+// usage: node tools/smoke.mjs [--port 7777] [--deck random:RG] [--opp random:UB] [--opponents 1] [--format commander]
 //                             [--state token-pod-turn12.txt] [--seconds 600] [--turns N] [--verbose] [--passive]
+//                             [--concede-on-ai]  with --turns: concede during an AI's turn instead of at our priority
 // Policy: answer asks with a valid default; in our main phases with OK enabled, first try each playable
 // card once (lands first) unless --passive, then OK; otherwise click a selectable (Cancel after 5 repeats
 // of the same prompt); otherwise a selectable player; otherwise Cancel; with nothing enabled at all, click our
@@ -8,6 +9,8 @@
 // that the combat assist follows it.
 // Checks (protocol v2): hello version and caps, the log arrives append-only, `blockers` assists are sane (and match
 // the expectations below for the blockers-*.txt fixtures), and reports the largest state message for a one-card change.
+// --format commander starts a Commander match from the lobby's commanderDecks (default: random precons, 3 opponents) and
+// checks 40 starting life, a commander in every command zone, and that casts/tax only go up (tax higher after a recast).
 // Optional fields: basePower/baseToughness, keywordLabels, colorIdentity, commanders/commanderDamage, turnOrder and
 // the `mana` assist are checked for shape whenever they arrive.
 const args = process.argv.slice(2);
@@ -18,14 +21,17 @@ const opt = (name, dflt) => {
 const flag = (name) => args.includes(`--${name}`);
 
 const port = Number(opt("port", 7777));
-const deck = opt("deck", "random:RG");
-const opp = opt("opp", "random:UB");
-const opponents = Number(opt("opponents", 1));
+const format = opt("format", "constructed");
+const commander = format === "commander";
+const deck = opt("deck", commander ? "cmdr:randomprecon" : "random:RG");
+const opp = opt("opp", commander ? "cmdr:randomprecon" : "random:UB");
+const opponents = Number(opt("opponents", commander ? 3 : 1));
 const stateFile = opt("state", null);
 const seconds = Number(opt("seconds", stateFile ? 900 : 600));
 const maxTurns = Number(opt("turns", 0));
 const verbose = flag("verbose");
 const passive = flag("passive");
+const concedeOnAi = flag("concede-on-ai");
 
 // fixture -> attacker name -> expected blockers assist entry, by card name
 const BLOCKER_EXPECT = {
@@ -59,9 +65,47 @@ const FIELD_EXPECT = {
 };
 let fieldsChecked = false, manaChecked = false;
 
+// Commander: every seat at the first prompt, then casts per commander card
+let cmdrStartChecked = false, cmdrProblems = 0, cmdrRecasts = 0, cmdrCasts = 0;
+const cmdrSeen = new Map(); // cardId -> { casts, tax }
+const cmdrProblem = (what) => {
+  cmdrProblems++;
+  if (cmdrProblems <= 20) console.log("COMMANDER:", what);
+};
+function checkCommanderStart() {
+  if (!commander || cmdrStartChecked || players.size < opponents + 1) return;
+  cmdrStartChecked = true;
+  for (const p of players.values()) {
+    if (p.life !== 40) cmdrProblem(`${p.name} starts at ${p.life} life`);
+    if (!p.commanders || !p.commanders.length) { cmdrProblem(`${p.name} has no commanders`); continue; }
+    for (const e of p.commanders) {
+      if (!p.zones.command.includes(e.cardId)) cmdrProblem(`${p.name}: commander ${nameOf(e.cardId)} not in the command zone`);
+      if (e.casts !== 0) cmdrProblem(`${p.name}: ${nameOf(e.cardId)} starts with ${e.casts} casts`);
+    }
+  }
+  console.log(`commander start: ${[...players.values()].map((p) => `${p.name} ${p.life} [${(p.commanders || []).map((e) => nameOf(e.cardId)).join(" + ")}]`).join(", ")}`);
+}
+function checkCommanderCasts(p) {
+  if (!commander) return;
+  for (const e of p.commanders || []) {
+    const before = cmdrSeen.get(e.cardId);
+    if (before && e.casts < before.casts) cmdrProblem(`${p.name}: ${nameOf(e.cardId)} casts went down ${before.casts} -> ${e.casts}`);
+    if (before && e.casts > before.casts) {
+      cmdrCasts++;
+      if (before.casts >= 1) {
+        cmdrRecasts++;
+        if (!(e.tax > before.tax)) cmdrProblem(`${p.name}: ${nameOf(e.cardId)} recast without more tax (${before.tax} -> ${e.tax})`);
+        else console.log(`recast: ${p.name} ${nameOf(e.cardId)} cast #${e.casts}, tax ${before.tax} -> ${e.tax}`);
+      }
+    }
+    cmdrSeen.set(e.cardId, { casts: e.casts, tax: e.tax });
+  }
+}
+
 const counts = {};
 const askKinds = {};
 let maxState = 0, stateBytes = 0, states = 0, errors = 0, idProblems = 0, seqProblems = 0;
+let capped = 0, conceded = false;
 let lastSeq = 0, started = false, gameOver = null, actions = 0;
 const cards = new Map(), players = new Map();
 let game = null, buttons = null, prompt = null, selectables = [], inputDirty = false, lastMsgAt = Date.now();
@@ -292,6 +336,14 @@ function act() {
     return;
   }
   actions++;
+  const mineNow = game && game.priorityPlayerId != null && game.localPlayerIds.includes(game.priorityPlayerId);
+  if (capped && !concedeOnAi && !conceded && (mineNow || Date.now() - capped > 60000)) {
+    // with our priority the game thread is parked waiting for us; conceding during an AI's turn races it (Game.onPlayerLost)
+    conceded = true;
+    send({ t: "concede" });
+    setTimeout(() => finish(0), 15000);
+    return;
+  }
   const key = game ? `${game.turn}:${game.phase}` : "";
   if (key !== triedKey) {
     triedKey = key;
@@ -377,7 +429,10 @@ ws.onmessage = (ev) => {
         "card.keywordLabels", "player.colorIdentity", "player.commander", "game.turnOrder"]) {
         if (!(m.caps || []).includes(cap)) { errors++; console.log("hello.caps lacks", cap); }
       }
-      if (m.inMatch) {
+      if (m.inMatch && commander) {
+        console.log("server is already in a match; a Commander run needs the lobby");
+        finish(1);
+      } else if (m.inMatch) {
         console.log("server is already in a match; attaching to it");
         started = true;
       }
@@ -394,8 +449,10 @@ ws.onmessage = (ev) => {
           }
           send({ t: "startState", state: stateFile });
         } else {
-          if (!m.decks.some((d) => d.id === deck)) console.log("deck not listed:", deck);
-          send({ t: "startMatch", deck, opponentDeck: opp, opponents });
+          const list = commander ? m.commanderDecks || [] : m.decks;
+          if (commander) console.log(`lobby: ${list.length} commander decks, e.g. ${JSON.stringify(list.slice(2, 4))}`);
+          for (const id of [deck, opp]) if (!list.some((d) => d.id === id)) { errors++; console.log("deck not listed:", id); }
+          send(commander ? { t: "startMatch", format, deck, opponentDeck: opp, opponents } : { t: "startMatch", deck, opponentDeck: opp, opponents });
         }
       }
       break;
@@ -440,19 +497,30 @@ ws.onmessage = (ev) => {
       for (const id of m.removedCards || []) cards.delete(id);
       for (const c of m.cards || []) checkCard(c);
       for (const p of m.players || []) checkPlayer(p);
+      for (const p of m.players || []) checkCommanderCasts(p);
       if (m.game && m.game.turnOrder) {
         seenExtra.turnOrder++;
         for (const id of m.game.turnOrder) if (!players.has(id)) extraProblem(`turnOrder: unknown player ${id}`);
       }
       for (const p of m.players || []) checkIds(`zones of ${p.name}`, Object.values(p.zones).flat());
-      if (maxTurns && game && game.turn > maxTurns) {
-        console.log(`reached turn ${game.turn}`);
-        finish(0);
+      if (maxTurns && game && game.turn > maxTurns && !capped) {
+        // concede (in act(), once we hold priority) so the server is back in the lobby for the next run
+        capped = Date.now();
+        console.log(`reached turn ${game.turn}, conceding ${concedeOnAi ? "during an AI's turn" : "at our next priority"}`);
+      }
+      if (capped && concedeOnAi && !conceded && game && game.activePlayerId != null && !game.localPlayerIds.includes(game.activePlayerId)) {
+        conceded = true;
+        console.log(`conceding on turn ${game.turn} while ${game.activePlayerId} is active`);
+        send({ t: "concede" });
+        setTimeout(() => {
+          if (!gameOver) { console.log("FAIL: concede during an AI's turn did not end the game"); finish(1); }
+        }, 20000);
       }
       break;
     }
     case "prompt":
       prompt = m;
+      checkCommanderStart(); // the first decision (mulligan): the game is set up, before anyone has cast anything
       if (m.cardId != null) checkIds("prompt", [m.cardId]);
       inputDirty = true;
       break;
@@ -577,8 +645,10 @@ function finish(code) {
   if (firstMana) console.log("first mana assist:", JSON.stringify(firstMana));
   if (lastMana) console.log("last non-empty mana assist:", JSON.stringify(lastMana));
   if (Object.keys(fieldSamples).length) console.log("samples:", JSON.stringify(fieldSamples));
+  if (commander) console.log(`commander: start ${cmdrStartChecked ? "checked" : "NOT CHECKED"}, casts ${cmdrCasts}, recasts ${cmdrRecasts}, problems ${cmdrProblems}`);
   console.log(`unknown ids: ${idProblems}, seq gaps: ${seqProblems}, errors: ${errors}`);
   let rc = code;
+  if (commander && (!cmdrStartChecked || cmdrProblems > 0)) rc = 1;
   if (errors > 0 || states === 0 || logProblems > 0 || blockersProblems > 0 || idProblems > 0 || extraProblems > 0) rc = 1;
   if (stateFile && PLAYER_TARGET_EXPECT[stateFile]) {
     console.log(`fixture ${stateFile}: player targets ${playerTargetSeen ? "as expected" : "NOT SEEN"}`);

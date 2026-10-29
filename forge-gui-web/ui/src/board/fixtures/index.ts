@@ -260,6 +260,10 @@ function fourPlayer(): Partial<ForgeState> {
     },
   ])
   const combat: CombatDto = { bands: goblins.map((g) => ({ attackerIds: [g.id], defender: { kind: 'player' as const, id: 1 }, blockerIds: [], plannedBlockerIds: [] })) }
+  t.players[1].commanders = [{ cardId: meCmd.id, casts: 1, tax: 2 }]
+  t.players[2].commanders = [{ cardId: atraxa.id, casts: 1, tax: 2 }]
+  t.players[3].commanders = [{ cardId: ur.id, casts: 2, tax: 4 }]
+  t.players[4].commanders = [{ cardId: krenko.id, casts: 1, tax: 2 }]
   return {
     ...t,
     game: game({ turn: 9, phase: 'COMBAT_DECLARE_ATTACKERS', activePlayerId: 4, priorityPlayerId: 1, log: [{ type: 'Combat', message: 'Krenko AI attacks You with 9 creatures.' }] }),

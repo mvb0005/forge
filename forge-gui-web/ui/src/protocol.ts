@@ -139,6 +139,10 @@ export type Ask = { t: 'ask'; id: number } & (
   | { kind: 'arrange'; title: string; cardIds: number[]; manipulableIds: number[]; toTop: boolean; toBottom: boolean; toAnywhere: boolean }
 )
 
+export type LobbyDeck = { id: string; name: string; colors: string; detail?: string }
+
+export type MatchFormat = 'constructed' | 'commander'
+
 export type SavedGame = {
   id: string
   email?: string
@@ -151,6 +155,7 @@ export type SavedGame = {
   opponentDeck: string
   opponentDeckName: string
   opponents: number
+  format?: MatchFormat
   winner: string | null
   turn: number | null
   summary: string | null
@@ -158,7 +163,7 @@ export type SavedGame = {
 
 export type ServerMessage =
   | { t: 'hello'; version: number; caps?: string[]; inMatch: boolean; seat?: string; who?: string; email?: string }
-  | { t: 'lobby'; decks: { id: string; name: string; colors: string }[]; states: string[]; games?: SavedGame[] }
+  | { t: 'lobby'; decks: LobbyDeck[]; commanderDecks?: LobbyDeck[]; states: string[]; games?: SavedGame[] }
   | {
       t: 'state'; seq: number; full: boolean; game?: GameWire; players?: PlayerDto[]; cards?: CardDto[]
       removedCards?: number[]; stack?: StackItemDto[]; combat?: CombatDto | null
@@ -179,7 +184,7 @@ export type ServerMessage =
 export type ManaColor = keyof ManaPool
 
 export type ClientMessage =
-  | { t: 'startMatch'; deck: string; opponentDeck: string; opponents: number }
+  | { t: 'startMatch'; deck: string; opponentDeck: string; opponents: number; format?: MatchFormat }
   | { t: 'startState'; state: string }
   | { t: 'selectCard'; cardId: number; others?: number[]; shift: boolean; button: number }
   | { t: 'selectPlayer'; playerId: number; shift: boolean; button: number }

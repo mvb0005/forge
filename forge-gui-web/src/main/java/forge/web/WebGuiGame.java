@@ -1,5 +1,6 @@
 package forge.web;
 
+import com.google.common.eventbus.Subscribe;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
@@ -23,6 +24,7 @@ import forge.game.combat.Combat;
 import forge.game.event.GameEvent;
 import forge.game.event.GameEventSpellAbilityCast;
 import forge.game.event.GameEventSpellRemovedFromStack;
+import forge.game.event.GameEventTurnPhase;
 import forge.game.phase.PhaseType;
 import forge.game.player.DelayedReveal;
 import forge.game.player.IHasIcon;
@@ -130,6 +132,8 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     // (InputPayMana runs the mana ability on another game-pool thread, which may ask again). WebEdt owns the game
     // while every one of them is waiting.
     private final List<CountDownLatch> parked = new CopyOnWriteArrayList<>();
+    private volatile boolean concedePending;
+    private Game concedeHooked; // guarded by io
 
     // stats, guarded by io
     private long flushCount;
@@ -452,6 +456,7 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     /** The game thread waits here for each of the human's inputs: the main decision point. */
     @Override
     public void awaitInput(CountDownLatch done) throws InterruptedException {
+        concedeIfPending();
         decisionPoint();
         parked.add(done);
         try {
@@ -669,6 +674,50 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     }
 
     private void concedeNow() {
+        GameView gv = getGameView();
+        if (gv == null || gv.isGameOver()) {
+            return;
+        }
+        Game g = gv.getGame();
+        // Conceding mutates the player lists, so it must not race the game thread (that crashed the match
+        // during AI turns). Concede now only while the game thread is parked on us; otherwise the game thread
+        // does it at its next phase change or its next wait for us.
+        if (g != null && !gameThreadParked()) {
+            synchronized (io) {
+                if (concedeHooked != g) {
+                    g.subscribeToEvents(concedeHook);
+                    concedeHooked = g;
+                }
+            }
+            concedePending = true;
+            return;
+        }
+        concedeOnThisThread();
+    }
+
+    private boolean gameThreadParked() {
+        List<CountDownLatch> waiting = List.copyOf(parked);
+        boolean inAwait = !waiting.isEmpty() && waiting.stream().noneMatch(l -> l.getCount() == 0);
+        synchronized (io) {
+            return inAwait || open != null;
+        }
+    }
+
+    private void concedeIfPending() {
+        if (concedePending) {
+            concedePending = false;
+            concedeOnThisThread();
+        }
+    }
+
+    private final Object concedeHook = new Object() {
+        @Subscribe
+        public void onPhase(GameEventTurnPhase e) {
+            concedeIfPending();
+        }
+    };
+
+    private void concedeOnThisThread() {
         GameView gv = getGameView();
         if (gv == null || gv.isGameOver()) {
             return;

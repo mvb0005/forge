@@ -31,6 +31,20 @@ export function opponentIds(players: Record<number, PlayerDto>, meId: number, tu
 const ZONE_W = 40
 export const PILE_X = [0, 78, 156] // library, graveyard, exile/command inside the piles region
 
+/** Your commanders' slots: in the empty corner below the seats when every player is a band, else left of the hand. */
+export const COMMAND = { gap: 6, pad: 6, chipH: 24 }
+export function commandSlots(frame: Frame, fanout: boolean, n: number): { region: Region; cards: Region[] } {
+  const area = fanout ? frame.meSeat : frame.hand
+  const h = Math.max(40, area.h - COMMAND.chipH - COMMAND.pad)
+  let w = h / CARD_RATIO
+  if (fanout) w = Math.min(w, (area.w - 2 * COMMAND.pad - (n - 1) * COMMAND.gap) / n)
+  const total = n * w + (n - 1) * COMMAND.gap
+  const x0 = fanout ? area.x + (area.w - total) / 2 : area.x + COMMAND.pad
+  const cards = Array.from({ length: n }, (_, i) => ({ x: x0 + i * (w + COMMAND.gap), y: area.y + COMMAND.pad, w, h: w * CARD_RATIO }))
+  const region = fanout ? area : { x: area.x, y: area.y, w: total + 2 * COMMAND.pad, h: area.h }
+  return { region, cards }
+}
+
 const isFoldedLand = (c: CardDto) => c.types.includes('Land') && !c.types.includes('Creature') && c.attachedToId == null
 
 /** A player's lands fold into the ribbon unless one of them can be chosen now. */
@@ -196,10 +210,24 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
     paintSide(sides.bottom, frame.bottom, 'top', size, regions, cards, put, 'bottom:back', { y: frame.top.y, h: frame.bottom.y + frame.bottom.h - frame.top.y })
   }
 
+  // Your commanders, face up in their slots while they are in the command zone. Off the fanned table the slot takes the left of the hand row.
+  const cmdIds = me?.commanders?.map((c) => c.cardId) ?? []
+  let handRow = frame.hand
+  if (cmdIds.length) {
+    const slots = commandSlots(frame, fanout, cmdIds.length)
+    regions.command = slots.region
+    if (!fanout) handRow = { ...frame.hand, x: frame.hand.x + slots.region.w + COL_GAP, w: frame.hand.w - slots.region.w - COL_GAP }
+    cmdIds.forEach((id, i) => {
+      const r = slots.cards[i]
+      regions[`command:${id}`] = r
+      if (cards[id] && me!.zones.command.includes(id)) put(id, { kind: 'command', x: r.x, y: r.y, w: r.w, rot: 0, z: 5900 + i })
+    })
+  }
+
   // Your hand: fanned along the bottom, in mana-value order unless you have arranged it.
   const hand = me ? orderedHand(me.zones.hand, cards, input.handOrder ?? null) : []
   if (hand.length) {
-    const { w: W, h: H } = frame.hand
+    const { w: W, h: H } = handRow
     const n = hand.length
     const cw = Math.max(60, Math.min(170, (H + 18) / CARD_RATIO))
     const step = n > 1 ? Math.min(cw * 0.9, (W - cw - 16) / (n - 1)) : 0
@@ -208,7 +236,7 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
     const tilt = Math.min(3.2, 18 / Math.max(1, n))
     hand.forEach((id, i) => {
       const d = i - mid
-      put(id, { kind: 'hand', x: frame.hand.x + x0 + i * step, y: frame.hand.y + 6 + d * d * 0.9, w: cw, rot: d * tilt, z: 6000 + i })
+      put(id, { kind: 'hand', x: handRow.x + x0 + i * step, y: handRow.y + 6 + d * d * 0.9, w: cw, rot: d * tilt, z: 6000 + i })
     })
   }
 

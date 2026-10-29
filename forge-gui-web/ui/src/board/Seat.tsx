@@ -9,7 +9,8 @@ import { landChips } from './lands'
 import { boardIdentity, identity } from '../look/tones'
 import { send } from '../net'
 import { usePeek } from '../popover/usePeek'
-import type { CardDto, ManaColor, PlayerDto } from '../protocol'
+import type { CardDto, ManaColor, PlayerDto, ZoneName } from '../protocol'
+import type { Region } from '../table/contract'
 import { useForge, type ForgeState } from '../store'
 import { CardImage } from './CardImage'
 import { pickFromGroup } from './layout'
@@ -146,8 +147,9 @@ export function SeatPlate({ player: p, isMe, compact = false }: { player: Player
           <span>Hand <b className="lk-title" style={{ color: 'var(--lk-parchment)' }}>{p.handCount}</b></span>
           <span>Library <b className="lk-title" style={{ color: 'var(--lk-parchment)' }}>{p.libraryCount}</b></span>
         </div>
-        {facts.length > 0 && (
+        {(facts.length > 0 || (!isMe && !!p.commanders?.length)) && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {!isMe && p.commanders?.map((c) => <CommanderChip key={c.cardId} id={c.cardId} tax={c.tax} compact={compact} />)}
             {facts.map((f) => (
               <span key={f.key} style={{ ...chip, color: f.danger ? 'var(--lk-ember-light)' : undefined }}>{f.text}</span>
             ))}
@@ -161,6 +163,99 @@ export function SeatPlate({ player: p, isMe, compact = false }: { player: Player
 }
 
 const NO_HITS: CommanderHit[] = []
+
+const ZONE_WHERE: Partial<Record<ZoneName, string>> = { battlefield: 'on the battlefield', stack: 'being cast', graveyard: 'in the graveyard', exile: 'in exile', hand: 'in hand', library: 'in the library' }
+
+/** An opponent's commander: name and tax, dimmed while it's out of the command zone. Hover peeks the card. */
+function CommanderChip({ id, tax, compact }: { id: number; tax: number; compact: boolean }) {
+  const card = useForge((s) => s.cards[id])
+  const peek = usePeek({ kind: 'card', id })
+  const ids = useMemo(() => [id], [id])
+  const mark = useZoneMark(ids)
+  if (!card) return null
+  const away = card.zone !== 'command'
+  const name = card.hidden ? 'Commander' : card.name.split(',')[0]
+  return (
+    <span
+      {...peek}
+      data-entity={`card:${id}`}
+      title={`Commander${away ? `, ${ZONE_WHERE[card.zone] ?? card.zone}` : ', in the command zone'}. Tax ${tax}`}
+      onClick={(e) => clickCards(e, [id])}
+      onContextMenu={(e) => clickCards(e, [id])}
+      style={{ ...chip, fontSize: compact ? 12 : 13, lineHeight: compact ? '20px' : '22px', cursor: 'pointer', opacity: away ? 0.6 : 1, maxWidth: '100%', boxShadow: mark === 'choose' ? '0 0 0 1.5px var(--lk-gold)' : chip.boxShadow }}
+    >
+      <CommandGlyph size={compact ? 11 : 12} />
+      <b className="lk-title" style={{ color: 'var(--lk-parchment)', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: compact ? 96 : 140 }}>{name}</b>
+      <span style={{ color: 'var(--lk-parchment-dim)' }}>Tax {tax}</span>
+    </span>
+  )
+}
+
+/** A small crown, the command zone's mark. */
+function CommandGlyph({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden style={{ flex: 'none' }}>
+      <path d="M1 9.5 L1.6 3.5 L4.2 6 L6 2 L7.8 6 L10.4 3.5 L11 9.5 Z" fill="var(--lk-brass)" stroke="var(--lk-ink)" strokeWidth="0.7" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+/**
+ * Your command zone: a slot per commander. The card itself is drawn by the card layer while it's here;
+ * the slot shows the tax under it, and where the commander is when it's away.
+ */
+export function CommandSlots({ regions }: { regions: Record<string, Region> }) {
+  const meId = useForge((s) => s.game?.localPlayerIds[0])
+  const commanders = useForge((s) => (meId != null ? s.players[meId]?.commanders : undefined))
+  if (!commanders?.length) return null
+  return (
+    <>
+      {commanders.map((c) => {
+        const r = regions[`command:${c.cardId}`]
+        return r ? <CommandSlot key={c.cardId} id={c.cardId} tax={c.tax} r={r} /> : null
+      })}
+    </>
+  )
+}
+
+function CommandSlot({ id, tax, r }: { id: number; tax: number; r: Region }) {
+  const zone = useForge((s) => s.cards[id]?.zone)
+  const castable = useForge((s) => zone === 'command' && !s.selectable.cardIds.size && s.playable.has(id))
+  const away = zone !== 'command'
+  return (
+    <div style={{ position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h + 30, zIndex: 8, pointerEvents: 'none' }}>
+      <div
+        className="lk-label"
+        style={{
+          position: 'absolute', left: 0, top: 0, width: r.w, height: r.h, borderRadius: 7, boxSizing: 'border-box',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, padding: 4, textAlign: 'center',
+          background: 'rgb(10 8 6 / .45)', boxShadow: 'inset 0 0 0 1.5px var(--lk-metal-line)', color: 'var(--lk-parchment-mute)', fontSize: 11, lineHeight: 1.2,
+        }}
+      >
+        <CommandGlyph size={16} />
+        {away && <span>{zone ? ZONE_WHERE[zone] ?? zone : ''}</span>}
+      </div>
+      <span
+        className="lk-title"
+        title="Commander tax: {2} more for each earlier cast from the command zone"
+        style={{
+          position: 'absolute', left: '50%', top: r.h + 5, transform: 'translateX(-50%)', ...chip, fontSize: 13, lineHeight: '20px', fontWeight: 700,
+          color: castable ? 'var(--lk-frost)' : 'var(--lk-parchment)', boxShadow: castable ? '0 0 0 1.5px var(--lk-frost), 0 0 10px var(--lk-frost-soft)' : chip.boxShadow,
+        }}
+      >
+        Tax {tax}
+      </span>
+    </div>
+  )
+}
+
+/** A zone's cards as the piles show them: the command zone leaves out commanders, which have their own slot or chip. */
+function zoneIds(p: PlayerDto, zone: Zone) {
+  const ids = p.zones[zone]
+  if (zone !== 'command' || !p.commanders?.length) return ids
+  const cmd = new Set(p.commanders.map((c) => c.cardId))
+  return ids.filter((id) => !cmd.has(id))
+}
 
 /** Commander damage this player took, per commander (server: PlayerDto.commanderDamage). */
 function useCommanderHits(p: PlayerDto): CommanderHit[] {
@@ -207,13 +302,13 @@ function useZoneMark(ids: number[]) {
 function OppZones({ player: p }: { player: PlayerDto }) {
   return (
     <div style={{ display: 'flex', gap: 10, fontSize: 13.5, color: 'var(--lk-parchment-dim)', position: 'relative' }}>
-      {(['graveyard', 'exile', 'command'] as const).map((z) => (p.zones[z].length ? <ZoneLink key={z} player={p} zone={z} /> : null))}
+      {(['graveyard', 'exile', 'command'] as const).map((z) => (zoneIds(p, z).length ? <ZoneLink key={z} player={p} zone={z} /> : null))}
     </div>
   )
 }
 
 function ZoneLink({ player: p, zone }: { player: PlayerDto; zone: Zone }) {
-  const ids = p.zones[zone]
+  const ids = useMemo(() => zoneIds(p, zone), [p, zone])
   const mark = useZoneMark(ids)
   const view = useBoardUi((s) => s.zoneView)
   const setZoneView = useBoardUi((s) => s.setZoneView)
@@ -242,7 +337,7 @@ export function Piles({ player: p }: { player: PlayerDto }) {
       <Pile n={p.libraryCount} label="Library" back />
       <Pile n={p.zones.graveyard.length} label="Graveyard" player={p} zone="graveyard" />
       {p.zones.exile.length > 0 && <Pile n={p.zones.exile.length} label="Exile" player={p} zone="exile" />}
-      {p.zones.command.length > 0 && <Pile n={p.zones.command.length} label="Command" player={p} zone="command" />}
+      {zoneIds(p, 'command').length > 0 && <Pile n={zoneIds(p, 'command').length} label="Command" player={p} zone="command" />}
     </div>
   )
 }
@@ -250,7 +345,7 @@ export function Piles({ player: p }: { player: PlayerDto }) {
 const NO_IDS: number[] = []
 
 function Pile({ n, label, back, player, zone }: { n: number; label: string; back?: boolean; player?: PlayerDto; zone?: Zone }) {
-  const ids = player && zone ? player.zones[zone] : NO_IDS
+  const ids = useMemo(() => (player && zone ? zoneIds(player, zone) : NO_IDS), [player, zone])
   const mark = useZoneMark(ids)
   const view = useBoardUi((s) => s.zoneView)
   const setZoneView = useBoardUi((s) => s.setZoneView)
@@ -286,7 +381,7 @@ function Pile({ n, label, back, player, zone }: { n: number; label: string; back
 function ZoneViewer({ player, zone, up }: { player: PlayerDto; zone: Zone; up: boolean }) {
   const cards = useForge((s) => s.cards)
   const setZoneView = useBoardUi((s) => s.setZoneView)
-  const list = useMemo(() => [...player.zones[zone]].reverse().map((id) => cards[id]).filter((c): c is CardDto => !!c), [player, zone, cards])
+  const list = useMemo(() => [...zoneIds(player, zone)].reverse().map((id) => cards[id]).filter((c): c is CardDto => !!c), [player, zone, cards])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setZoneView(null)
     const onDown = (e: PointerEvent) => {

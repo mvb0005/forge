@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { send } from '../net'
-import type { SavedGame } from '../protocol'
+import type { LobbyDeck as Deck, MatchFormat, SavedGame } from '../protocol'
 import { useForge } from '../store'
 import { Btn, ColorPips, Kbd } from './ui'
-
-type Deck = { id: string; name: string; colors: string }
 
 const remember = (k: string, v?: string) => {
   try {
@@ -26,11 +24,16 @@ const stripeOf = (c: string) => {
   return `linear-gradient(90deg, ${cs.map((x, i) => `${x} ${(i / cs.length) * 100}% ${((i + 1) / cs.length) * 100}%`).join(', ')})`
 }
 
-function DeckPicker({ label, decks, value, onChange }: { label: string; decks: Deck[]; value: string; onChange: (id: string) => void }) {
+// Generated two-colour decks ('random:WU') show as pips; Commander's random choices ('cmdr:random', 'cmdr:randomprecon') as words.
+const isRandom = (d: Deck) => d.id.startsWith('random:') || d.id === 'cmdr:random' || d.id === 'cmdr:randomprecon'
+
+function DeckPicker({ label, decks, value, onChange, randomTitle }: { label: string; decks: Deck[]; value: string; onChange: (id: string) => void; randomTitle: string }) {
   const [q, setQ] = useState('')
   const current = decks.find((d) => d.id === value)
-  const random = decks.filter((d) => d.id.startsWith('random:'))
-  const named = decks.filter((d) => !d.id.startsWith('random:') && d.name.toLowerCase().includes(q.toLowerCase()))
+  const random = decks.filter(isRandom)
+  const needle = q.toLowerCase()
+  const named = decks.filter((d) => !isRandom(d) && (d.name.toLowerCase().includes(needle) || !!d.detail?.toLowerCase().includes(needle)))
+  const pips = !current || !!current.colors || current.id.startsWith('random:')
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl lk-plate">
       <div className="relative overflow-hidden rounded-t-xl border-b border-line px-5 pb-4 pt-5">
@@ -38,18 +41,18 @@ function DeckPicker({ label, decks, value, onChange }: { label: string; decks: D
         <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-dim">{label}</div>
         <div className="mt-1.5 flex items-center gap-3">
           <span className="min-w-0 flex-1 truncate font-title text-xl font-bold">{current?.name ?? 'Choose a deck'}</span>
-          {current && <ColorPips colors={current.colors} size={20} />}
+          {current && pips && <ColorPips colors={current.colors} size={20} />}
         </div>
-        <div className="mt-0.5 text-xs text-ink-dim">{current ? guildish(current.colors) : ' '}</div>
+        <div className="mt-0.5 truncate text-xs text-ink-dim">{current ? (pips ? [guildish(current.colors), current.detail].filter(Boolean).join(' · ') : current.detail) : ' '}</div>
       </div>
       {random.length > 0 && (
         <div className="border-b border-line px-4 py-3">
-          <div className="mb-2 text-[11px] uppercase tracking-wider text-ink-dim">Random two-colour</div>
+          <div className="mb-2 text-[11px] uppercase tracking-wider text-ink-dim">{randomTitle}</div>
           <div className="flex flex-wrap gap-1.5">
             {random.map((d) => (
-              <button key={d.id} type="button" title={d.name} onClick={() => onChange(d.id)}
+              <button key={d.id} type="button" title={d.detail ?? d.name} onClick={() => onChange(d.id)}
                 className={`rounded-full border px-2 py-1 transition ${d.id === value ? 'border-accent bg-accent/10' : 'border-line hover:border-ink-dim'}`}>
-                <ColorPips colors={d.colors} size={16} />
+                {d.id.startsWith('random:') ? <ColorPips colors={d.colors} size={16} /> : <span className="px-1.5 font-title text-sm font-semibold">{d.name}</span>}
               </button>
             ))}
           </div>
@@ -65,7 +68,10 @@ function DeckPicker({ label, decks, value, onChange }: { label: string; decks: D
             <button type="button" onClick={() => onChange(d.id)}
               className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition
                 ${d.id === value ? 'bg-accent/12 text-ink ring-1 ring-accent/60' : 'text-ink-dim hover:bg-panel-2 hover:text-ink'}`}>
-              <span className="min-w-0 flex-1 truncate">{d.name}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{d.name}</span>
+                {d.detail && <span className="block truncate text-[11px] text-ink-dim">{d.detail}</span>}
+              </span>
               <ColorPips colors={d.colors} size={14} />
             </button>
           </li>
@@ -94,15 +100,31 @@ export function Lobby() {
   const connected = useForge((s) => s.connected)
   const email = useForge((s) => s.email)
   const games = lobby.games ?? []
-  const decks = lobby.decks
-  const pick = (key: string, fallback: number) => {
-    const saved = remember(key)
-    if (saved && decks.some((d) => d.id === saved)) return saved
-    return decks[Math.min(fallback, decks.length - 1)]?.id ?? ''
+  const commanderOk = useForge((s) => s.caps.includes('match.commander')) && lobby.commanderDecks.length > 0
+  const [format, setFormatState] = useState<MatchFormat>(() => (commanderOk && remember('forge.format') === 'commander' ? 'commander' : 'constructed'))
+  const cmdr = format === 'commander'
+  const decks = cmdr ? lobby.commanderDecks : lobby.decks
+  // Each format remembers its own picks: forge.deck, forge.cmdr.deck and so on.
+  const keyOf = (c: boolean, k: string) => (c ? `forge.cmdr.${k}` : `forge.${k}`)
+  const pickFor = (c: boolean, k: string, fallback: number) => {
+    const list = c ? lobby.commanderDecks : lobby.decks
+    const saved = remember(keyOf(c, k))
+    if (saved && list.some((d) => d.id === saved)) return saved
+    if (c && list.some((d) => d.id === 'cmdr:randomprecon')) return 'cmdr:randomprecon'
+    return list[Math.min(fallback, list.length - 1)]?.id ?? ''
   }
-  const [mine, setMine] = useState(() => pick('forge.deck', 0))
-  const [theirs, setTheirs] = useState(() => pick('forge.opponentDeck', 1))
-  const [opponents, setOpponents] = useState(() => Math.min(3, Math.max(1, Number(remember('forge.opponents')) || 1)))
+  const opponentsFor = (c: boolean) => Math.min(3, Math.max(1, Number(remember(keyOf(c, 'opponents'))) || (c ? 3 : 1)))
+  const [mine, setMine] = useState(() => pickFor(cmdr, 'deck', 0))
+  const [theirs, setTheirs] = useState(() => pickFor(cmdr, 'opponentDeck', 1))
+  const [opponents, setOpponents] = useState(() => opponentsFor(cmdr))
+  const setFormat = (f: MatchFormat) => {
+    if (f === format) return
+    const c = f === 'commander'
+    setFormatState(f)
+    setMine(pickFor(c, 'deck', 0))
+    setTheirs(pickFor(c, 'opponentDeck', 1))
+    setOpponents(opponentsFor(c))
+  }
   // A new lobby message after Start means the server refused; starting is only valid for the lobby it was sent from.
   const [started, setStarted] = useState<{ what: string; lobby: object } | null>(null)
   const starting = started?.lobby === lobby ? started.what : null
@@ -111,10 +133,11 @@ export function Lobby() {
   const canStart = connected && !!mine && !!theirs && !starting
   const start = () => {
     if (!canStart) return
-    remember('forge.deck', mine)
-    remember('forge.opponentDeck', theirs)
-    remember('forge.opponents', String(opponents))
-    if (send({ t: 'startMatch', deck: mine, opponentDeck: theirs, opponents })) setStarting('match')
+    remember('forge.format', format)
+    remember(keyOf(cmdr, 'deck'), mine)
+    remember(keyOf(cmdr, 'opponentDeck'), theirs)
+    remember(keyOf(cmdr, 'opponents'), String(opponents))
+    if (send(cmdr ? { t: 'startMatch', format, deck: mine, opponentDeck: theirs, opponents } : { t: 'startMatch', deck: mine, opponentDeck: theirs, opponents })) setStarting('match')
   }
   const startState = (state: string) => {
     if (connected && !starting && send({ t: 'startState', state })) setStarting(state)
@@ -146,7 +169,7 @@ export function Lobby() {
           {games.map((g) => (
             <div key={g.id} className="w-56 shrink-0 rounded-lg border border-line bg-panel/60 px-3 py-2">
               <div className="truncate text-xs font-semibold">{gameLabel(g)}</div>
-              <div className="truncate text-[11px] text-ink-dim">{g.deckName} vs {g.opponentDeckName}</div>
+              <div className="truncate text-[11px] text-ink-dim">{g.format === 'commander' ? 'Commander · ' : ''}{g.deckName} vs {g.opponentDeckName}</div>
               <div className="text-[11px] text-ink-dim">{when(g.endedAt ?? g.startedAt)}</div>
             </div>
           ))}
@@ -155,11 +178,24 @@ export function Lobby() {
 
       <main className="flex min-h-0 flex-1 gap-6 px-8 pb-8 pt-4">
         <section className="flex min-h-0 min-w-0 flex-[3] flex-col gap-4">
-          <h1 className="text-sm font-semibold uppercase tracking-wider text-ink-dim">New match</h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-sm font-semibold uppercase tracking-wider text-ink-dim">New match</h1>
+            {commanderOk && (
+              <div className="inline-flex rounded-lg border border-line bg-table p-0.5" role="tablist" aria-label="Format">
+                {(['constructed', 'commander'] as const).map((f) => (
+                  <button key={f} type="button" role="tab" aria-selected={f === format} onClick={() => setFormat(f)}
+                    className={`h-8 rounded-md px-4 font-title text-sm transition ${f === format ? 'bg-panel-2 font-semibold text-ink ring-1 ring-accent/60' : 'text-ink-dim hover:text-ink'}`}>
+                    {f === 'constructed' ? 'Constructed' : 'Commander'}
+                  </button>
+                ))}
+              </div>
+            )}
+            {cmdr && <span className="text-xs text-ink-dim">40 life · commander tax · 21 commander damage</span>}
+          </div>
           <div className="flex min-h-0 flex-1 items-stretch gap-4">
-            <DeckPicker label="Your deck" decks={decks} value={mine} onChange={setMine} />
+            <DeckPicker key={`${format}:mine`} label={cmdr ? 'Your commander deck' : 'Your deck'} decks={decks} value={mine} onChange={setMine} randomTitle={cmdr ? 'Random' : 'Random two-colour'} />
             <div className="grid w-10 shrink-0 place-items-center font-title text-lg font-bold text-ink-dim">VS</div>
-            <DeckPicker label={opponents > 1 ? `Opponents' deck ×${opponents}` : "Opponent's deck"} decks={decks} value={theirs} onChange={setTheirs} />
+            <DeckPicker key={`${format}:theirs`} label={opponents > 1 ? (cmdr && theirs === 'cmdr:randomprecon' ? `Opponents' decks ×${opponents}` : `Opponents' deck ×${opponents}`) : "Opponent's deck"} decks={decks} value={theirs} onChange={setTheirs} randomTitle={cmdr ? 'Random' : 'Random two-colour'} />
           </div>
           <div className="flex items-center gap-5 rounded-xl lk-plate px-5 py-4">
             <div>
@@ -173,7 +209,7 @@ export function Lobby() {
                 ))}
               </div>
             </div>
-            <div className="text-sm text-ink-dim">{opponents === 1 ? 'One-on-one' : `Free-for-all, ${opponents + 1} players`}</div>
+            <div className="text-sm text-ink-dim">{opponents === 1 ? 'One-on-one' : `Free-for-all, ${opponents + 1} players`}{cmdr ? ' · Commander' : ''}</div>
             <span className="flex-1" />
             <span className="hidden items-center gap-1.5 text-xs text-ink-dim md:inline-flex"><Kbd>Enter</Kbd> start</span>
             <Btn variant="primary" className="px-8 py-3 text-base" disabled={!canStart} onClick={start}>

@@ -55,6 +55,7 @@ A client ignores caps it doesn't know and must not rely on a feature whose cap i
 | `player.colorIdentity` | `PlayerDto.colorIdentity` |
 | `player.commander` | `PlayerDto.commanders` / `commanderDamage` |
 | `game.turnOrder` | `GameDto.turnOrder` |
+| `match.commander` | `lobby.commanderDecks`, and `startMatch.format: "commander"` |
 
 Changes from v1: `caps`; `GameDto.log` replaced by `state.logAppend`/`logReset`;
 `selectables.playerIds`; assists are computed when the engine asks the human for input (not on
@@ -67,9 +68,22 @@ one of the caps above. A client that doesn't know the cap ignores the field.
 AI turn) they can lag the board. They are absent until the first decision point of a match.
 
 ### `lobby`
-`{ t:"lobby", decks:{ id:string, name:string, colors:string }[], states:string[], games:SavedGame[] }`, sent after
-`hello` when not in a match. `decks` lists what the server can start a match with (`"random:WU"` style
-ids for generated two-colour decks are always present). `states` lists the saved board files
+`{ t:"lobby", decks:LobbyDeck[], commanderDecks?:LobbyDeck[], states:string[], games:SavedGame[] }`, sent after
+`hello` when not in a match. `decks` lists what the server can start a Constructed match with (`"random:WU"` style
+ids for generated two-colour decks are always present).
+
+```ts
+type LobbyDeck = { id: string; name: string; colors: string; detail?: string }; // detail: secondary text, e.g. "C17 · 2017"
+```
+
+`commanderDecks` (cap `match.commander`) lists the decks for a Commander match. `colors` is the commanders' colour
+identity. Ids:
+- `"cmdr:random"`: a generated deck around a random legal commander (Forge's `DeckgenUtil.generateCommanderDeck`).
+- `"cmdr:randomprecon"`: a random preconstructed commander deck. As the opponents' deck, every AI gets a different one.
+- `"cmdr:precon:<file>"`: one of Forge's preconstructed commander decks (`res/quest/commanderprecons`, the file name
+  without `.dck`, e.g. `"Arcane Wizardry [C17] [2017]"`). `name` is the readable part (`"Arcane Wizardry"`), `detail`
+  the set and year.
+- `"cmdr:deck:<name>"`: the person's own commander decks (Forge's commander deck folder). `states` lists the saved board files
 (bench/states, bench/token-pod-turn12.txt, and the web UI's fixtures in forge-gui-web/tools/states).
 `games` is this person's history, newest first (local play sees only games with no email):
 
@@ -86,6 +100,7 @@ type SavedGame = {
   opponentDeck: string;
   opponentDeckName: string;
   opponents: number;
+  format?: "constructed" | "commander"; // absent in records written before formats: constructed
   winner: string | null;
   turn: number | null;
   summary: string | null;
@@ -378,7 +393,7 @@ permanents changed), so during most of an AI turn it shows the board at your las
 
 | Message | Meaning |
 |---|---|
-| `{t:"startMatch", deck:string, opponentDeck:string, opponents:number}` | deck ids from `lobby` (`"random:XY"` or a listed id). opponents 1..3 |
+| `{t:"startMatch", deck:string, opponentDeck:string, opponents:number, format?:"constructed"\|"commander"}` | deck ids from `lobby` (`"random:XY"` or a listed id). opponents 1..3. `format` defaults to `"constructed"` (ids from `decks`). `"commander"` (cap `match.commander`) takes ids from `commanderDecks` and starts Forge's Commander variant: commanders in the command zone, commander tax and damage, 40 life. When `opponents` is absent a Commander match has 3 |
 | `{t:"startState", state:string}` | start from a saved board (a `lobby.states` entry). The human takes seat 1 |
 | `{t:"selectCard", cardId:number, others?:number[], shift:boolean, button:number}` | click on a card (button 1 left, 3 right). `others`: more cards picked with it, e.g. the rest of a group of identical tokens (IGameController.selectCard otherCardViewsToSelect) |
 | `{t:"selectPlayer", playerId:number, shift:boolean, button:number}` | click on a player |
