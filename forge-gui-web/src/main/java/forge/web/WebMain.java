@@ -38,11 +38,13 @@ public final class WebMain {
         System.setProperty("java.awt.headless", "true");
 
         int port = Integer.getInteger("forge.web.port", 7777);
+        String bind = System.getProperty("forge.web.host", "127.0.0.1");
         String pics = System.getProperty("forge.web.pics");
         String ui = System.getProperty("forge.web.ui");
         for (int i = 0; i < args.length - 1; i++) {
             switch (args[i]) {
                 case "--port" -> port = Integer.parseInt(args[++i]);
+                case "--host" -> bind = args[++i];
                 case "--pics" -> pics = args[++i];
                 case "--ui" -> ui = args[++i];
                 default -> { }
@@ -75,10 +77,12 @@ public final class WebMain {
         }
 
         Path uiDir = ui != null ? Path.of(ui) : repoRoot.resolve("forge-gui-web").resolve("ui").resolve("dist");
-        MatchHost host = new MatchHost(repoRoot);
+        AccessIdentity access = AccessIdentity.fromEnv();
+        System.out.println(access == null ? "Play auth: open (a local seat, not a person)" : "Play auth: Cloudflare Access");
+        MatchHost host = new MatchHost(repoRoot, access, PlayLog.open());
         WebServer server = new WebServer(port, Files.isDirectory(uiDir) ? uiDir : null, host);
-        server.start();
-        System.out.println("Forge web listening on http://127.0.0.1:" + port + "/ (ui: " + (Files.isDirectory(uiDir) ? uiDir : "none") + ")");
+        server.start(bind);
+        System.out.println("Forge web listening on http://" + bind + ":" + port + "/ (ui: " + (Files.isDirectory(uiDir) ? uiDir : "none") + ")");
         server.awaitClose();
     }
 

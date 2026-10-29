@@ -13,6 +13,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.SimpleChannelInboundHandler;
@@ -29,9 +30,11 @@ import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.HttpVersion;
+import io.netty.handler.codec.http.websocketx.CloseWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketFrameAggregator;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
+import io.netty.util.AttributeKey;
 
 import java.io.File;
 import java.io.IOException;
@@ -40,9 +43,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/** Netty HTTP server: the /ws WebSocket, card images and the static UI. Binds 127.0.0.1 only. */
+/** Netty HTTP server: the /ws WebSocket, card images and the static UI. */
 public final class WebServer {
     private static final String IMG_PREFIX = "/img/card/";
+    /** Public mount on mtg.mattbonsall.com. Root hosting is unchanged. */
+    private static final String PLAY_PREFIX = "/play";
+    private static final AttributeKey<String> SEAT_ATTR = AttributeKey.valueOf("forgeSeat");
 
     private final int port;
     private final Path uiDir;
@@ -58,6 +64,10 @@ public final class WebServer {
     }
 
     public void start() throws InterruptedException {
+        start("127.0.0.1");
+    }
+
+    public void start(String host) throws InterruptedException {
         boss = new NioEventLoopGroup(1);
         workers = new NioEventLoopGroup(2);
         ServerBootstrap b = new ServerBootstrap()
@@ -68,13 +78,14 @@ public final class WebServer {
                     protected void initChannel(SocketChannel ch) {
                         ch.pipeline().addLast(new HttpServerCodec());
                         ch.pipeline().addLast(new HttpObjectAggregator(1 << 20));
+                        ch.pipeline().addLast(new PlayPrefix());
                         ch.pipeline().addLast(new WebSocketServerProtocolHandler("/ws", null, true, 1 << 20));
                         ch.pipeline().addLast(new WebSocketFrameAggregator(1 << 22));
                         ch.pipeline().addLast(new SocketHandler());
                         ch.pipeline().addLast(new HttpHandler());
                     }
                 });
-        serverChannel = b.bind("127.0.0.1", port).sync().channel();
+        serverChannel = b.bind(host, port).sync().channel();
     }
 
     public void awaitClose() throws InterruptedException {
@@ -84,6 +95,59 @@ public final class WebServer {
             boss.shutdownGracefully();
             workers.shutdownGracefully();
         }
+    }
+
+    /** /play and /play/… are the same app as /. /play redirects so relative asset URLs keep the prefix. */
+    private static final class PlayPrefix extends ChannelInboundHandlerAdapter {
+        @Override
+        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+            if (!(msg instanceof FullHttpRequest req)) {
+                ctx.fireChannelRead(msg);
+                return;
+            }
+            String uri = req.uri();
+            int q = uri.indexOf('?');
+            String path = q >= 0 ? uri.substring(0, q) : uri;
+            String query = q >= 0 ? uri.substring(q) : "";
+            if (PLAY_PREFIX.equals(path)) {
+                FullHttpResponse res = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.FOUND);
+                res.headers().set(HttpHeaderNames.LOCATION, PLAY_PREFIX + "/" + query);
+                HttpUtil.setContentLength(res, 0);
+                ctx.writeAndFlush(res).addListener(ChannelFutureListener.CLOSE);
+                req.release();
+                return;
+            }
+            if (path.startsWith(PLAY_PREFIX + "/")) {
+                path = path.substring(PLAY_PREFIX.length());
+                if (path.isEmpty()) {
+                    path = "/";
+                }
+            }
+            if ("/ws".equals(path)) {
+                // Netty matches the handshake path exactly, so the seat token cannot stay on the URI.
+                ctx.channel().attr(SEAT_ATTR).set(seatQuery(uri));
+                req.setUri("/ws");
+            } else if (!path.equals(q >= 0 ? uri.substring(0, q) : uri)) {
+                req.setUri(path + query);
+            }
+            ctx.fireChannelRead(msg);
+        }
+    }
+
+    /** The seat token from the websocket query, or null when this browser has none yet. */
+    private static String seatQuery(String uri) {
+        int q = uri == null ? -1 : uri.indexOf('?');
+        if (q < 0) {
+            return null;
+        }
+        for (String part : uri.substring(q + 1).split("&")) {
+            if (!part.startsWith("seat=")) {
+                continue;
+            }
+            String value = URLDecoder.decode(part.substring("seat=".length()), StandardCharsets.UTF_8);
+            return value.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}") ? value : null;
+        }
+        return null;
     }
 
     private static final class NettyClient implements ClientChannel {
@@ -99,6 +163,13 @@ public final class WebServer {
                 ch.writeAndFlush(new TextWebSocketFrame(message.toString()));
             }
         }
+
+        @Override
+        public void close(int code, String reason) {
+            if (ch.isActive()) {
+                ch.writeAndFlush(new CloseWebSocketFrame(code, reason)).addListener(ChannelFutureListener.CLOSE);
+            }
+        }
     }
 
     private final class SocketHandler extends SimpleChannelInboundHandler<TextWebSocketFrame> {
@@ -106,9 +177,12 @@ public final class WebServer {
 
         @Override
         public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
-            if (evt instanceof WebSocketServerProtocolHandler.HandshakeComplete) {
+            if (evt instanceof WebSocketServerProtocolHandler.HandshakeComplete hs) {
                 client = new NettyClient(ctx.channel());
-                host.onConnect(client);
+                String jwt = AccessIdentity.tokenFrom(
+                        hs.requestHeaders().get("Cf-Access-Jwt-Assertion"),
+                        hs.requestHeaders().get(HttpHeaderNames.COOKIE));
+                host.onConnect(client, ctx.channel().attr(SEAT_ATTR).get(), jwt);
             } else {
                 super.userEventTriggered(ctx, evt);
             }
@@ -162,6 +236,8 @@ public final class WebServer {
             try {
                 if (path.startsWith(IMG_PREFIX)) {
                     res = cardImage(URLDecoder.decode(path.substring(IMG_PREFIX.length()), StandardCharsets.UTF_8));
+                } else if (path.equals("/api/games") || path.startsWith("/api/games/")) {
+                    res = games(req, path);
                 } else {
                     res = staticFile(URLDecoder.decode(path, StandardCharsets.UTF_8));
                 }
@@ -207,6 +283,34 @@ public final class WebServer {
             res.headers().set(HttpHeaderNames.CACHE_CONTROL, cacheControl);
         }
         return res;
+    }
+
+    /** The tracker's view of this person's games. Same Access token as the websocket. */
+    private FullHttpResponse games(FullHttpRequest req, String path) {
+        String id = null;
+        if (path.startsWith("/api/games/")) {
+            id = path.substring("/api/games/".length());
+            if (!id.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) {
+                return status(HttpResponseStatus.NOT_FOUND);
+            }
+        }
+        try {
+            String jwt = AccessIdentity.tokenFrom(
+                    req.headers().get("Cf-Access-Jwt-Assertion"),
+                    req.headers().get(HttpHeaderNames.COOKIE));
+            JsonObject body = host.gamesApi(jwt, id);
+            if (body == null) {
+                return status(HttpResponseStatus.NOT_FOUND);
+            }
+            FullHttpResponse res = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK,
+                    Unpooled.copiedBuffer(body.toString(), StandardCharsets.UTF_8));
+            res.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=utf-8");
+            res.headers().set(HttpHeaderNames.CACHE_CONTROL, "no-store");
+            return res;
+        } catch (AuthException e) {
+            System.err.println("Play sign-in refused: " + e.getMessage());
+            return status(HttpResponseStatus.UNAUTHORIZED);
+        }
     }
 
     private FullHttpResponse cardImage(String key) throws IOException {
