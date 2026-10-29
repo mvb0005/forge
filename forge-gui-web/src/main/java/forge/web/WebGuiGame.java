@@ -1499,8 +1499,49 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     public void alertUser() {
     }
 
+    private volatile JsonObject outcome;
+
+    /** Winner, turn, summary and log. Frozen when the game ends, so the play log can outlive the match. */
+    JsonObject outcome() {
+        JsonObject saved = outcome;
+        return saved != null ? saved : readOutcome();
+    }
+
+    private JsonObject readOutcome() {
+        JsonObject o = new JsonObject();
+        try {
+            GameView gv = getGameView();
+            if (gv == null) {
+                return o;
+            }
+            o.addProperty("gameOver", gv.isGameOver());
+            String winner = gv.getWinningPlayerName();
+            if (winner != null) {
+                o.addProperty("winner", winner);
+            }
+            o.addProperty("turn", gv.getTurn());
+            o.addProperty("summary", winner == null ? "The game is a draw" : winner + " won on turn " + gv.getTurn());
+            GameLog gl = gv.getGameLog();
+            JsonArray log = new JsonArray();
+            if (gl != null) {
+                List<GameLogEntry> entries = gl.getAllEntries();
+                int from = Math.max(0, entries.size() - 800);
+                for (int i = from; i < entries.size(); i++) {
+                    log.add(entries.get(i).toString());
+                }
+            }
+            o.add("log", log);
+        } catch (RuntimeException e) {
+            e.printStackTrace();
+        }
+        return o;
+    }
+
     @Override
     public void finishGame() {
+        JsonObject saved = readOutcome();
+        saved.addProperty("gameOver", true);
+        outcome = saved;
         GameView gv = getGameView();
         JsonObject g = msg("gameOver");
         String winner = gv == null ? null : gv.getWinningPlayerName();

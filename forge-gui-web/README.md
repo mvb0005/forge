@@ -55,7 +55,12 @@ java -jar ../forge-gui-web/target/forge-gui-web-<version>-jar-with-dependencies.
 ```
 
 Open http://127.0.0.1:7777. For UI development, run `npm run dev` in `ui/` (port 5173, proxies
-`/ws` and `/img` to the server).
+`/ws` and `/img` to the server). The server listens on `127.0.0.1` unless you pass `--host`.
+
+The homelab compose file runs it in Docker on port 7780, bound to `0.0.0.0` inside the container,
+with card data from `forge-gui/res` and a profile volume so it does not use the desktop Forge
+profile. Card art comes from the local pics cache when that directory is mounted; otherwise images
+fall through to Scryfall.
 
 The server uses the normal Forge user profile (preferences, logs). To keep a development server
 away from your real profile, start it with `APPDATA` and `LOCALAPPDATA` pointing at a scratch

@@ -21,14 +21,24 @@ type EntityRef = { kind: "card" | "player"; id: number };
 |---|---|
 | `GET /` and static files | the built UI (`forge-gui-web/ui/dist`) when present |
 | `GET /img/card/{imageKey}` | card image for a Forge image key (URL-encoded). 200 with the file from the read-only pics dir, otherwise 302 to a Scryfall image URL, otherwise 404. `Cache-Control: max-age=86400`. |
+| `GET /api/games` | this person's finished and in-progress games, newest first, without the log. `Cache-Control: no-store`. |
+| `GET /api/games/{id}` | one game, including `log`. 404 when it is missing or belongs to someone else. |
+
+When `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` are set, both the websocket and `/api/games` require the same Cloudflare Access JWT the tracker uses (`Cf-Access-Jwt-Assertion`, or the `CF_Authorization` cookie). The email header is ignored. 401 with no token. Without those variables the server is local play: no person, and `/api/games` returns only games that have no email.
 
 The UI only uses `CardDto.img` and never builds image URLs itself.
 
 ## Server to client
 
 ### `hello`
-`{ t:"hello", version:2, caps:string[], inMatch:boolean }`, sent on every connect. If `inMatch`, a full
-`state` follows, then the current prompt/buttons/selectables/ask and every current `assist`.
+`{ t:"hello", version:2, caps:string[], inMatch:boolean, seat:string, who:string, email?:string }`, sent on every accepted connect.
+`who` is the name at this seat. `email` is present when Cloudflare Access named the person; that email
+is the seat. One socket per seat. A different person is closed with status 4000 (`"<name> is already at this table"`),
+and their match stays reserved for them after a disconnect until it ends. The same person reconnecting
+replaces the previous socket (that socket is closed with 4001). A missing or bad Access token is closed
+with 4003. With no Access configured, `seat` is a token the client sends back as the `seat` query on `/ws`;
+a connection without it is closed with 4000 while the socket is held (`"This seat is open in another window"`).
+If `inMatch`, a full `state` follows, then the current prompt/buttons/selectables/ask and every current `assist`.
 
 `caps` lists optional features this server has, so client and server can evolve separately.
 A client ignores caps it doesn't know and must not rely on a feature whose cap is missing.
@@ -57,10 +67,36 @@ one of the caps above. A client that doesn't know the cap ignores the field.
 AI turn) they can lag the board. They are absent until the first decision point of a match.
 
 ### `lobby`
-`{ t:"lobby", decks:{ id:string, name:string, colors:string }[], states:string[] }`, sent after
+`{ t:"lobby", decks:{ id:string, name:string, colors:string }[], states:string[], games:SavedGame[] }`, sent after
 `hello` when not in a match. `decks` lists what the server can start a match with (`"random:WU"` style
 ids for generated two-colour decks are always present). `states` lists the saved board files
 (bench/states, bench/token-pod-turn12.txt, and the web UI's fixtures in forge-gui-web/tools/states).
+`games` is this person's history, newest first (local play sees only games with no email):
+
+```ts
+type SavedGame = {
+  id: string;
+  email?: string;          // the Access identity, absent for local play
+  name: string;            // the name used at the table
+  startedAt: string;       // ISO-8601
+  endedAt: string | null;
+  status: "playing" | "finished" | "abandoned";
+  deck: string;            // lobby deck id
+  deckName: string;
+  opponentDeck: string;
+  opponentDeckName: string;
+  opponents: number;
+  winner: string | null;
+  turn: number | null;
+  summary: string | null;
+};
+```
+
+The same object is what `GET /api/games` returns inside `{ email?: string, games: SavedGame[] }`.
+`GET /api/games/{id}` is one game plus `log: string[]` (the game log, oldest first, capped at 800 lines).
+The file on disk is `{ version: 1, games: [...] }` under `play/games.json` in the Forge home directory.
+A match that was still `playing` when the process starts is marked `abandoned`. The live game itself
+is not resumed; the record is what outlives the process.
 
 ### `state`
 ```ts
