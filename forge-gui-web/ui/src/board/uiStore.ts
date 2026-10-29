@@ -6,9 +6,11 @@ type BoardUi = {
   hoverStackId: number | null
   zoneView: { playerId: number; zone: 'graveyard' | 'exile' | 'command' | 'hand' } | null
   settled: number // bumped when card animations have landed (Arrows re-measure then, never mid-flight)
+  handOrder: number[] | null // null: the hand is shown in mana-value order
   setFocus: (playerId: number, turn: number) => void
   setHoverStack: (id: number | null) => void
   setZoneView: (z: BoardUi['zoneView']) => void
+  setHandOrder: (ids: number[] | null) => void
 }
 
 export const useBoardUi = create<BoardUi>()((set) => ({
@@ -16,7 +18,9 @@ export const useBoardUi = create<BoardUi>()((set) => ({
   hoverStackId: null,
   zoneView: null,
   settled: 0,
+  handOrder: null,
   setFocus: (playerId, turn) => set({ focus: { playerId, turn } }),
   setHoverStack: (hoverStackId) => set({ hoverStackId }),
   setZoneView: (zoneView) => set({ zoneView }),
+  setHandOrder: (handOrder) => set({ handOrder }),
 }))
