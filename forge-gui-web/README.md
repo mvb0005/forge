@@ -55,7 +55,8 @@ java -jar ../forge-gui-web/target/forge-gui-web-<version>-jar-with-dependencies.
 ```
 
 Open http://127.0.0.1:7777. For UI development, run `npm run dev` in `ui/` (port 5173, proxies
-`/ws` and `/img` to the server). The server listens on `127.0.0.1` unless you pass `--host`.
+`/ws` and `/img` to the server). The server listens on `127.0.0.1` unless you pass `--host`; it refuses any other
+address unless Cloudflare Access is configured (`CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`).
 
 The homelab compose file runs it in Docker on port 7780, bound to `0.0.0.0` inside the container,
 with card data from `forge-gui/res` and a profile volume so it does not use the desktop Forge

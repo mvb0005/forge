@@ -6,6 +6,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import forge.localinstance.properties.ForgeConstants;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -32,8 +33,10 @@ final class PlayLog {
         abandonInterrupted();
     }
 
+    /** In the Forge profile, so an isolated APPDATA isolates it too. Earlier builds wrote under user.home; keep using that log where it exists. */
     static PlayLog open() {
-        return new PlayLog(Path.of(System.getProperty("user.home", "."), "play", "games.json"));
+        Path legacy = Path.of(System.getProperty("user.home", "."), "play", "games.json");
+        return new PlayLog(Files.exists(legacy) ? legacy : Path.of(ForgeConstants.USER_DIR, "play", "games.json"));
     }
 
     void begin(JsonObject game) {
