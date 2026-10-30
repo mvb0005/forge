@@ -8,7 +8,7 @@ export type TableMode = 'main' | 'combat' | 'fanout'
 
 // Where a placed card sits, which decides how it is drawn and what a click does.
 // 'zone' = a face-down anchor at a pile or hand count (invisible; it lets cards fly to and from it).
-// 'command' = your commander, face up in its slot in the command zone.
+// 'command' = a commander, face up in its slot in the command zone.
 export type PlacementKind = 'field' | 'attach' | 'hand' | 'stack' | 'zone' | 'command'
 
 export type Placement = {

@@ -13,7 +13,8 @@ export const LINE_H = 64
 export const STRIP_H = 104
 export const RIBBON_H = 50 // the mana ribbon. Abilities open out of it, onto the mat.
 export const COL_HEAD = 64 // the same player plaque, compact, above each opponent column
-export const ACT_H = 96 // the control panel. It does not move when combat starts.
+export const ACT_BUTTONS_H = 82 // Cancel over OK
+export const ACT_H = 196 // the current action in large type, then the buttons. It does not move when combat starts.
 
 // Stack items in the action column, top of the stack nearest the type line. Spells show their own
 // card (from the card layer) in the thumbnail slot; StackView draws the rest of the item around it.

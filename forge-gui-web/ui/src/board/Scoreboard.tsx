@@ -1,16 +1,14 @@
-import type { ReactNode } from 'react'
 import { GEMS, gemOf, stepWords, turnOf } from '../look/phase'
 import type { PhaseName } from '../protocol'
 
 export type ScoreSeat = { id: number; name: string; you?: boolean; out?: boolean }
 
 /** Turn and phase, printed on the active player's mat. No plate. */
-export function Scoreboard({ name, you, phase, turn, hint, net, order, activeId }: {
+export function Scoreboard({ name, you, phase, turn, net, order, activeId }: {
   name: string
   you: boolean
   phase: PhaseName | null
   turn?: number
-  hint?: ReactNode
   net?: number
   order?: ScoreSeat[]
   activeId?: number
@@ -32,7 +30,6 @@ export function Scoreboard({ name, you, phase, turn, hint, net, order, activeId 
         {net != null && net > 0 && <b className="lk-title" style={{ fontSize: 13, color: 'var(--lk-ember-light)' }}>−{net}</b>}
       </div>
       {words && <div style={{ fontSize: 12, lineHeight: 1.3, color: 'var(--lk-parchment-dim)' }}>{words}</div>}
-      {hint && <div title={typeof hint === 'string' ? hint : undefined} style={{ fontSize: 13, lineHeight: 1.3, color: 'var(--lk-parchment)', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{hint}</div>}
       {order && order.length > 2 && (
         <div className="lk-title" style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.35 }}>
           {order.map((s, i) => (

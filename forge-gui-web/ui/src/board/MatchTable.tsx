@@ -1,7 +1,8 @@
 import { useRef, type CSSProperties, type ReactNode } from 'react'
 import { TableHalf, TableMat } from '../look/TableHalf'
-import { usePromptHint } from '../shell/PromptBar'
+import { PromptHeadline } from '../shell/PromptBar'
 import type { Region } from '../table/contract'
+import { ACT_BUTTONS_H } from '../table/frame'
 import { CardLayer, useTableLayout } from '../table/CardLayer'
 import { useForge } from '../store'
 import { Arrows } from './Arrows'
@@ -14,6 +15,10 @@ import { CommandSlots, Piles, Ribbon, SeatPlate, StripSeat, useSeatColors } from
 import { useBoardUi } from './uiStore'
 import { useSize } from './useSize'
 import './board.css'
+
+// A seat or pile whose zone viewer is open comes above the card layer (z 10) and the control panel (22):
+// the viewer's own z-index only counts inside its wrapper.
+const RAISED = 40
 
 const at = (r: Region | undefined): CSSProperties => (r ? { position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h } : { display: 'none' })
 
@@ -32,13 +37,14 @@ function ColumnMat({ playerId, region, turn, extend }: { playerId: number; regio
 function ColumnSeat({ playerId, seat, ribbon, turn, isMe }: { playerId: number; seat: Region; ribbon: Region; turn: number; isMe: boolean }) {
   const player = useForge((s) => s.players[playerId])
   const setFocus = useBoardUi((s) => s.setFocus)
+  const viewing = useBoardUi((s) => s.zoneView?.playerId === playerId)
   if (!player) return null
   return (
     <>
-      <div onClick={() => setFocus(playerId, turn)} style={{ ...at(seat), zIndex: 8, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-start', padding: '6px 10px 8px', boxSizing: 'border-box', cursor: 'pointer' }}>
+      <div onClick={() => setFocus(playerId, turn)} style={{ ...at(seat), zIndex: viewing ? RAISED : 8, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-start', padding: '6px 10px 8px', boxSizing: 'border-box', cursor: 'pointer' }}>
         <SeatPlate player={player} isMe={isMe} compact />
       </div>
-      <Ribbon player={player} isMe={isMe} style={{ ...at(ribbon), display: 'flex', justifyContent: 'center', alignItems: isMe ? 'flex-end' : 'flex-start', zIndex: 4, overflow: 'visible' }} />
+      <Ribbon player={player} isMe={isMe} compact style={{ ...at(ribbon), display: 'flex', justifyContent: 'center', alignItems: isMe ? 'flex-end' : 'flex-start', zIndex: 4, overflow: 'visible' }} />
     </>
   )
 }
@@ -55,6 +61,8 @@ export function MatchTable({ centerSlot }: { centerSlot: ReactNode }) {
   const game = useForge((s) => s.game)
   const turn = game?.turn ?? 0
   const setFocus = useBoardUi((s) => s.setFocus)
+  const viewing = useBoardUi((s) => s.zoneView?.playerId)
+  const raise = (id: number) => (viewing === id ? RAISED : 8)
   const me = meId != null ? players[meId] : undefined
   const opp = focusId != null ? players[focusId] : undefined
   const strips = Object.values(players)
@@ -94,7 +102,7 @@ export function MatchTable({ centerSlot }: { centerSlot: ReactNode }) {
             </div>
           )}
           {columns.length === 0 && opp && (
-            <div style={{ position: 'absolute', left: r.oppSeat.x + 12, top: r.oppSeat.y + 10, zIndex: 8 }}>
+            <div style={{ position: 'absolute', left: r.oppSeat.x + 12, top: r.oppSeat.y + 10, zIndex: raise(opp.id) }}>
               <SeatPlate player={opp} isMe={false} />
             </div>
           )}
@@ -106,16 +114,17 @@ export function MatchTable({ centerSlot }: { centerSlot: ReactNode }) {
           <div style={{ ...at(r.stack), zIndex: 9 }}>
             <StackView h={r.stack.h} />
           </div>
-          <div style={{ position: 'absolute', left: r.act.x, top: r.act.y, width: r.act.w, height: r.act.h, zIndex: 22 }}>
-            {centerSlot}
+          <div style={{ ...at(r.act), zIndex: 22, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 10 }}>
+            <PromptHeadline />
+            <div style={{ height: ACT_BUTTONS_H, flex: 'none' }}>{centerSlot}</div>
           </div>
           {me && !meIsBand && (
-            <div style={{ position: 'absolute', left: r.meSeat.x + 12, top: r.meSeat.y + 4, zIndex: 8 }}>
+            <div style={{ position: 'absolute', left: r.meSeat.x + 12, top: r.meSeat.y + 4, zIndex: raise(me.id) }}>
               <SeatPlate player={me} isMe />
             </div>
           )}
           {me && (
-            <div style={{ ...at(r.piles), zIndex: 8, display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end', padding: '0 10px 14px 0', boxSizing: 'border-box' }}>
+            <div style={{ ...at(r.piles), zIndex: raise(me.id), display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end', padding: '0 10px 14px 0', boxSizing: 'border-box' }}>
               <Piles player={me} />
             </div>
           )}
@@ -137,7 +146,6 @@ export function MatchTable({ centerSlot }: { centerSlot: ReactNode }) {
 function ScoreSpot({ meId, multi, x, seam, lineH, band }: { meId: number | null; multi: boolean; x: number; seam: number; lineH: number; band?: Region }) {
   const game = useForge((s) => s.game)!
   const players = useForge((s) => s.players)
-  const hint = usePromptHint()
   const net = useForge((s) => {
     const after = s.combatAssist?.players.find((p) => p.id === meId)?.lifeAfter
     const life = meId != null ? s.players[meId]?.life : undefined
@@ -152,7 +160,7 @@ function ScoreSpot({ meId, multi, x, seam, lineH, band }: { meId: number | null;
     <div style={band
       ? { position: 'absolute', left: band.x, top: band.y + 6, width: band.w, zIndex: 20, pointerEvents: 'none' }
       : { position: 'absolute', left: x, top: mine ? seam + lineH + 10 : seam - 8, transform: mine ? undefined : 'translateY(-100%)', zIndex: 20, pointerEvents: 'none' }}>
-      <Scoreboard name={active?.name ?? ''} you={mine} phase={game.phase} turn={game.turn} hint={hint} net={net > 0 ? net : undefined} order={order} activeId={game.activePlayerId ?? undefined} />
+      <Scoreboard name={active?.name ?? ''} you={mine} phase={game.phase} turn={game.turn} net={net > 0 ? net : undefined} order={order} activeId={game.activePlayerId ?? undefined} />
     </div>
   )
 }

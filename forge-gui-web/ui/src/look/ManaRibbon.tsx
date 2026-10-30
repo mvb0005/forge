@@ -50,7 +50,8 @@ export const ManaRibbon = memo(function ManaRibbon({ sources, usable = false, si
   return (
     <div
       style={{
-        display: 'inline-flex', alignItems: 'center', gap: size * 0.55, padding: `${size * 0.22}px ${size * 0.55}px`, borderRadius: 999,
+        // Wraps inside a narrow column (a band's gutter, beside the command slots) rather than spilling onto the mat.
+        display: 'inline-flex', flexWrap: 'wrap', maxWidth: '100%', alignItems: 'center', gap: `${size * 0.25}px ${size * 0.55}px`, padding: `${size * 0.22}px ${size * 0.55}px`, borderRadius: size * 0.7,
         background: 'var(--lk-ribbon)', boxShadow: '0 0 0 1px var(--lk-metal-line), 0 6px 14px rgb(0 0 0 / .45)',
       }}
     >

@@ -9,6 +9,7 @@ import { LAYOUTS, tableMode } from './layouts'
 import { tableSignature } from './signature'
 
 const VIEW = { w: 1600, h: 900 }
+const overlaps = (a: Region, b: Region) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
 
 function input(s: Partial<ForgeState>, over: Partial<LayoutInput> = {}): LayoutInput {
   const combat = over.combat !== undefined ? over.combat : (s.combat ?? null)
@@ -72,6 +73,31 @@ describe('table layouts', () => {
       expect(p.kind).toBe('command')
       expect(regions[`command:${id}`]).toMatchObject({ x: p.x, y: p.y, w: p.w })
       for (const h of i.players[i.meId].zones.hand) expect(placements.get(h)!.x, `hand card ${h}`).toBeGreaterThanOrEqual(p.x + p.w)
+    })
+
+    it(`gives every player's commander a slot at the left of their battlefield, clear of its cards (${players} players)`, () => {
+      const s = fixture('four')
+      if (players === 2) {
+        delete s.players![3]
+        delete s.players![4]
+        s.game = { ...s.game!, activePlayerId: 2 }
+        s.combat = null
+      }
+      const i = input(s, { combat: players === 2 ? null : undefined })
+      const { placements, regions } = run(i)
+      const xs = new Set<number>()
+      for (const p of Object.values(i.players)) {
+        for (const c of p.commanders ?? []) {
+          const slot = regions[`command:${c.cardId}`]
+          expect(slot, `slot for ${p.name}`).toBeDefined()
+          xs.add(Math.round(slot.x))
+          for (const id of p.zones.battlefield) {
+            const at = placements.get(id)
+            if (at?.kind === 'field' && id !== c.cardId) expect(at.x, `${p.name}'s card ${id}`).toBeGreaterThanOrEqual(slot.x + slot.w)
+          }
+        }
+      }
+      expect(xs.size, 'slots line up').toBe(1)
     })
   }
 
@@ -160,6 +186,21 @@ describe('table layouts', () => {
     expect(fight.get(soldiers[0])!.count).toBe(soldiers.length - 4)
   })
 
+  it('keeps the pod seat plates apart and clear of the control panel, on a short window too', () => {
+    const s = fixture('four')
+    for (const h of [600, 680, 768, 900]) {
+      for (const active of [1, 2, 3, 4]) {
+        const out = run(input(s, { viewport: { w: 1366, h }, game: { ...s.game!, activePlayerId: active } }))
+        const seats = [1, 2, 3, 4].map((id) => out.regions[`seat:${id}`])
+        const act = out.regions.act
+        for (let i = 0; i < seats.length; i++) {
+          for (let j = i + 1; j < seats.length; j++) expect(overlaps(seats[i], seats[j]), `h ${h}, active ${active}: seats ${i + 1} and ${j + 1}`).toBe(false)
+          expect(overlaps(seats[i], act), `h ${h}, active ${active}: seat ${i + 1} and the panel`).toBe(false)
+        }
+      }
+    }
+  })
+
   it('keeps every player on the table, and gives the active player the taller band', () => {
     const s = fixture('four')
     const covered = (placements: Map<number, Placement>) => {
@@ -177,7 +218,9 @@ describe('table layouts', () => {
     expect(mine.regions['half:4'].y).toBeLessThan(mine.regions['half:1'].y)
     expect(mine.regions['half:1'].h).toBeGreaterThan(mine.regions['half:2'].h * 1.5)
     expect(mine.regions['half:2'].h).toBeCloseTo(mine.regions['half:4'].h)
-    for (const id of [1, 2, 3, 4]) expect(mine.regions[`seat:${id}`].x).toBeGreaterThan(mine.regions[`field:${id}`].x + mine.regions[`field:${id}`].w - 1)
+    for (const id of [2, 3, 4]) expect(mine.regions[`seat:${id}`].x).toBeGreaterThan(mine.regions[`field:${id}`].x + mine.regions[`field:${id}`].w - 1)
+    // Yours is beside your hand, clear of the control panel and of the other seats.
+    expect(mine.regions['seat:1'].y).toBeGreaterThanOrEqual(mine.regions['field:1'].y + mine.regions['field:1'].h)
     const seen = covered(mine.placements)
     for (const pid of [1, 2, 3, 4]) for (const id of s.players![pid].zones.battlefield) expect(seen.get(id), `card ${id}`).toBe(1)
     for (const [, p] of mine.placements) {

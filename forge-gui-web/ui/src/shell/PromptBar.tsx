@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { send } from '../net'
 import { useBoardUi } from '../board/uiStore'
+import { stepWords } from '../look/phase'
 import { useForge } from '../store'
 
 function isTyping(t: EventTarget | null) {
@@ -18,15 +19,53 @@ function promptText(message: string | undefined, stackTop: string | undefined) {
   return stackTop ? `Respond to ${stackTop}, or pass to let it resolve` : 'Play a card or ability, or pass'
 }
 
-/** What the engine is asking, for the type line: the prompt, or who we're waiting for. */
-export function usePromptHint() {
+/** What the engine is asking: the prompt, or who we're waiting for. */
+function usePrompt() {
   const message = useForge((s) => s.prompt?.message)
   const stackTop = useForge((s) => (s.stack[0]?.sourceCardId != null ? s.cards[s.stack[0].sourceCardId]?.name : undefined) ?? s.stack[0]?.text)
   const waiting = useForge((s) => {
     const g = s.game
     return g?.priorityPlayerId != null && !g.localPlayerIds.includes(g.priorityPlayerId) ? (s.players[g.priorityPlayerId]?.name ?? 'opponent') : null
   })
-  return promptText(message, stackTop) || (waiting ? `Waiting for ${waiting}…` : '')
+  const yours = useForge((s) => !!(s.buttons?.ok.enabled || s.buttons?.cancel.enabled || s.selectable.cardIds.size))
+  const asked = promptText(message, stackTop)
+  // Not your move unless something is yours to press or pick; the engine can hold your priority while an AI acts.
+  return { text: asked || (waiting ? `Waiting for ${waiting}…` : ''), waiting: !yours }
+}
+
+/**
+ * The current action, in large type above OK and Cancel: what the engine wants from you, or who it is
+ * waiting on. Gold while the decision is yours; it fades in again whenever the question changes.
+ */
+export function PromptHeadline() {
+  const { text, waiting } = usePrompt()
+  const phase = useForge((s) => s.game?.phase ?? null)
+  if (!text) return null
+  const step = stepWords(phase)
+  return (
+    <div
+      key={text}
+      className="bf-pop lk-text"
+      style={{
+        position: 'relative', padding: '9px 12px 10px 15px', borderRadius: 4, color: 'var(--lk-parchment)',
+        background: waiting ? 'var(--lk-panel)' : 'linear-gradient(rgb(245 213 138 / .13), rgb(245 213 138 / .04)), var(--lk-panel)',
+        boxShadow: waiting ? '0 0 0 1px var(--lk-metal-line)' : '0 0 0 1px var(--lk-gold-soft), 0 0 22px rgb(245 213 138 / .14)',
+      }}
+    >
+      <span style={{ position: 'absolute', left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, background: waiting ? 'var(--lk-parchment-mute)' : 'var(--lk-gold)' }} />
+      <div className="lk-label" style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 11.5, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: waiting ? 'var(--lk-parchment-dim)' : 'var(--lk-gold)' }}>
+        <span style={{ whiteSpace: 'nowrap' }}>{waiting ? 'Waiting' : 'Your move'}</span>
+        {step && <span style={{ fontWeight: 500, letterSpacing: '0.04em', color: 'var(--lk-parchment-mute)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{step}</span>}
+      </div>
+      <div
+        className="lk-title"
+        title={text}
+        style={{ marginTop: 3, fontSize: waiting ? 17 : 20, fontWeight: 700, lineHeight: 1.22, color: waiting ? 'var(--lk-parchment-dim)' : 'var(--lk-parchment)', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
+      >
+        {text}
+      </div>
+    </div>
+  )
 }
 
 export const plateButton = (primary: boolean): CSSProperties => ({

@@ -1,16 +1,17 @@
 import { useEffect, useMemo, type CSSProperties, type MouseEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { RING } from '../look/CardFrame'
+import { CardFrame, RING } from '../look/CardFrame'
 import type { CommanderHit } from '../look/LifeShield'
 import { foldLands, type RibbonSource } from '../look/ManaRibbon'
 import { ManaSymbol } from '../look/ManaSymbol'
-import { ManaRow } from './LandTray'
-import { landChips } from './lands'
+import { LandTray } from './LandTray'
+import { isRock, rockSym, trayGroups } from './lands'
 import { boardIdentity, identity } from '../look/tones'
 import { send } from '../net'
 import { usePeek } from '../popover/usePeek'
 import type { CardDto, ManaColor, PlayerDto, ZoneName } from '../protocol'
 import type { Region } from '../table/contract'
+import { COMMAND } from '../table/layouts'
 import { useForge, type ForgeState } from '../store'
 import { CardImage } from './CardImage'
 import { pickFromGroup } from './layout'
@@ -47,15 +48,6 @@ const MARK_SHADOW: Record<Exclude<PlayerMark, null>, string> = {
   targeted: 'drop-shadow(0 0 5px var(--lk-ember)) drop-shadow(0 0 16px var(--lk-ember-soft))',
 }
 
-const isRock = (c: CardDto) => !c.types.includes('Land') && c.types.includes('Artifact') && /\{T\}[^.:]*: Add \{/.test(c.text)
-
-function rockSym(c: CardDto) {
-  const m = c.text.match(/\{T\}[^.:]*: Add \{([^}]+)\}/)
-  const s = (m?.[1] ?? 'C').toUpperCase()
-  const count = c.text.match(/: Add ((?:\{C\})+)/)?.[1].length
-  return count && count > 3 ? String(count / 3) : s
-}
-
 /** Lands folded by the mana they make, then mana rocks (presentation, from type line and text). */
 export function ribbonSources(cards: CardDto[]): RibbonSource[] {
   const rocks = cards.filter(isRock).map((c) => ({ sym: rockSym(c), untapped: c.tapped ? 0 : 1, total: 1, label: c.name, ids: [c.id] }))
@@ -83,14 +75,13 @@ export function useSeatColors(p: PlayerDto | undefined) {
   return sent != null ? identity(sent).join('') : board.join('')
 }
 
-export function Ribbon({ player, isMe, style }: { player: PlayerDto; isMe: boolean; style?: CSSProperties }) {
+export function Ribbon({ player, isMe, compact, style }: { player: PlayerDto; isMe: boolean; compact?: boolean; style?: CSSProperties }) {
   const cards = useRibbonCards(player)
-  const sources = useMemo(() => ribbonSources(cards), [cards])
-  const extras = useMemo(() => landChips(cards).filter((c) => c.ability), [cards])
+  const groups = useMemo(() => trayGroups(cards), [cards])
   const usable = useForge((s) => isMe && s.game?.priorityPlayerId != null && s.game.localPlayerIds.includes(s.game.priorityPlayerId))
   return (
     <div style={{ ...style, overflow: 'visible', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
-      <ManaRow sources={sources} extras={extras} usable={usable} align={isMe ? 'start' : 'center'} onPick={isMe ? pickIds : undefined} />
+      <LandTray groups={groups} usable={usable} compact={compact} align={isMe ? 'start' : 'center'} onPick={isMe ? pickIds : undefined} />
     </div>
   )
 }
@@ -147,9 +138,8 @@ export function SeatPlate({ player: p, isMe, compact = false }: { player: Player
           <span>Hand <b className="lk-title" style={{ color: 'var(--lk-parchment)' }}>{p.handCount}</b></span>
           <span>Library <b className="lk-title" style={{ color: 'var(--lk-parchment)' }}>{p.libraryCount}</b></span>
         </div>
-        {(facts.length > 0 || (!isMe && !!p.commanders?.length)) && (
+        {facts.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {!isMe && p.commanders?.map((c) => <CommanderChip key={c.cardId} id={c.cardId} tax={c.tax} compact={compact} />)}
             {facts.map((f) => (
               <span key={f.key} style={{ ...chip, color: f.danger ? 'var(--lk-ember-light)' : undefined }}>{f.text}</span>
             ))}
@@ -164,32 +154,6 @@ export function SeatPlate({ player: p, isMe, compact = false }: { player: Player
 
 const NO_HITS: CommanderHit[] = []
 
-const ZONE_WHERE: Partial<Record<ZoneName, string>> = { battlefield: 'on the battlefield', stack: 'being cast', graveyard: 'in the graveyard', exile: 'in exile', hand: 'in hand', library: 'in the library' }
-
-/** An opponent's commander: name and tax, dimmed while it's out of the command zone. Hover peeks the card. */
-function CommanderChip({ id, tax, compact }: { id: number; tax: number; compact: boolean }) {
-  const card = useForge((s) => s.cards[id])
-  const peek = usePeek({ kind: 'card', id })
-  const ids = useMemo(() => [id], [id])
-  const mark = useZoneMark(ids)
-  if (!card) return null
-  const away = card.zone !== 'command'
-  const name = card.hidden ? 'Commander' : card.name.split(',')[0]
-  return (
-    <span
-      {...peek}
-      data-entity={`card:${id}`}
-      title={`Commander${away ? `, ${ZONE_WHERE[card.zone] ?? card.zone}` : ', in the command zone'}. Tax ${tax}`}
-      onClick={(e) => clickCards(e, [id])}
-      onContextMenu={(e) => clickCards(e, [id])}
-      style={{ ...chip, fontSize: compact ? 12 : 13, lineHeight: compact ? '20px' : '22px', cursor: 'pointer', opacity: away ? 0.6 : 1, maxWidth: '100%', boxShadow: mark === 'choose' ? '0 0 0 1.5px var(--lk-gold)' : chip.boxShadow }}
-    >
-      <CommandGlyph size={compact ? 11 : 12} />
-      <b className="lk-title" style={{ color: 'var(--lk-parchment)', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: compact ? 96 : 140 }}>{name}</b>
-      <span style={{ color: 'var(--lk-parchment-dim)' }}>Tax {tax}</span>
-    </span>
-  )
-}
 
 /** A small crown, the command zone's mark. */
 function CommandGlyph({ size }: { size: number }) {
@@ -201,53 +165,59 @@ function CommandGlyph({ size }: { size: number }) {
 }
 
 /**
- * Your command zone: a slot per commander. The card itself is drawn by the card layer while it's here;
- * the slot shows the tax under it, and where the commander is when it's away.
+ * Every player's command zone: a slot per commander at the left of their battlefield. While the commander
+ * is here the card layer draws it in the slot; once it has been cast, a faded copy stays behind, saying
+ * where it went, so every commander is always on the table. The chip under it says which, with the tax.
  */
 export function CommandSlots({ regions }: { regions: Record<string, Region> }) {
   const meId = useForge((s) => s.game?.localPlayerIds[0])
-  const commanders = useForge((s) => (meId != null ? s.players[meId]?.commanders : undefined))
-  if (!commanders?.length) return null
+  const seats = useForge(useShallow((s) => Object.values(s.players).flatMap((p) => (p.commanders ?? []).map((c) => `${p.id}:${c.cardId}:${c.tax}:${c.casts}`))))
   return (
     <>
-      {commanders.map((c) => {
-        const r = regions[`command:${c.cardId}`]
-        return r ? <CommandSlot key={c.cardId} id={c.cardId} tax={c.tax} r={r} /> : null
+      {seats.map((k) => {
+        const [pid, id, tax, casts] = k.split(':').map(Number)
+        const r = regions[`command:${id}`]
+        return r ? <CommandSlot key={id} id={id} tax={tax} casts={casts} mine={pid === meId} r={r} /> : null
       })}
     </>
   )
 }
 
-function CommandSlot({ id, tax, r }: { id: number; tax: number; r: Region }) {
-  const zone = useForge((s) => s.cards[id]?.zone)
-  const castable = useForge((s) => zone === 'command' && !s.selectable.cardIds.size && s.playable.has(id))
-  const away = zone !== 'command'
+function CommandSlot({ id, tax, casts, mine, r }: { id: number; tax: number; casts: number; mine: boolean; r: Region }) {
+  const card = useForge((s) => s.cards[id])
+  const castable = useForge((s) => mine && card?.zone === 'command' && !s.selectable.cardIds.size && s.playable.has(id))
+  const peek = usePeek({ kind: 'card', id })
+  if (!card) return null
+  const home = card.zone === 'command'
+  const status = home ? (casts === 0 ? 'Not cast' : 'Command zone') : ZONE_SHORT[card.zone] ?? card.zone
   return (
-    <div style={{ position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h + 30, zIndex: 8, pointerEvents: 'none' }}>
-      <div
-        className="lk-label"
-        style={{
-          position: 'absolute', left: 0, top: 0, width: r.w, height: r.h, borderRadius: 7, boxSizing: 'border-box',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, padding: 4, textAlign: 'center',
-          background: 'rgb(10 8 6 / .45)', boxShadow: 'inset 0 0 0 1.5px var(--lk-metal-line)', color: 'var(--lk-parchment-mute)', fontSize: 11, lineHeight: 1.2,
-        }}
-      >
-        <CommandGlyph size={16} />
-        {away && <span>{zone ? ZONE_WHERE[zone] ?? zone : ''}</span>}
-      </div>
+    <div style={{ position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h + COMMAND.chipH, zIndex: 8, pointerEvents: 'none' }}>
+      <div style={{ position: 'absolute', left: 0, top: 0, width: r.w, height: r.h, borderRadius: 7, background: 'rgb(10 8 6 / .45)', boxShadow: 'inset 0 0 0 1.5px var(--lk-metal-line)' }} />
+      {!home && (
+        // The commander is elsewhere: a faded copy holds its place. Hover peeks the real card, click finds it.
+        <div {...peek} data-entity={`card:${id}`} onClick={(e) => clickCards(e, [id])}
+          style={{ position: 'absolute', left: 0, top: 0, width: r.w, height: r.h, opacity: 0.38, filter: 'grayscale(.7)', pointerEvents: 'auto', cursor: 'pointer' }}>
+          <CardFrame card={card} width={r.w} mini />
+        </div>
+      )}
       <span
         className="lk-title"
-        title="Commander tax: {2} more for each earlier cast from the command zone"
+        title={`${status}. Commander tax: {2} more for each earlier cast from the command zone`}
         style={{
-          position: 'absolute', left: '50%', top: r.h + 5, transform: 'translateX(-50%)', ...chip, fontSize: 13, lineHeight: '20px', fontWeight: 700,
-          color: castable ? 'var(--lk-frost)' : 'var(--lk-parchment)', boxShadow: castable ? '0 0 0 1.5px var(--lk-frost), 0 0 10px var(--lk-frost-soft)' : chip.boxShadow,
+          position: 'absolute', left: '50%', top: r.h + 3, transform: 'translateX(-50%)', ...chip, display: 'flex', flexDirection: 'column', alignItems: 'center',
+          padding: '1px 8px', whiteSpace: 'nowrap', fontSize: 11, lineHeight: '14px', zIndex: 1,
+          color: castable ? 'var(--lk-frost)' : home ? 'var(--lk-parchment)' : 'var(--lk-parchment-dim)',
+          boxShadow: castable ? '0 0 0 1.5px var(--lk-frost), 0 0 10px var(--lk-frost-soft)' : home ? '0 0 0 1.5px var(--lk-brass)' : chip.boxShadow,
         }}
       >
-        Tax {tax}
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 700 }}>{home && <CommandGlyph size={11} />}{status}</span>
+        <span style={{ fontSize: 10, opacity: 0.85 }}>Tax {tax}</span>
       </span>
     </div>
   )
 }
+
+const ZONE_SHORT: Partial<Record<ZoneName, string>> = { battlefield: 'On battlefield', stack: 'Being cast', graveyard: 'In graveyard', exile: 'In exile', hand: 'In hand', library: 'In library' }
 
 /** A zone's cards as the piles show them: the command zone leaves out commanders, which have their own slot or chip. */
 function zoneIds(p: PlayerDto, zone: Zone) {
