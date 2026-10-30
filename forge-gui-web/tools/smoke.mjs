@@ -2,6 +2,8 @@
 // usage: node tools/smoke.mjs [--port 7777] [--deck random:RG] [--opp random:UB] [--opponents 1] [--format commander]
 //                             [--state token-pod-turn12.txt] [--seconds 600] [--turns N] [--verbose] [--passive]
 //                             [--concede-on-ai]  with --turns: concede during an AI's turn instead of at our priority
+//                             [--tracker-deck FILE] [--curated neyali,jeleva]  Commander with an mtg-tracker decklist export
+//                             (tools/decks/) and/or curated opponents from the lobby's `opponents` roster
 // Policy: answer asks with a valid default; in our main phases with OK enabled, first try each playable
 // card once (lands first) unless --passive, then OK; otherwise click a selectable (Cancel after 5 repeats
 // of the same prompt); otherwise a selectable player; otherwise Cancel; with nothing enabled at all, click our
@@ -13,6 +15,8 @@
 // checks 40 starting life, a commander in every command zone, and that casts/tax only go up (tax higher after a recast).
 // Optional fields: basePower/baseToughness, keywordLabels, colorIdentity, commanders/commanderDamage, turnOrder and
 // the `mana` assist are checked for shape whenever they arrive.
+import { readFileSync } from "node:fs";
+
 const args = process.argv.slice(2);
 const opt = (name, dflt) => {
   const i = args.indexOf(`--${name}`);
@@ -25,13 +29,18 @@ const format = opt("format", "constructed");
 const commander = format === "commander";
 const deck = opt("deck", commander ? "cmdr:randomprecon" : "random:RG");
 const opp = opt("opp", commander ? "cmdr:randomprecon" : "random:UB");
-const opponents = Number(opt("opponents", commander ? 3 : 1));
+const curated = opt("curated", null);
+const opponents = curated ? curated.split(",").length : Number(opt("opponents", commander ? 3 : 1));
 const stateFile = opt("state", null);
 const seconds = Number(opt("seconds", stateFile ? 900 : 600));
 const maxTurns = Number(opt("turns", 0));
 const verbose = flag("verbose");
 const passive = flag("passive");
 const concedeOnAi = flag("concede-on-ai");
+const trackerDeck = opt("tracker-deck", null);
+const trackerText = trackerDeck ? readFileSync(new URL(`./decks/${trackerDeck}`, import.meta.url), "utf8") : null;
+// the tracker export's Commander section, by name
+const trackerCommanders = trackerText ? (trackerText.split("\nDeck\n")[0].match(/^\d+ (.+?)(?: \(| *$)/gm) || []).map((l) => l.replace(/^\d+ /, "").replace(/ \($/, "").trim()) : [];
 
 // fixture -> attacker name -> expected blockers assist entry, by card name
 const BLOCKER_EXPECT = {
@@ -82,6 +91,11 @@ function checkCommanderStart() {
       if (!p.zones.command.includes(e.cardId)) cmdrProblem(`${p.name}: commander ${nameOf(e.cardId)} not in the command zone`);
       if (e.casts !== 0) cmdrProblem(`${p.name}: ${nameOf(e.cardId)} starts with ${e.casts} casts`);
     }
+  }
+  if (trackerText) {
+    const mine = players.get(game?.localPlayerIds?.[0]);
+    const got = (mine?.commanders || []).map((e) => nameOf(e.cardId)).sort().join(" + ");
+    if (got !== [...trackerCommanders].sort().join(" + ")) cmdrProblem(`tracker deck: commanders ${got}, expected ${trackerCommanders.join(" + ")}`);
   }
   console.log(`commander start: ${[...players.values()].map((p) => `${p.name} ${p.life} [${(p.commanders || []).map((e) => nameOf(e.cardId)).join(" + ")}]`).join(", ")}`);
 }
@@ -451,7 +465,18 @@ ws.onmessage = (ev) => {
         } else {
           const list = commander ? m.commanderDecks || [] : m.decks;
           if (commander) console.log(`lobby: ${list.length} commander decks, e.g. ${JSON.stringify(list.slice(2, 4))}`);
-          for (const id of [deck, opp]) if (!list.some((d) => d.id === id)) { errors++; console.log("deck not listed:", id); }
+          const start = { t: "startMatch", format, deck, opponentDeck: opp, opponents };
+          if (trackerDeck) {
+            Object.assign(start, { deckList: trackerText, deckName: trackerDeck.replace(/\.txt$/, ""), trackerDeckId: "smoke" });
+          }
+          if (curated) {
+            const roster = m.opponents || [];
+            console.log(`lobby: ${roster.length} curated opponents: ${roster.map((o) => `${o.id} (${o.archetype}, ${o.profile})`).join(", ")}`);
+            start.opponentIds = curated.split(",");
+            for (const id of start.opponentIds) if (!roster.some((o) => o.id === id)) { errors++; console.log("opponent not listed:", id); }
+          }
+          for (const id of [trackerDeck ? null : deck, curated ? null : opp]) if (id && !list.some((d) => d.id === id)) { errors++; console.log("deck not listed:", id); }
+          if (trackerDeck || curated) { send(start); break; }
           send(commander ? { t: "startMatch", format, deck, opponentDeck: opp, opponents } : { t: "startMatch", deck, opponentDeck: opp, opponents });
         }
       }

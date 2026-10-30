@@ -141,6 +141,9 @@ export type Ask = { t: 'ask'; id: number } & (
 
 export type LobbyDeck = { id: string; name: string; colors: string; detail?: string }
 
+/** A curated Commander opponent: a precon with one plan, played with the AI profile that suits it. */
+export type CuratedOpponent = { id: string; commander: string; archetype: string; plan: string; deck: string; colors: string; profile: string }
+
 export type MatchFormat = 'constructed' | 'commander'
 
 export type SavedGame = {
@@ -163,7 +166,7 @@ export type SavedGame = {
 
 export type ServerMessage =
   | { t: 'hello'; version: number; caps?: string[]; inMatch: boolean; seat?: string; who?: string; email?: string }
-  | { t: 'lobby'; decks: LobbyDeck[]; commanderDecks?: LobbyDeck[]; states: string[]; games?: SavedGame[] }
+  | { t: 'lobby'; decks: LobbyDeck[]; commanderDecks?: LobbyDeck[]; opponents?: CuratedOpponent[]; states: string[]; games?: SavedGame[] }
   | {
       t: 'state'; seq: number; full: boolean; game?: GameWire; players?: PlayerDto[]; cards?: CardDto[]
       removedCards?: number[]; stack?: StackItemDto[]; combat?: CombatDto | null
@@ -185,6 +188,8 @@ export type ManaColor = keyof ManaPool
 
 export type ClientMessage =
   | { t: 'startMatch'; deck: string; opponentDeck: string; opponents: number; format?: MatchFormat }
+  // Commander against curated opponents; deckList is a tracker decklist export, played instead of `deck`.
+  | { t: 'startMatch'; format: 'commander'; deck: string; opponentIds: string[]; deckList?: string; deckName?: string; trackerDeckId?: string }
   | { t: 'startState'; state: string }
   | { t: 'selectCard'; cardId: number; others?: number[]; shift: boolean; button: number }
   | { t: 'selectPlayer'; playerId: number; shift: boolean; button: number }

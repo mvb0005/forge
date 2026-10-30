@@ -1,11 +1,11 @@
 import { create } from 'zustand'
-import type { AssistMessage, Ask, BlockersAssist, CardDto, CombatAssist, CombatDto, EntityRef, GameDto, LobbyDeck, LogEntry, ManaAssist, PlayerDto, SavedGame, ServerMessage, StackItemDto } from './protocol'
+import type { AssistMessage, Ask, BlockersAssist, CardDto, CombatAssist, CombatDto, CuratedOpponent, EntityRef, GameDto, LobbyDeck, LogEntry, ManaAssist, PlayerDto, SavedGame, ServerMessage, StackItemDto } from './protocol'
 
 // Shared client state. net.ts feeds server messages into apply(); components only read.
 export type ForgeState = {
   connected: boolean
   inMatch: boolean
-  lobby: { decks: LobbyDeck[]; commanderDecks: LobbyDeck[]; states: string[]; games: SavedGame[] } | null
+  lobby: { decks: LobbyDeck[]; commanderDecks: LobbyDeck[]; opponents: CuratedOpponent[]; states: string[]; games: SavedGame[] } | null
   who: string | null
   email: string | null
   game: GameDto | null
@@ -107,7 +107,7 @@ export const useForge = create<ForgeState>()((set) => ({
         case 'hello':
           return { inMatch: m.inMatch, caps: m.caps ?? [], who: m.who ?? null, email: m.email ?? null }
         case 'lobby':
-          return { lobby: { decks: m.decks, commanderDecks: m.commanderDecks ?? [], states: m.states, games: m.games ?? [] }, inMatch: false }
+          return { lobby: { decks: m.decks, commanderDecks: m.commanderDecks ?? [], opponents: m.opponents ?? [], states: m.states, games: m.games ?? [] }, inMatch: false }
         case 'state': {
           const players = m.full ? {} : { ...s.players }
           const cards = m.full ? {} : { ...s.cards }

@@ -216,7 +216,8 @@ public final class MatchHost {
                     }
                 } catch (Exception e) {
                     e.printStackTrace();
-                    error("Could not start: " + e);
+                    // An IllegalArgumentException is a refusal written for the player (an unknown card, no commander).
+                    error(e instanceof IllegalArgumentException ? e.getMessage() : "Could not start: " + e);
                     ClientChannel c = channel;
                     if (c != null && session == null) {
                         c.send(lobby());
@@ -308,6 +309,7 @@ public final class MatchHost {
         }
         o.add("decks", decks);
         o.add("commanderDecks", commanderDecks());
+        o.add("opponents", curatedOpponents());
         JsonArray states = new JsonArray();
         for (Path p : stateFiles()) {
             states.add(p.getFileName().toString());
@@ -336,6 +338,31 @@ public final class MatchHost {
             e.printStackTrace();
         }
         return decks;
+    }
+
+    private static JsonArray curatedOpponents() {
+        Map<String, CommanderPrecon> byFile = new LinkedHashMap<>();
+        for (CommanderPrecon p : commanderPrecons()) {
+            byFile.put(p.file(), p);
+        }
+        JsonArray out = new JsonArray();
+        for (Opponents.Opponent o : Opponents.ROSTER) {
+            CommanderPrecon p = byFile.get(o.precon());
+            if (p == null) {
+                System.err.println("Curated opponent " + o.id() + " has no precon " + o.precon());
+                continue;
+            }
+            JsonObject j = new JsonObject();
+            j.addProperty("id", o.id());
+            j.addProperty("commander", o.commander());
+            j.addProperty("archetype", o.archetype());
+            j.addProperty("plan", o.plan());
+            j.addProperty("deck", p.name());
+            j.addProperty("colors", p.colors());
+            j.addProperty("profile", o.profile());
+            out.add(j);
+        }
+        return out;
     }
 
     private static JsonObject lobbyDeck(String id, String name, String colors, String detail) {
@@ -587,9 +614,32 @@ public final class MatchHost {
             opponents = Math.max(1, Math.min(3, msg.get("opponents").getAsInt()));
         } catch (Exception ignored) {
         }
-        String myId = deck.equals("cmdr:randomprecon") ? randomPrecons(1, Set.of()).get(0) : deck;
+        // A tracker deck arrives as its decklist export; the page read it from the tracker with the player's own sign-in.
+        String deckList = str(msg, "deckList", "");
+        String myId = !deckList.isEmpty() ? "tracker:" + str(msg, "trackerDeckId", "")
+                : deck.equals("cmdr:randomprecon") ? randomPrecons(1, Set.of()).get(0) : deck;
+        Deck mine = !deckList.isEmpty() ? TrackerDeck.parse(str(msg, "deckName", "Tracker deck"), deckList) : commanderDeckFor(myId, false);
+        List<Opponents.Opponent> curated = new ArrayList<>();
+        if (msg.has("opponentIds") && msg.get("opponentIds").isJsonArray()) {
+            for (JsonElement e : msg.getAsJsonArray("opponentIds")) {
+                Opponents.Opponent o = Opponents.byId(e.getAsString());
+                if (o == null) {
+                    throw new IllegalArgumentException("Unknown opponent " + e.getAsString());
+                }
+                curated.add(o);
+            }
+            if (curated.isEmpty() || curated.size() > 3) {
+                throw new IllegalArgumentException("Pick one to three opponents");
+            }
+            opponents = curated.size();
+            oppDeck = "curated:" + String.join(",", curated.stream().map(Opponents.Opponent::id).toList());
+        }
         List<String> oppIds = new ArrayList<>();
-        if (oppDeck.equals("cmdr:randomprecon")) {
+        if (!curated.isEmpty()) {
+            for (Opponents.Opponent o : curated) {
+                oppIds.add("cmdr:precon:" + o.precon());
+            }
+        } else if (oppDeck.equals("cmdr:randomprecon")) {
             oppIds.addAll(randomPrecons(opponents, Set.of(myId)));
         } else {
             for (int i = 0; i < opponents; i++) {
@@ -598,7 +648,6 @@ public final class MatchHost {
         }
         Set<GameType> variants = EnumSet.of(GameType.Commander);
         int seats = opponents + 1;
-        Deck mine = commanderDeckFor(myId, false);
         List<RegisteredPlayer> players = new ArrayList<>();
         RegisteredPlayer human = RegisteredPlayer.forVariants(seats, variants, mine, null, false, null, null);
         human.setPlayer(seatedPlayer());
@@ -606,9 +655,17 @@ public final class MatchHost {
         List<String> oppNames = new ArrayList<>();
         for (int i = 1; i <= opponents; i++) {
             Deck d = commanderDeckFor(oppIds.get(i - 1), true);
-            oppNames.add(shortName(d));
             RegisteredPlayer ai = RegisteredPlayer.forVariants(seats, variants, d, null, false, null, null);
-            ai.setPlayer(GamePlayerUtil.createAiPlayer("AI " + i, i));
+            if (curated.isEmpty()) {
+                oppNames.add(shortName(d));
+                ai.setPlayer(GamePlayerUtil.createAiPlayer("AI " + i, i));
+            } else {
+                // The seat is named for its commander ("Neyali"), and plays with the profile that suits its plan.
+                Opponents.Opponent o = curated.get(i - 1);
+                String seatName = o.commander().split(",")[0];
+                oppNames.add(seatName + " (" + o.archetype().toLowerCase() + ")");
+                ai.setPlayer(GamePlayerUtil.createAiPlayer(seatName, i, 0, null, o.profile()));
+            }
             players.add(ai);
         }
         GameRules rules = new GameRules(GameType.Commander);

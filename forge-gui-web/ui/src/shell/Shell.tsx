@@ -4,6 +4,7 @@ import type { ServerMessage } from '../protocol'
 import { useForge } from '../store'
 import { GameOverModal, Toasts } from './Global'
 import { Lobby } from './Lobby'
+import './landing.css'
 
 type Link = 'connecting' | 'open' | 'retrying' | 'taken' | 'replaced' | 'signedOut'
 
@@ -146,10 +147,12 @@ function SeatClosed({ link, note }: { link: 'taken' | 'replaced' | 'signedOut'; 
       ? 'Sign in through Cloudflare Access, then refresh.'
       : 'Someone already has this seat open. Close that window, then refresh this one.'
   return (
-    <div className="grid h-full place-items-center" style={{ background: 'radial-gradient(ellipse 80% 60% at 30% 0%, #2a2118 0%, #120e0a 55%, #0a0806 100%)' }}>
-      <div className="flex max-w-md flex-col items-center gap-3 px-6 text-center">
-        <div className="font-title text-3xl font-bold">{title}</div>
-        <p className="text-sm text-ink-dim">{note || fallback}</p>
+    <div className="tk">
+      <div className="tk-center">
+        <div>
+          <h1>{title}</h1>
+          <p>{note || fallback}</p>
+        </div>
       </div>
     </div>
   )
@@ -166,12 +169,11 @@ function LinkBadge({ link, retryIn }: { link: Link; retryIn: number }) {
 
 function Splash({ link }: { link: Link }) {
   return (
-    <div className="grid h-full place-items-center" style={{ background: 'radial-gradient(ellipse 80% 60% at 30% 0%, #2a2118 0%, #120e0a 55%, #0a0806 100%)' }}>
-      <div className="flex flex-col items-center gap-4">
-        <div className="font-title text-4xl font-bold">Forge</div>
-        <div className="flex items-center gap-2 text-sm text-ink-dim">
-          <span className={`h-2 w-2 rounded-full ${link === 'retrying' ? 'bg-danger' : 'animate-pulse bg-accent'}`} />
-          {link === 'retrying' ? 'Server unreachable, retrying…' : 'Connecting to server…'}
+    <div className="tk">
+      <div className="tk-center">
+        <div>
+          <h1>Play</h1>
+          <p><span className={`tk-dot${link === 'retrying' ? ' bad' : ''}`} />{link === 'retrying' ? 'The game server is unreachable. Retrying…' : 'Connecting to the game server…'}</p>
         </div>
       </div>
     </div>
