@@ -155,6 +155,30 @@ disagree. Clicking a ribbon source selects that card. Opening the ribbon into th
 is still the design (DESIGN.md) and is not built. Planeswalkers and battles as attack targets are
 Q-11. Choosing a playmat is M8; the token sets already exist and `/?look` can show them.
 
+### M10: play your tracker decks (goldfishing)
+
+Hosted play lives at `<tracker host>/play`, behind the same Cloudflare Access application as
+mtg-tracker. The landing page at `/play` is the tracker's look (warm paper, ink, Spectral, ruled
+sections), not the table's; the table keeps its own look.
+
+- **Deck source.** The page reads `/api/v1/decks` and `/api/v1/decks/{id}/export/decklist` from
+  the tracker with the player's own sign-in cookie (same origin), and sends the decklist text with
+  `startMatch`. The server parses it with Forge's deck recogniser (`TrackerDeck`); a card Forge
+  doesn't know refuses the deck and names the cards, and a deck with no commander is refused with a
+  pointer to the tracker. The whole list plays, including cards still to buy. The game record keeps
+  `deck: "tracker:<id>"` so the tracker can tie games to decks later.
+- **Opponents.** A curated roster (`Opponents.java`): a precon with one recognisable plan, paired
+  with the `res/ai` profile that leans the same way (Reckless for aggro and voltron, Cautious for
+  control and group hug). Seats are named for their commander.
+- **Without the tracker** (local play, dev, smoke) the page falls back to Forge's precons and
+  random decks. Saved boards and Constructed stay available under "More".
+
+| ID | Task | Exit criteria | Status |
+|---|---|---|---|
+| M10.1 | `TrackerDeck` and `startMatch` `deckList`/`opponentIds` | Smoke plays a tracker export (`tools/decks/`) against curated opponents; bad lists are refused with names | done |
+| M10.2 | Landing page in the tracker's look | Deck list from the tracker, roster, recent games; works at 390 px; light and dark | done (checked in Chrome against a local tracker, dark mode and 390 px; light mode not looked at) |
+| M10.3 | A "Play" link on the tracker (deck page and nav) | Lives in mtg-tracker; not started | todo |
+
 ### M1 tasks
 
 | ID | Task | Exit criteria | Status |

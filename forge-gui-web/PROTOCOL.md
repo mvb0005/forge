@@ -68,13 +68,15 @@ one of the caps above. A client that doesn't know the cap ignores the field.
 AI turn) they can lag the board. They are absent until the first decision point of a match.
 
 ### `lobby`
-`{ t:"lobby", decks:LobbyDeck[], commanderDecks?:LobbyDeck[], states:string[], games:SavedGame[] }`, sent after
+`{ t:"lobby", decks:LobbyDeck[], commanderDecks?:LobbyDeck[], opponents?:CuratedOpponent[], states:string[], games:SavedGame[] }`, sent after
 `hello` when not in a match. `decks` lists what the server can start a Constructed match with (`"random:WU"` style
 ids for generated two-colour decks are always present).
 
 ```ts
 type LobbyDeck = { id: string; name: string; colors: string; detail?: string }; // detail: secondary text, e.g. "C17 · 2017"
 ```
+
+`opponents` (cap `match.commander`) is the curated Commander roster: `{id, commander, archetype, plan, deck, colors, profile}`. `deck` is the precon's name, `profile` the Forge AI profile it plays with.
 
 `commanderDecks` (cap `match.commander`) lists the decks for a Commander match. `colors` is the commanders' colour
 identity. Ids:
@@ -394,6 +396,7 @@ permanents changed), so during most of an AI turn it shows the board at your las
 | Message | Meaning |
 |---|---|
 | `{t:"startMatch", deck:string, opponentDeck:string, opponents:number, format?:"constructed"\|"commander"}` | deck ids from `lobby` (`"random:XY"` or a listed id). opponents 1..3. `format` defaults to `"constructed"` (ids from `decks`). `"commander"` (cap `match.commander`) takes ids from `commanderDecks` and starts Forge's Commander variant: commanders in the command zone, commander tax and damage, 40 life. When `opponents` is absent a Commander match has 3 |
+| `{t:"startMatch", format:"commander", deck:string, opponentIds:string[], deckList?:string, deckName?:string, trackerDeckId?:string}` | Commander against 1..3 curated opponents (`lobby.opponents` ids, in seat order; seats are named for their commanders). `deckList` is an mtg-tracker decklist export ("Commander"/"Deck" sections, `1 Name (SET) 123 *F*`) and replaces `deck`. A card Forge doesn't know, or no commander, is refused with an `error` naming the problem, then a fresh `lobby`. The game record's `deck` is `"tracker:<trackerDeckId>"` and `opponentDeck` is `"curated:<ids>"` |
 | `{t:"startState", state:string}` | start from a saved board (a `lobby.states` entry). The human takes seat 1 |
 | `{t:"selectCard", cardId:number, others?:number[], shift:boolean, button:number}` | click on a card (button 1 left, 3 right). `others`: more cards picked with it, e.g. the rest of a group of identical tokens (IGameController.selectCard otherCardViewsToSelect) |
 | `{t:"selectPlayer", playerId:number, shift:boolean, button:number}` | click on a player |

@@ -55,7 +55,11 @@ java -jar ../forge-gui-web/target/forge-gui-web-<version>-jar-with-dependencies.
 ```
 
 Open http://127.0.0.1:7777. For UI development, run `npm run dev` in `ui/` (port 5173, proxies
-`/ws` and `/img` to the server). The server listens on `127.0.0.1` unless you pass `--host`; it refuses any other
+`/ws` and `/img` to the server, and `/api/v1` to an mtg-tracker on port 8000; `FORGE=host:port` and
+`TRACKER=http://host:port` override them).
+
+In production the page is served at `/play` on the tracker's hostname, so it reads your decks from the
+tracker's `/api/v1` with your own sign-in. Where there's no tracker the page offers Forge's precons instead. The server listens on `127.0.0.1` unless you pass `--host`; it refuses any other
 address unless Cloudflare Access is configured (`CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`).
 
 The homelab compose file runs it in Docker on port 7780, bound to `0.0.0.0` inside the container,
@@ -75,5 +79,6 @@ node forge-gui-web/tools/smoke.mjs                      # a full game, random de
 node forge-gui-web/tools/smoke.mjs --state token-pod-turn12.txt
 ```
 
-Saved boards for the smoke test live in `tools/states/`, including `fields-badges.txt` (base P/T,
+Tracker decklist exports for `--tracker-deck` live in `tools/decks/` (`node tools/smoke.mjs --format commander
+--tracker-deck reign-of-dragons.txt --curated neyali,jeleva`). Saved boards for the smoke test live in `tools/states/`, including `fields-badges.txt` (base P/T,
 keyword labels, colour identity).
