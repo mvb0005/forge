@@ -1,8 +1,14 @@
+import '@fontsource/spectral/latin-600.css'
+import '@fontsource/spectral/latin-700.css'
+import './landing.css'
 import { useEffect, useMemo, useState } from 'react'
+import { ManaSymbol } from '../look/ManaSymbol'
 import { send } from '../net'
-import type { LobbyDeck as Deck, MatchFormat, SavedGame } from '../protocol'
+import type { CuratedOpponent, LobbyDeck, SavedGame } from '../protocol'
 import { useForge } from '../store'
-import { Btn, ColorPips, Kbd } from './ui'
+
+// The landing page at /play. It reads your decks from mtg-tracker on the same host (your own sign-in
+// cookie) and the server plays the list it's sent; without a tracker (local play) it offers Forge's precons.
 
 const remember = (k: string, v?: string) => {
   try {
@@ -14,72 +20,55 @@ const remember = (k: string, v?: string) => {
   return null
 }
 
-const colorName: Record<string, string> = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green' }
-const guildish = (c: string) => [...c].map((x) => colorName[x] ?? x).join(' · ') || 'Colourless'
-const stripe: Record<string, string> = { W: 'var(--color-mana-w)', U: 'var(--color-mana-u)', B: 'var(--color-mana-b)', R: 'var(--color-mana-r)', G: 'var(--color-mana-g)' }
-const stripeOf = (c: string) => {
-  const cs = [...c].map((x) => stripe[x]).filter(Boolean)
-  if (cs.length === 0) return 'var(--color-mana-c)'
-  if (cs.length === 1) return cs[0]
+type TrackerDeck = { id: number; name: string; format: string; commander: string | null; counts: { list: number; here: number; away: number; wanted: number } }
+type Tracker =
+  | { state: 'loading' }
+  | { state: 'none'; status: number }
+  | { state: 'ok'; who: string; decks: TrackerDeck[] }
+
+class TrackerError extends Error {
+  status: number
+  constructor(status: number) {
+    super(`tracker ${status}`)
+    this.status = status
+  }
+}
+
+async function trackerJson<T>(path: string): Promise<T> {
+  const r = await fetch(path, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+  // An HTML page (no tracker on this host, or its sign-in page) counts as a failure with its status.
+  if (!r.ok || !(r.headers.get('content-type') ?? '').includes('json')) throw new TrackerError(r.ok ? 0 : r.status)
+  return r.json() as Promise<T>
+}
+
+function useTracker(): Tracker {
+  const [t, setT] = useState<Tracker>({ state: 'loading' })
+  useEffect(() => {
+    let live = true
+    Promise.all([
+      trackerJson<{ principal: { name: string } }>('/api/v1/me'),
+      trackerJson<{ decks: TrackerDeck[] }>('/api/v1/decks'),
+    ])
+      .then(([me, d]) => live && setT({ state: 'ok', who: me.principal.name, decks: d.decks.filter((x) => x.format.toLowerCase() === 'commander') }))
+      .catch((e) => live && setT({ state: 'none', status: e instanceof TrackerError ? e.status : 0 }))
+    return () => {
+      live = false
+    }
+  }, [])
+  return t
+}
+
+const inkVar: Record<string, string> = { W: 'var(--tk-ink-W)', U: 'var(--tk-ink-U)', B: 'var(--tk-ink-B)', R: 'var(--tk-ink-R)', G: 'var(--tk-ink-G)' }
+const firstInk = (colors: string) => inkVar[colors[0]] ?? 'var(--tk-accent)'
+const stripeOf = (colors: string) => {
+  const cs = [...colors].map((c) => inkVar[c]).filter(Boolean)
+  if (cs.length === 0) return undefined
   return `linear-gradient(90deg, ${cs.map((x, i) => `${x} ${(i / cs.length) * 100}% ${((i + 1) / cs.length) * 100}%`).join(', ')})`
 }
 
-// Generated two-colour decks ('random:WU') show as pips; Commander's random choices ('cmdr:random', 'cmdr:randomprecon') as words.
-const isRandom = (d: Deck) => d.id.startsWith('random:') || d.id === 'cmdr:random' || d.id === 'cmdr:randomprecon'
-
-function DeckPicker({ label, decks, value, onChange, randomTitle }: { label: string; decks: Deck[]; value: string; onChange: (id: string) => void; randomTitle: string }) {
-  const [q, setQ] = useState('')
-  const current = decks.find((d) => d.id === value)
-  const random = decks.filter(isRandom)
-  const needle = q.toLowerCase()
-  const named = decks.filter((d) => !isRandom(d) && (d.name.toLowerCase().includes(needle) || !!d.detail?.toLowerCase().includes(needle)))
-  const pips = !current || !!current.colors || current.id.startsWith('random:')
-  return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-xl lk-plate">
-      <div className="relative overflow-hidden rounded-t-xl border-b border-line px-5 pb-4 pt-5">
-        <div className="absolute inset-x-0 top-0 h-1" style={{ background: stripeOf(current?.colors ?? '') }} />
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-dim">{label}</div>
-        <div className="mt-1.5 flex items-center gap-3">
-          <span className="min-w-0 flex-1 truncate font-title text-xl font-bold">{current?.name ?? 'Choose a deck'}</span>
-          {current && pips && <ColorPips colors={current.colors} size={20} />}
-        </div>
-        <div className="mt-0.5 truncate text-xs text-ink-dim">{current ? (pips ? [guildish(current.colors), current.detail].filter(Boolean).join(' · ') : current.detail) : ' '}</div>
-      </div>
-      {random.length > 0 && (
-        <div className="border-b border-line px-4 py-3">
-          <div className="mb-2 text-[11px] uppercase tracking-wider text-ink-dim">{randomTitle}</div>
-          <div className="flex flex-wrap gap-1.5">
-            {random.map((d) => (
-              <button key={d.id} type="button" title={d.detail ?? d.name} onClick={() => onChange(d.id)}
-                className={`rounded-full border px-2 py-1 transition ${d.id === value ? 'border-accent bg-accent/10' : 'border-line hover:border-ink-dim'}`}>
-                {d.id.startsWith('random:') ? <ColorPips colors={d.colors} size={16} /> : <span className="px-1.5 font-title text-sm font-semibold">{d.name}</span>}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      <div className="px-4 pt-3">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search decks"
-          className="w-full rounded-lg border border-line bg-table px-3 py-2 text-sm outline-none transition placeholder:text-ink-dim focus:border-accent" />
-      </div>
-      <ul className="shell-scroll min-h-0 flex-1 overflow-y-auto p-2">
-        {named.map((d) => (
-          <li key={d.id}>
-            <button type="button" onClick={() => onChange(d.id)}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition
-                ${d.id === value ? 'bg-accent/12 text-ink ring-1 ring-accent/60' : 'text-ink-dim hover:bg-panel-2 hover:text-ink'}`}>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate">{d.name}</span>
-                {d.detail && <span className="block truncate text-[11px] text-ink-dim">{d.detail}</span>}
-              </span>
-              <ColorPips colors={d.colors} size={14} />
-            </button>
-          </li>
-        ))}
-        {named.length === 0 && <li className="px-3 py-4 text-sm text-ink-dim">{q ? 'No deck matches' : 'No saved decks on the server'}</li>}
-      </ul>
-    </div>
-  )
+function Pips({ colors }: { colors: string }) {
+  if (!colors) return <span className="tk-pips"><ManaSymbol sym="C" size={16} shadow={false} /></span>
+  return <span className="tk-pips">{[...colors].map((c) => <ManaSymbol key={c} sym={c} size={16} shadow={false} />)}</span>
 }
 
 function when(iso: string) {
@@ -88,155 +77,267 @@ function when(iso: string) {
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
-function gameLabel(g: SavedGame) {
+function result(g: SavedGame) {
   if (g.summary) return g.summary
   if (g.status === 'playing') return 'In progress'
   if (g.status === 'abandoned') return 'Abandoned'
   return g.status
 }
 
+const MAX_OPPONENTS = 3
+
 export function Lobby() {
   const lobby = useForge((s) => s.lobby)!
   const connected = useForge((s) => s.connected)
   const email = useForge((s) => s.email)
-  const games = lobby.games ?? []
-  const commanderOk = useForge((s) => s.caps.includes('match.commander')) && lobby.commanderDecks.length > 0
-  const [format, setFormatState] = useState<MatchFormat>(() => (commanderOk && remember('forge.format') === 'commander' ? 'commander' : 'constructed'))
-  const cmdr = format === 'commander'
-  const decks = cmdr ? lobby.commanderDecks : lobby.decks
-  // Each format remembers its own picks: forge.deck, forge.cmdr.deck and so on.
-  const keyOf = (c: boolean, k: string) => (c ? `forge.cmdr.${k}` : `forge.${k}`)
-  const pickFor = (c: boolean, k: string, fallback: number) => {
-    const list = c ? lobby.commanderDecks : lobby.decks
-    const saved = remember(keyOf(c, k))
-    if (saved && list.some((d) => d.id === saved)) return saved
-    if (c && list.some((d) => d.id === 'cmdr:randomprecon')) return 'cmdr:randomprecon'
-    return list[Math.min(fallback, list.length - 1)]?.id ?? ''
-  }
-  const opponentsFor = (c: boolean) => Math.min(3, Math.max(1, Number(remember(keyOf(c, 'opponents'))) || (c ? 3 : 1)))
-  const [mine, setMine] = useState(() => pickFor(cmdr, 'deck', 0))
-  const [theirs, setTheirs] = useState(() => pickFor(cmdr, 'opponentDeck', 1))
-  const [opponents, setOpponents] = useState(() => opponentsFor(cmdr))
-  const setFormat = (f: MatchFormat) => {
-    if (f === format) return
-    const c = f === 'commander'
-    setFormatState(f)
-    setMine(pickFor(c, 'deck', 0))
-    setTheirs(pickFor(c, 'opponentDeck', 1))
-    setOpponents(opponentsFor(c))
-  }
-  // A new lobby message after Start means the server refused; starting is only valid for the lobby it was sent from.
-  const [started, setStarted] = useState<{ what: string; lobby: object } | null>(null)
-  const starting = started?.lobby === lobby ? started.what : null
-  const setStarting = (what: string) => setStarted({ what, lobby })
+  const tracker = useTracker()
+  const roster = lobby.opponents
+  const precons = lobby.commanderDecks
 
-  const canStart = connected && !!mine && !!theirs && !starting
-  const start = () => {
+  // Your deck: a tracker deck id ("t:12") or a Forge commander deck id ("cmdr:precon:…").
+  const [mine, setMine] = useState<string | null>(() => remember('forge.play.deck'))
+  const [q, setQ] = useState('')
+  const [picked, setPicked] = useState<string[]>(() => {
+    const saved = (remember('forge.play.opponents') ?? '').split(',').filter((id) => roster.some((o) => o.id === id))
+    return saved.length ? saved.slice(0, MAX_OPPONENTS) : roster.slice(0, 1).map((o) => o.id)
+  })
+  const [colors, setColors] = useState<Record<number, string>>({})
+  const [started, setStarted] = useState<object | null>(null)
+  const [problem, setProblem] = useState('')
+  const [fetching, setFetching] = useState(false)
+  const starting = fetching || started === lobby // a new lobby message after Start means the server refused
+  // The server's refusal (an unknown card, no commander) shows here rather than as a table toast.
+  const [since, setSince] = useState(Infinity)
+  const refusal = useForge((s) => s.notices.filter((n) => n.level === 'error' && n.id > since).at(-1))
+
+  const trackerDecks = tracker.state === 'ok' ? tracker.decks : []
+  const fromTracker = tracker.state === 'ok'
+  const chosenTracker = fromTracker ? trackerDecks.find((d) => `t:${d.id}` === mine) : undefined
+  const chosenPrecon = !fromTracker ? precons.find((d) => d.id === mine) : undefined
+  useEffect(() => {
+    // Default to the first playable deck once the list is known.
+    if (tracker.state === 'loading') return
+    if (fromTracker ? !chosenTracker : !chosenPrecon) {
+      const first = fromTracker ? trackerDecks.find((d) => d.commander) : precons.find((d) => d.id === 'cmdr:randomprecon') ?? precons[0]
+      if (first) setMine(fromTracker ? `t:${(first as TrackerDeck).id}` : (first as LobbyDeck).id)
+    }
+  }, [tracker.state])
+
+  // The tracker's deck list has no colours; read the chosen deck's identity when it's picked.
+  useEffect(() => {
+    if (!chosenTracker || colors[chosenTracker.id] !== undefined) return
+    trackerJson<{ identity: string[] }>(`/api/v1/decks/${chosenTracker.id}`)
+      .then((d) => setColors((c) => ({ ...c, [chosenTracker.id]: d.identity.join('') })))
+      .catch(() => setColors((c) => ({ ...c, [chosenTracker.id]: '' })))
+  }, [chosenTracker?.id])
+
+  const toggle = (id: string) =>
+    setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length >= MAX_OPPONENTS ? p : [...p, id]))
+  const foes = picked.map((id) => roster.find((o) => o.id === id)).filter((o): o is CuratedOpponent => !!o)
+
+  const deckName = chosenTracker?.name ?? chosenPrecon?.name ?? ''
+  const deckColors = chosenTracker ? colors[chosenTracker.id] ?? '' : chosenPrecon?.colors ?? ''
+  const canStart = connected && !starting && foes.length > 0 && (chosenTracker ? !!chosenTracker.commander : !!chosenPrecon)
+
+  const start = async () => {
     if (!canStart) return
-    remember('forge.format', format)
-    remember(keyOf(cmdr, 'deck'), mine)
-    remember(keyOf(cmdr, 'opponentDeck'), theirs)
-    remember(keyOf(cmdr, 'opponents'), String(opponents))
-    if (send(cmdr ? { t: 'startMatch', format, deck: mine, opponentDeck: theirs, opponents } : { t: 'startMatch', deck: mine, opponentDeck: theirs, opponents })) setStarting('match')
+    setProblem('')
+    setSince(useForge.getState().notices.reduce((m, n) => Math.max(m, n.id), 0))
+    remember('forge.play.deck', mine ?? '')
+    remember('forge.play.opponents', picked.join(','))
+    let deck: { deck: string; deckList?: string; deckName?: string; trackerDeckId?: string } = { deck: mine ?? '' }
+    if (chosenTracker) {
+      setFetching(true)
+      try {
+        const ex = await trackerJson<{ text: string }>(`/api/v1/decks/${chosenTracker.id}/export/decklist`)
+        deck = { deck: 'tracker', deckList: ex.text, deckName: chosenTracker.name, trackerDeckId: String(chosenTracker.id) }
+      } catch {
+        setProblem(`Couldn't read ${chosenTracker.name} from the tracker. Refresh and try again.`)
+        return
+      } finally {
+        setFetching(false)
+      }
+    }
+    if (send({ t: 'startMatch', format: 'commander', opponentIds: picked, ...deck })) setStarted(lobby)
   }
-  const startState = (state: string) => {
-    if (connected && !starting && send({ t: 'startState', state })) setStarting(state)
-  }
+
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (useForge.getState().gameOver) return
-      if (e.key === 'Enter' && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement)) start()
+      if (e.key === 'Enter' && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement)) void start()
     }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
   })
 
-  const states = useMemo(() => lobby.states.map((s) => ({ path: s, name: s.split(/[\\/]/).pop()!.replace(/\.txt$/, '') })), [lobby.states])
+  const needle = q.toLowerCase()
+  const shownPrecons = useMemo(
+    () => precons.filter((d) => d.name.toLowerCase().includes(needle) || !!d.detail?.toLowerCase().includes(needle)),
+    [precons, needle],
+  )
+  const games = lobby.games ?? []
+  const states = lobby.states
+  const who = tracker.state === 'ok' ? tracker.who : email
 
   return (
-    <div className="flex h-full flex-col" style={{ background: 'radial-gradient(ellipse 80% 60% at 30% 0%, #2a2118 0%, #120e0a 55%, #0a0806 100%)' }}>
-      <header className="flex items-center gap-3 px-8 pb-2 pt-6">
-        <span className="font-title text-3xl font-bold">Forge</span>
-        <span className="rounded bg-panel-2 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wider text-ink-dim">web</span>
-        <span className="flex-1" />
-        <span className="flex items-center gap-2 text-xs text-ink-dim">
-          <span className={`h-2 w-2 rounded-full ${connected ? 'bg-playable' : 'bg-danger'}`} />
-          {email ?? (connected ? 'Connected' : 'Offline')}
-        </span>
+    <div className="tk" style={{ ['--tk-identity' as string]: stripeOf(deckColors) }}>
+      <header className="tk-header">
+        <nav>
+          {fromTracker ? (
+            <>
+              <a className="tk-brand" href="/">mtgtracker</a>
+              <a href="/">Overview</a>
+              <a href="/decks">Decks</a>
+              <a href="/cards">Cards</a>
+              <a href="/printings">Printings</a>
+              <a href="/transactions">Purchases</a>
+              <a href="/people">Friends</a>
+              <a href="./" aria-current="page">Play</a>
+            </>
+          ) : (
+            <a className="tk-brand" href="./">Forge</a>
+          )}
+          {who && (fromTracker ? <a className="tk-who" href="/profile" title={email ?? undefined}>{who}</a> : <span className="tk-who">{who}</span>)}
+          {!connected && <span className="tk-tag">offline</span>}
+        </nav>
       </header>
-      {games.length > 0 && (
-        <div className="shell-scroll flex gap-2 overflow-x-auto px-8 pb-1">
-          {games.map((g) => (
-            <div key={g.id} className="w-56 shrink-0 rounded-lg border border-line bg-panel/60 px-3 py-2">
-              <div className="truncate text-xs font-semibold">{gameLabel(g)}</div>
-              <div className="truncate text-[11px] text-ink-dim">{g.format === 'commander' ? 'Commander · ' : ''}{g.deckName} vs {g.opponentDeckName}</div>
-              <div className="text-[11px] text-ink-dim">{when(g.endedAt ?? g.startedAt)}</div>
-            </div>
-          ))}
-        </div>
-      )}
 
-      <main className="flex min-h-0 flex-1 gap-6 px-8 pb-8 pt-4">
-        <section className="flex min-h-0 min-w-0 flex-[3] flex-col gap-4">
-          <div className="flex items-center gap-4">
-            <h1 className="text-sm font-semibold uppercase tracking-wider text-ink-dim">New match</h1>
-            {commanderOk && (
-              <div className="inline-flex rounded-lg border border-line bg-table p-0.5" role="tablist" aria-label="Format">
-                {(['constructed', 'commander'] as const).map((f) => (
-                  <button key={f} type="button" role="tab" aria-selected={f === format} onClick={() => setFormat(f)}
-                    className={`h-8 rounded-md px-4 font-title text-sm transition ${f === format ? 'bg-panel-2 font-semibold text-ink ring-1 ring-accent/60' : 'text-ink-dim hover:text-ink'}`}>
-                    {f === 'constructed' ? 'Constructed' : 'Commander'}
-                  </button>
-                ))}
-              </div>
-            )}
-            {cmdr && <span className="text-xs text-ink-dim">40 life · commander tax · 21 commander damage</span>}
-          </div>
-          <div className="flex min-h-0 flex-1 items-stretch gap-4">
-            <DeckPicker key={`${format}:mine`} label={cmdr ? 'Your commander deck' : 'Your deck'} decks={decks} value={mine} onChange={setMine} randomTitle={cmdr ? 'Random' : 'Random two-colour'} />
-            <div className="grid w-10 shrink-0 place-items-center font-title text-lg font-bold text-ink-dim">VS</div>
-            <DeckPicker key={`${format}:theirs`} label={opponents > 1 ? (cmdr && theirs === 'cmdr:randomprecon' ? `Opponents' decks ×${opponents}` : `Opponents' deck ×${opponents}`) : "Opponent's deck"} decks={decks} value={theirs} onChange={setTheirs} randomTitle={cmdr ? 'Random' : 'Random two-colour'} />
-          </div>
-          <div className="flex items-center gap-5 rounded-xl lk-plate px-5 py-4">
-            <div>
-              <div className="mb-1.5 text-[11px] uppercase tracking-wider text-ink-dim">Opponents</div>
-              <div className="inline-flex rounded-lg border border-line bg-table p-0.5">
-                {[1, 2, 3].map((n) => (
-                  <button key={n} type="button" onClick={() => setOpponents(n)}
-                    className={`h-8 w-11 rounded-md text-sm transition ${n === opponents ? 'bg-panel-2 font-semibold text-ink ring-1 ring-accent/60' : 'text-ink-dim hover:text-ink'}`}>
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="text-sm text-ink-dim">{opponents === 1 ? 'One-on-one' : `Free-for-all, ${opponents + 1} players`}{cmdr ? ' · Commander' : ''}</div>
-            <span className="flex-1" />
-            <span className="hidden items-center gap-1.5 text-xs text-ink-dim md:inline-flex"><Kbd>Enter</Kbd> start</span>
-            <Btn variant="primary" className="px-8 py-3 text-base" disabled={!canStart} onClick={start}>
-              {starting === 'match' ? 'Starting…' : 'Start match'}
-            </Btn>
-          </div>
-        </section>
+      <main className="tk-main">
+        <p className="tk-eyebrow">Commander · 40 life · commander damage at 21</p>
+        <h1>Goldfish a deck</h1>
+        <p className="tk-lede">Pick one of your decks and up to three opponents that each play one plan you'll recognise. The whole list plays, cards you still need to buy included.</p>
 
-        <aside className="flex min-h-0 w-80 shrink-0 flex-col gap-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-dim">Saved boards</h2>
-          <ul className="shell-scroll flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto rounded-xl lk-plate p-2">
-            {states.map((s) => (
-              <li key={s.path}>
-                <button type="button" disabled={!connected || !!starting} onClick={() => startState(s.path)} title={s.path}
-                  className="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-panel-2 disabled:opacity-50">
-                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-felt text-xs text-ink-dim">▦</span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm">{s.name}</span>
-                    <span className="block truncate text-[11px] text-ink-dim">{s.path}</span>
-                  </span>
-                  <span className="text-xs text-accent opacity-0 transition group-hover:opacity-100">{starting === s.path ? 'Loading…' : 'Load'}</span>
-                </button>
-              </li>
-            ))}
-            {states.length === 0 && <li className="px-3 py-4 text-sm text-ink-dim">No saved boards</li>}
+        <h2>
+          Your deck
+          <span className="tk-aside">
+            {tracker.state === 'loading' ? 'Reading your decks…' : fromTracker ? `${trackerDecks.length} Commander deck${trackerDecks.length === 1 ? '' : 's'} on the tracker` : 'Forge precons (no tracker here)'}
+          </span>
+        </h2>
+        {fromTracker && (
+          <ul className="tk-rows" role="radiogroup" aria-label="Your deck">
+            {trackerDecks.map((d) => {
+              const id = `t:${d.id}`
+              const on = id === mine
+              const playable = !!d.commander
+              return (
+                <li key={d.id}>
+                  <div role="radio" tabIndex={0} aria-checked={on} aria-disabled={!playable} className="tk-row"
+                    style={on ? { ['--tk-row-accent' as string]: firstInk(colors[d.id] ?? '') } : undefined}
+                    onClick={() => playable && setMine(id)} onKeyDown={(e) => (e.key === ' ' || e.key === 'Enter') && playable && (e.preventDefault(), setMine(id))}>
+                    <span className="tk-mark" aria-hidden>{on ? '●' : '○'}</span>
+                    <span className="tk-name">{d.name}</span>
+                    <span className="tk-right">
+                      {on && colors[d.id] !== undefined && <Pips colors={colors[d.id]} />}
+                      {d.counts.wanted > 0 && <span className="tk-tag" title="Cards on the list you don't own yet; they play anyway">{d.counts.wanted} to buy</span>}
+                    </span>
+                    <span className="tk-meta">
+                      {playable ? <>{d.commander} · {d.counts.list} cards</> : <>No commander yet. <a href={`/decks/${d.id}`} onClick={(e) => e.stopPropagation()}>Pick one on the deck page</a></>}
+                    </span>
+                  </div>
+                </li>
+              )
+            })}
+            {trackerDecks.length === 0 && <li className="tk-subtle" style={{ padding: '12px 0' }}>No Commander decks yet. <a href="/decks">Add one on the tracker</a>.</li>}
           </ul>
-        </aside>
+        )}
+        {tracker.state === 'none' && email && (
+          // Hosted (an Access email) means the tracker should be here; say why it isn't rather than quietly falling back.
+          <p className="tk-note" role="alert">
+            {tracker.status === 401 || tracker.status === 403
+              ? `You're signed in as ${email}, but you're not on the tracker yet. Ask its owner to add you; until then you can play a precon.`
+              : `Couldn't read your decks from the tracker${tracker.status ? ` (HTTP ${tracker.status})` : ''}. You can play a precon meanwhile.`}
+          </p>
+        )}
+        {tracker.state === 'none' && (
+          <>
+            <input className="tk-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search precons" aria-label="Search precons" />
+            <ul className="tk-rows" role="radiogroup" aria-label="Your deck" style={{ maxHeight: 360, overflowY: 'auto' }}>
+              {shownPrecons.map((d) => {
+                const on = d.id === mine
+                return (
+                  <li key={d.id}>
+                    <div role="radio" tabIndex={0} aria-checked={on} className="tk-row" style={on ? { ['--tk-row-accent' as string]: firstInk(d.colors) } : undefined}
+                      onClick={() => setMine(d.id)} onKeyDown={(e) => (e.key === ' ' || e.key === 'Enter') && (e.preventDefault(), setMine(d.id))}>
+                      <span className="tk-mark" aria-hidden>{on ? '●' : '○'}</span>
+                      <span className="tk-name">{d.name}</span>
+                      <span className="tk-right">{d.colors && <Pips colors={d.colors} />}</span>
+                      {d.detail && <span className="tk-meta">{d.detail}</span>}
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </>
+        )}
+
+        <h2>
+          Opponents
+          <span className="tk-aside">{foes.length} of {MAX_OPPONENTS} · {foes.length <= 1 ? 'one-on-one' : `free-for-all, ${foes.length + 1} players`}</span>
+        </h2>
+        <ul className="tk-rows" aria-label="Opponents">
+          {roster.map((o) => {
+            const on = picked.includes(o.id)
+            const full = !on && picked.length >= MAX_OPPONENTS
+            return (
+              <li key={o.id}>
+                <div role="button" tabIndex={0} aria-pressed={on} aria-disabled={full} className="tk-row"
+                  style={{ ['--tk-row-accent' as string]: firstInk(o.colors) }}
+                  title={full ? `Up to ${MAX_OPPONENTS} opponents` : undefined}
+                  onClick={() => !full && toggle(o.id)} onKeyDown={(e) => (e.key === ' ' || e.key === 'Enter') && !full && (e.preventDefault(), toggle(o.id))}>
+                  <span className="tk-mark" aria-hidden>{on ? '✓' : '+'}</span>
+                  <span className="tk-name">
+                    <span className="tk-label" style={{ display: 'block', color: firstInk(o.colors) }}>{o.archetype}</span>
+                    {o.commander}
+                  </span>
+                  <span className="tk-right"><Pips colors={o.colors} /><span className="tk-tag" title="Forge AI profile">{o.profile}</span></span>
+                  <span className="tk-meta">{o.plan} <span className="tk-subtle">· {o.deck}</span></span>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+
+        <div className="tk-start">
+          <div className="tk-matchup">
+            {deckName || 'Choose a deck'}
+            <small>{foes.length ? `vs ${foes.map((o) => o.commander.split(',')[0]).join(', ')}` : 'Pick at least one opponent'}</small>
+          </div>
+          <button type="button" className="tk-btn" disabled={!canStart} onClick={() => void start()}>
+            {starting ? 'Starting…' : 'Start game'}
+          </button>
+        </div>
+        {(problem || refusal) && <p className="tk-note" role="alert">{problem || refusal!.message}</p>}
+
+        {games.length > 0 && (
+          <>
+            <h2>Recent games</h2>
+            <table className="tk-table">
+              <tbody>
+                {games.map((g) => (
+                  <tr key={g.id}>
+                    <td className="tk-when">{when(g.endedAt ?? g.startedAt)}</td>
+                    <td>{g.deckName} <span className="tk-subtle">vs</span> {g.opponentDeckName}</td>
+                    <td>{result(g)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {states.length > 0 && (
+          <details>
+            <summary>Saved boards ({states.length})</summary>
+            <div className="tk-boards">
+              {states.map((s) => (
+                <button key={s} type="button" className="tk-link-btn" disabled={!connected || starting}
+                  onClick={() => send({ t: 'startState', state: s }) && setStarted(lobby)}>
+                  {s.replace(/\.txt$/, '')}
+                </button>
+              ))}
+            </div>
+          </details>
+        )}
       </main>
     </div>
   )
