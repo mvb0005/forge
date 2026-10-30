@@ -148,11 +148,21 @@ During your turn the table draws every opponent battlefield in columns, and on o
 M1 is done except M1.2: a zone move or a phase change still sends a whole `PlayerDto`.
 
 M2 is on the live table: colour-identity halves, type line and phase gems, life shield (combat
-preview and commander damage), mana ribbon, keyword rail, card frame and seat strips. The ribbon's
-symbols are presentation, read from lands and rocks on the board. While you hold priority the
-open-mana total comes from the `mana` assist; otherwise it comes from the ribbon, so the two don't
-disagree. Clicking a ribbon source selects that card. Opening the ribbon into the cards themselves
-is still the design (DESIGN.md) and is not built. Planeswalkers and battles as attack targets are
+preview and commander damage), land tray, keyword rail, card frame and seat strips. The land tray
+(the ribbon region) shows each player's lands as small tiles stacked by the mana they make, untapped
+ones upright and tapped ones turned sideways beside them. Lands with a non-mana activated ability
+(fetches, manlands) and mana rocks keep their name; enters-tapped and shock duals stack by colour.
+It is presentation, read from lands and rocks on the board. While you hold priority the open-mana
+total comes from the `mana` assist; otherwise it comes from the tray, so the two don't disagree.
+Clicking a stack selects a land in it. Opening the tray into the cards themselves is still the
+design (DESIGN.md) and is not built.
+
+The control panel leads with the current action in large type above OK and Cancel: gold "Your
+move" when something is yours to press or pick, a dimmer "Waiting" otherwise. Every player's
+commanders sit in a slot at the left of their battlefield and stay visible after being cast (a faded
+copy with where it went). In a pod your seat plate sits beside your hand, as in 1v1, and opponents'
+plates stack in the right column above the panel. An open graveyard or exile viewer raises its seat
+above the card layer. Planeswalkers and battles as attack targets are
 Q-11. Choosing a playmat is M8; the token sets already exist and `/?look` can show them.
 
 ### M10: play your tracker decks (goldfishing)
