@@ -54,25 +54,40 @@ cd forge-gui
 java -jar ../forge-gui-web/target/forge-gui-web-<version>-jar-with-dependencies.jar --port 7777 --pics <Forge cache>/pics
 ```
 
-Open http://127.0.0.1:7777. For UI development, run `npm run dev` in `ui/` (port 5173, proxies
-`/ws` and `/img` to the server, and `/api/v1` to an mtg-tracker on port 8000; `FORGE=host:port` and
-`TRACKER=http://host:port` override them).
-
-In production the page is served at `/play` on the tracker's hostname, so it reads your decks from the
-tracker's `/api/v1` with your own sign-in. Where there's no tracker the page offers Forge's precons instead. The server listens on `127.0.0.1` unless you pass `--host`; it refuses any other
-address unless Cloudflare Access is configured (`CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`).
-
-It runs on the same minikube cluster as mtg-tracker (in WSL), in namespace `forge`, with card data
-from `forge-gui/res`, a data volume for its profile and play log, and a read-only volume of card
-images copied from the desktop's pics cache. mtg-tracker's Cloudflare Tunnel connector routes `/play`
-to `forge-web.mtgtracker.svc.cluster.local:7780`, a name kept from when the server ran in Docker;
-`deploy/k8s/bridge/forge-web.yaml` makes it an alias for the game server's service. From WSL, after
-building the jar and the UI:
+The game server only runs games (docs/MULTIPLAYER.md): mtg-tracker's play module starts each match
+through the control API (port 7790, PROTOCOL.md "Control API") and sends each player to the table
+with a seat ticket. Without the tracker, start one yourself; it prints each seat's link:
 
 ```
+node forge-gui-web/tools/start.mjs                                   # Commander, random precons, 3 AIs
+node forge-gui-web/tools/start.mjs --deck reign-of-dragons.txt --curated neyali,jeleva
+node forge-gui-web/tools/start.mjs --format constructed --deck random:RG
+node forge-gui-web/tools/start.mjs --state token-pod-turn12.txt
+```
+
+The table is at http://127.0.0.1:7777/play/table/?ticket=... (the server also answers at `/`). For UI
+development, run `npm run dev` in `ui/` (port 5173, proxies `/ws` and `/img` to the server;
+`FORGE=host:port` overrides it) and pass `--ui http://127.0.0.1:5173/` to `start.mjs`.
+
+The players' port admits only seat tickets. The control API listens where the players' port does
+(`--control-host` to change it) and refuses any address but loopback without `FORGE_CONTROL_SECRET`;
+with it, every call carries `Authorization: Bearer <secret>`. `tools/start.mjs` and `tools/smoke.mjs`
+send it from the environment.
+
+It runs on the same minikube cluster as mtg-tracker (in WSL), in namespace `forge`, with card data
+from `forge-gui/res`, a data volume for its profile, and a read-only volume of card images copied
+from the desktop's pics cache. The `forge-web` Service is the players' side; `forge-control` is the
+control API, for the tracker only. mtg-tracker's Cloudflare Tunnel connector routes `/play` to
+`forge-web.mtgtracker.svc.cluster.local:7780`, a name kept from when the server ran in Docker;
+`deploy/k8s/bridge/forge-web.yaml` makes it an alias for the game server's service. Once the
+tracker's play module ships, `/play` goes to the tracker and only `/play/table/` comes here. From
+WSL, after building the jar and the UI:
+
+```
+deploy/minikube.sh secret             # once: the control API's shared secret (mtg-tracker gets the same value)
 deploy/minikube.sh up                 # build the image, load it into minikube, roll out (ends a running game)
 deploy/minikube.sh load-pics          # refresh the card images from the desktop cache
-deploy/minikube.sh forward            # http://127.0.0.1:7781/play/ (Access is on, so the table refuses sign-in)
+deploy/minikube.sh forward            # http://127.0.0.1:7781/play/table/
 deploy/minikube.sh logs
 ```
 
@@ -84,8 +99,10 @@ folder.
 
 ```
 cd forge-gui-web/ui && npx tsc -p tsconfig.app.json --noEmit && npm run test
-node forge-gui-web/tools/smoke.mjs                      # a full game, random decks
+node forge-gui-web/tools/smoke.mjs                      # a full game, random decks, started through the control API
 node forge-gui-web/tools/smoke.mjs --state token-pod-turn12.txt
+node forge-gui-web/tools/smoke.mjs --format commander --tracker-deck reign-of-dragons.txt --curated neyali,jeleva
+node forge-gui-web/tools/lifecycle.mjs                  # the control API: seats, tickets, 409, ending a match
 ```
 
 Tracker decklist exports for `--tracker-deck` live in `tools/decks/` (`node tools/smoke.mjs --format commander

@@ -1,9 +1,11 @@
 // Smoke test for the Forge web bridge: plays a whole game against the AI with default answers.
-// usage: node tools/smoke.mjs [--port 7777] [--deck random:RG] [--opp random:UB] [--opponents 1] [--format commander]
+// It starts the game the way mtg-tracker does: POST /match on the control API (FORGE_CONTROL_SECRET if the server
+// has one), then joins with the seat's ticket. After the game, GET /match must hold the result.
+// usage: node tools/smoke.mjs [--port 7777] [--control-port 7790] [--deck random:RG] [--opp random:UB] [--opponents 1] [--format commander]
 //                             [--state token-pod-turn12.txt] [--seconds 600] [--turns N] [--verbose] [--passive]
 //                             [--concede-on-ai]  with --turns: concede during an AI's turn instead of at our priority
 //                             [--tracker-deck FILE] [--curated neyali,jeleva]  Commander with an mtg-tracker decklist export
-//                             (tools/decks/) and/or curated opponents from the lobby's `opponents` roster
+//                             (tools/decks/) and/or curated opponents from the control API's `opponents` roster
 // Policy: answer asks with a valid default; in our main phases with OK enabled, first try each playable
 // card once (lands first) unless --passive, then OK; otherwise click a selectable (Cancel after 5 repeats
 // of the same prompt); otherwise a selectable player; otherwise Cancel; with nothing enabled at all, click our
@@ -11,7 +13,7 @@
 // that the combat assist follows it.
 // Checks (protocol v2): hello version and caps, the log arrives append-only, `blockers` assists are sane (and match
 // the expectations below for the blockers-*.txt fixtures), and reports the largest state message for a one-card change.
-// --format commander starts a Commander match from the lobby's commanderDecks (default: random precons, 3 opponents) and
+// --format commander starts a Commander match from commander precons (default: random precons, 3 opponents) and
 // checks 40 starting life, a commander in every command zone, and that casts/tax only go up (tax higher after a recast).
 // Optional fields: basePower/baseToughness, keywordLabels, colorIdentity, commanders/commanderDamage, turnOrder and
 // the `mana` assist are checked for shape whenever they arrive.
@@ -25,6 +27,8 @@ const opt = (name, dflt) => {
 const flag = (name) => args.includes(`--${name}`);
 
 const port = Number(opt("port", 7777));
+const controlPort = Number(opt("control-port", 7790));
+const secret = process.env.FORGE_CONTROL_SECRET;
 const format = opt("format", "constructed");
 const commander = format === "commander";
 const deck = opt("deck", commander ? "cmdr:randomprecon" : "random:RG");
@@ -269,7 +273,39 @@ function checkBlockers(b) {
 }
 const t0 = Date.now();
 
-const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+async function control(method, path, body) {
+  const res = await fetch(`http://127.0.0.1:${controlPort}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json", ...(secret ? { Authorization: `Bearer ${secret}` } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return { status: res.status, body: await res.json() };
+}
+
+// The spec mtg-tracker would send (PROTOCOL.md "Control API").
+function matchSpec() {
+  if (stateFile) return { version: 1, state: stateFile, returnUrl: "/" };
+  const me = { kind: "human", name: "Smoke", deck: trackerDeck ? { name: trackerDeck.replace(/\.txt$/, ""), list: trackerText } : { id: deck } };
+  const ais = curated
+    ? curated.split(",").map((id) => ({ kind: "ai", opponent: id }))
+    : Array.from({ length: opponents }, () => ({ kind: "ai", deck: { id: opp } }));
+  return { version: 1, format, seats: [me, ...ais], returnUrl: "/" };
+}
+
+if (curated) {
+  const roster = (await control("GET", "/opponents")).body.opponents || [];
+  console.log(`control: ${roster.length} curated opponents: ${roster.map((o) => `${o.id} (${o.archetype}, ${o.profile})`).join(", ")}`);
+  for (const id of curated.split(",")) if (!roster.some((o) => o.id === id)) { errors++; console.log("opponent not listed:", id); }
+}
+const startRes = await control("POST", "/match", matchSpec());
+if (startRes.status !== 201) {
+  console.log(`control: POST /match refused (${startRes.status}): ${startRes.body.error}`);
+  process.exit(1);
+}
+const mySeat = startRes.body.seats.find((s) => s.ticket);
+console.log(`control: match ${startRes.body.matchId}, seats ${startRes.body.seats.map((s) => `${s.name} (${s.kind})`).join(", ")}`);
+started = true;
+const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?ticket=${mySeat.ticket}`);
 const send = (o) => {
   if (verbose) console.log(">>", JSON.stringify(o).slice(0, 200));
   ws.send(JSON.stringify(o));
@@ -443,43 +479,8 @@ ws.onmessage = (ev) => {
         "card.keywordLabels", "player.colorIdentity", "player.commander", "game.turnOrder"]) {
         if (!(m.caps || []).includes(cap)) { errors++; console.log("hello.caps lacks", cap); }
       }
-      if (m.inMatch && commander) {
-        console.log("server is already in a match; a Commander run needs the lobby");
-        finish(1);
-      } else if (m.inMatch) {
-        console.log("server is already in a match; attaching to it");
-        started = true;
-      }
-      break;
-    case "lobby":
-      if (gameOver) {
-        finish(0);
-      } else if (!started) {
-        started = true;
-        if (stateFile) {
-          if (!m.states.includes(stateFile)) {
-            console.log("state not offered by lobby:", m.states);
-            finish(1);
-          }
-          send({ t: "startState", state: stateFile });
-        } else {
-          const list = commander ? m.commanderDecks || [] : m.decks;
-          if (commander) console.log(`lobby: ${list.length} commander decks, e.g. ${JSON.stringify(list.slice(2, 4))}`);
-          const start = { t: "startMatch", format, deck, opponentDeck: opp, opponents };
-          if (trackerDeck) {
-            Object.assign(start, { deckList: trackerText, deckName: trackerDeck.replace(/\.txt$/, ""), trackerDeckId: "smoke" });
-          }
-          if (curated) {
-            const roster = m.opponents || [];
-            console.log(`lobby: ${roster.length} curated opponents: ${roster.map((o) => `${o.id} (${o.archetype}, ${o.profile})`).join(", ")}`);
-            start.opponentIds = curated.split(",");
-            for (const id of start.opponentIds) if (!roster.some((o) => o.id === id)) { errors++; console.log("opponent not listed:", id); }
-          }
-          for (const id of [trackerDeck ? null : deck, curated ? null : opp]) if (id && !list.some((d) => d.id === id)) { errors++; console.log("deck not listed:", id); }
-          if (trackerDeck || curated) { send(start); break; }
-          send(commander ? { t: "startMatch", format, deck, opponentDeck: opp, opponents } : { t: "startMatch", deck, opponentDeck: opp, opponents });
-        }
-      }
+      if (!m.inMatch) { errors++; console.log("hello: not in the match we just started"); }
+      if (m.returnUrl !== "/") { errors++; console.log("hello.returnUrl is", m.returnUrl); }
       break;
     case "state": {
       states++;
@@ -529,7 +530,7 @@ ws.onmessage = (ev) => {
       }
       for (const p of m.players || []) checkIds(`zones of ${p.name}`, Object.values(p.zones).flat());
       if (maxTurns && game && game.turn > maxTurns && !capped) {
-        // concede (in act(), once we hold priority) so the server is back in the lobby for the next run
+        // concede (in act(), once we hold priority) so the server is free for the next run
         capped = Date.now();
         console.log(`reached turn ${game.turn}, conceding ${concedeOnAi ? "during an AI's turn" : "at our next priority"}`);
       }
@@ -592,7 +593,17 @@ ws.onmessage = (ev) => {
     case "gameOver":
       gameOver = m;
       console.log(`gameOver: ${m.summary}`);
-      setTimeout(() => finish(0), 5000);
+      setTimeout(async () => {
+        // the tracker reads the result back from the control API
+        const st = (await control("GET", "/match")).body;
+        if (st.state !== "finished" || st.matchId !== startRes.body.matchId || !st.result || !st.result.status) {
+          errors++;
+          console.log("control: GET /match after the game:", JSON.stringify(st).slice(0, 300));
+        } else {
+          console.log(`control: result ${st.result.status}, ${st.result.summary}`);
+        }
+        finish(0);
+      }, 3000);
       break;
     case "assist":
       if (m.kind === "blockers") {

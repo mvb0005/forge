@@ -3,29 +3,32 @@ import { setSocket } from '../net'
 import type { ServerMessage } from '../protocol'
 import { useForge } from '../store'
 import { GameOverModal, Toasts } from './Global'
-import { Lobby } from './Lobby'
+import '@fontsource/spectral/latin-700.css'
 import './landing.css'
 
-type Link = 'connecting' | 'open' | 'retrying' | 'taken' | 'replaced' | 'signedOut'
+type Link = 'connecting' | 'open' | 'retrying' | 'noSeat' | 'replaced'
 
-const SEAT_KEY = 'forge.seat'
-const SEAT_TAKEN = 4000
+const TICKET_KEY = 'forge.ticket'
 const SEAT_REPLACED = 4001
-const SIGN_IN = 4003
+const NO_SEAT = 4004
 
-function seatToken() {
+/**
+ * The seat ticket the tracker put on the link (?ticket=). Kept for this tab so a refresh keeps the seat, and
+ * taken off the address bar so it isn't shared by accident.
+ */
+function seatTicket() {
+  const url = new URL(location.href)
+  const fromUrl = url.searchParams.get('ticket')
   try {
-    return sessionStorage.getItem(SEAT_KEY)
+    if (fromUrl) {
+      sessionStorage.setItem(TICKET_KEY, fromUrl)
+      url.searchParams.delete('ticket')
+      history.replaceState(null, '', url.pathname + url.search + url.hash)
+      return fromUrl
+    }
+    return sessionStorage.getItem(TICKET_KEY)
   } catch {
-    return null
-  }
-}
-
-function rememberSeat(token: string) {
-  try {
-    sessionStorage.setItem(SEAT_KEY, token)
-  } catch {
-    /* storage unavailable */
+    return fromUrl
   }
 }
 
@@ -39,16 +42,19 @@ function useConnection() {
     let ws: WebSocket | null = null
     let timer: ReturnType<typeof setTimeout> | undefined
     let delay = 500
-    let takenTries = 0
     const { apply, setConnected, clearAsk } = useForge.getState()
+    const ticket = seatTicket()
 
     const connect = () => {
       if (disposed) return
+      if (!ticket) {
+        setLink('noSeat')
+        return
+      }
       setLink('connecting')
-      const prefix = location.pathname === '/play' || location.pathname.startsWith('/play/') ? '/play' : ''
-      const token = seatToken()
-      const query = token ? `?seat=${encodeURIComponent(token)}` : ''
-      ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${prefix}/ws${query}`)
+      // The socket sits beside the page, wherever the table is mounted (/play/table/ws, or /ws in development).
+      const dir = location.pathname.replace(/[^/]*$/, '')
+      ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${dir}ws?ticket=${encodeURIComponent(ticket)}`)
       ws.onopen = () => {
         if (disposed) return
         delay = 500
@@ -65,14 +71,8 @@ function useConnection() {
           console.warn('bad frame', e.data)
           return
         }
-        if (m.t === 'hello' && m.seat) rememberSeat(m.seat)
         try {
           apply(m)
-          if (m.t === 'lobby') {
-            // the match is gone; drop anything left from it
-            clearAsk()
-            useForge.getState().clearReveal()
-          }
         } catch (err) {
           console.error('failed to apply', m, err)
         }
@@ -83,27 +83,14 @@ function useConnection() {
         setConnected(false)
         clearAsk() // the server re-sends the open ask after reconnecting
         setNote(ev.reason)
-        if (ev.code === SIGN_IN) {
-          setLink('signedOut')
+        if (ev.code === NO_SEAT) {
+          setLink('noSeat')
           return
         }
         if (ev.code === SEAT_REPLACED) {
           setLink('replaced')
           return
         }
-        // A refresh closes the old socket as the new page connects, so the first tries can still see the seat held.
-        const refreshRace = ev.reason === 'This seat is open in another window'
-        if (ev.code === SEAT_TAKEN && refreshRace && takenTries < 5) {
-          takenTries += 1
-          setLink('connecting')
-          timer = setTimeout(connect, 300)
-          return
-        }
-        if (ev.code === SEAT_TAKEN) {
-          setLink('taken')
-          return
-        }
-        takenTries = 0
         setLink('retrying')
         setRetryIn(delay)
         timer = setTimeout(connect, delay)
@@ -124,34 +111,53 @@ function useConnection() {
 export function Shell({ match }: { match: ReactNode }) {
   const { link, retryIn, note } = useConnection()
   const inMatch = useForge((s) => s.inMatch)
-  const lobby = useForge((s) => s.lobby)
-  const closed = link === 'taken' || link === 'replaced' || link === 'signedOut'
+  const ended = useForge((s) => s.ended)
+  const closed = link === 'noSeat' || link === 'replaced'
   return (
     <>
       {closed ? <SeatClosed link={link} note={note} />
         : inMatch ? <div className="fixed inset-0">{match}</div>
-        : lobby ? <Lobby />
+        : ended ? <Ended summary={ended.summary} />
         : <Splash link={link} />}
-      {link !== 'open' && !closed && (inMatch || lobby) && <LinkBadge link={link} retryIn={retryIn} />}
+      {link !== 'open' && !closed && inMatch && <LinkBadge link={link} retryIn={retryIn} />}
       <Toasts />
       <GameOverModal />
     </>
   )
 }
 
-function SeatClosed({ link, note }: { link: 'taken' | 'replaced' | 'signedOut'; note: string }) {
-  const title = link === 'replaced' ? 'Reconnected elsewhere' : link === 'signedOut' ? 'Sign in' : 'Seat is taken'
+/** Back to wherever the game was started from: the tracker's play page, or this server's root in development. */
+function BackLink() {
+  const back = useForge((s) => s.returnUrl)
+  return back ? <p style={{ marginTop: 16 }}><a href={back}>Back to the tracker</a></p> : null
+}
+
+function SeatClosed({ link, note }: { link: 'noSeat' | 'replaced'; note: string }) {
+  const title = link === 'replaced' ? 'Opened in another window' : 'No seat here'
   const fallback = link === 'replaced'
-    ? 'This window was closed because the seat opened another connection. One window plays at a time.'
-    : link === 'signedOut'
-      ? 'Sign in through Cloudflare Access, then refresh.'
-      : 'Someone already has this seat open. Close that window, then refresh this one.'
+    ? 'This window was closed because your seat connected from another window. One window plays at a time.'
+    : 'This link has no seat at the game running here. Start or join a game from the tracker.'
   return (
     <div className="tk">
       <div className="tk-center">
         <div>
           <h1>{title}</h1>
           <p>{note || fallback}</p>
+          <BackLink />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Ended({ summary }: { summary: string | null }) {
+  return (
+    <div className="tk">
+      <div className="tk-center">
+        <div>
+          <h1>Game over</h1>
+          <p>{summary || 'This game has ended.'}</p>
+          <BackLink />
         </div>
       </div>
     </div>

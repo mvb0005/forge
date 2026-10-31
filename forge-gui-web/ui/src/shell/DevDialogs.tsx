@@ -2,16 +2,14 @@ import { useEffect, useState } from 'react'
 import { setSendTap } from '../net'
 import type { ClientMessage, ServerMessage } from '../protocol'
 import { useForge } from '../store'
-import { asks, extras, lobby, setup } from './fixtures'
+import { asks, extras, setup } from './fixtures'
 import { GameOverModal, Toasts } from './Global'
-import { Lobby } from './Lobby'
 import { Overlays } from './Overlays'
 import { PromptBar } from './PromptBar'
 
 // /?dialogs: every shell surface on fixture data, no server. Outgoing messages are logged, not sent.
 export function DevDialogs() {
   const inMatch = useForge((s) => s.inMatch)
-  const hasLobby = useForge((s) => !!s.lobby)
   const [sent, setSent] = useState<ClientMessage[]>([])
   const [open, setOpen] = useState(true)
 
@@ -20,10 +18,8 @@ export function DevDialogs() {
     setSendTap((m) => {
       console.info('[dev send]', m)
       setSent((s) => [m, ...s].slice(0, 8))
-      if (m.t === 'startMatch' || m.t === 'startState') for (const x of setup) apply(x)
     })
     setConnected(true)
-    apply(lobby)
     for (const m of setup) apply(m)
     return () => setSendTap(null)
   }, [])
@@ -40,9 +36,7 @@ export function DevDialogs() {
           <div className="absolute inset-x-[18%] bottom-[8%] h-[30%] rounded-2xl border border-line/50 bg-table/40" />
           <div className="w-72"><PromptBar /></div>
         </div>
-      ) : (
-        hasLobby && <div className="fixed inset-0"><Lobby /></div>
-      )}
+      ) : null}
       {inMatch && <Overlays />}
       <Toasts />
       <GameOverModal />
@@ -63,8 +57,6 @@ export function DevDialogs() {
               <button key={x.name} type="button" onClick={() => run(x.msgs())}
                 className="block w-full rounded-md px-2 py-1 text-left text-ink-dim hover:bg-panel-2 hover:text-ink">{x.name}</button>
             ))}
-            <button type="button" onClick={() => run([lobby])}
-              className="block w-full rounded-md px-2 py-1 text-left text-ink-dim hover:bg-panel-2 hover:text-ink">lobby</button>
             <div className="px-1 pb-1 pt-2 text-[10px] uppercase tracking-wider text-ink-dim">Sent</div>
             <ul className="space-y-1 px-1 font-mono text-[10px] text-ink-dim" data-testid="sent">
               {sent.map((m, i) => <li key={i} className="break-all">{JSON.stringify(m)}</li>)}
