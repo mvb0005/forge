@@ -1,6 +1,6 @@
 # Forge Web protocol (v2)
 
-The browser UI talks to the Java server over a single WebSocket at `ws://127.0.0.1:7777/ws`.
+The browser UI talks to the Java server over a single WebSocket at `ws://<host>/play/table/ws?ticket=…`.
 Every frame is a UTF-8 JSON text frame holding one object with a string field `t` (the type).
 Unknown `t` values must be logged and ignored by both sides, never crash.
 
@@ -15,30 +15,87 @@ reference to "a card or a player" is always an `EntityRef`:
 type EntityRef = { kind: "card" | "player"; id: number };
 ```
 
-## HTTP
+## The two ports
+
+The game server only runs games (docs/MULTIPLAYER.md D-M8). It listens on two ports:
+
+- **Players** (`--port`, default 7777): the table page, its WebSocket and card images, mounted at
+  `--prefix` (default `/play/table`; `/` works too). The tunnel routes the public `/play/table/...` here.
+- **Control** (`--control-port`, default 7790): the control API below, for mtg-tracker inside the cluster.
+  Never routed by the tunnel. Off loopback it needs `FORGE_CONTROL_SECRET`, and every call but `/healthz`
+  then carries `Authorization: Bearer <secret>` (401 without it).
+
+### Players' HTTP
 
 | Path | Meaning |
 |---|---|
 | `GET /` and static files | the built UI (`forge-gui-web/ui/dist`) when present |
 | `GET /img/card/{imageKey}` | card image for a Forge image key (URL-encoded). 200 with the file from the read-only pics dir, otherwise 302 to a Scryfall image URL, otherwise 404. `Cache-Control: max-age=86400`. |
-| `GET /api/games` | this person's finished and in-progress games, newest first, without the log. `Cache-Control: no-store`. |
-| `GET /api/games/{id}` | one game, including `log`. 404 when it is missing or belongs to someone else. |
-
-When `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` are set, both the websocket and `/api/games` require the same Cloudflare Access JWT the tracker uses (`Cf-Access-Jwt-Assertion`, or the `CF_Authorization` cookie). The email header is ignored. 401 with no token. Without those variables the server is local play: no person, and `/api/games` returns only games that have no email.
+| `GET /ws?ticket=<ticket>` | the WebSocket. The ticket (32 lowercase hex characters) is the seat; see `hello` |
 
 The UI only uses `CardDto.img` and never builds image URLs itself.
+
+### Control API
+
+JSON in and out. Errors are `{ error: string }`, written for the people at the table.
+
+| Call | Meaning |
+|---|---|
+| `GET /healthz` | `{ok:true}`, no secret needed |
+| `GET /opponents` | `{opponents: CuratedOpponent[]}`: the curated Commander roster, `{id, commander, archetype, plan, deck, colors, profile}`. `deck` is the precon's name, `profile` the Forge AI profile it plays with |
+| `POST /decks/check` | body `{name, list}` (a decklist export). `{ok:true}`, or `{ok:false, error}` naming unknown cards or a missing commander. Starts nothing |
+| `POST /match` | starts a match from a spec (below). 201 `{matchId, seats:[{index, kind, name, person?, ticket?}]}`; every human seat has a ticket, valid as soon as this returns. 409 while a match is playing (one table per server). 400 for a bad spec or deck |
+| `GET /match` | `{state:"idle"\|"playing"\|"finished", matchId?, format?, startedAt?, seats?:[{index, kind, name, person?, deck, connected?}], result?}`. `result` is the last match's, kept until the next `POST /match` |
+| `DELETE /match/{matchId}` | ends that match for everyone: every human concedes and the game is over. 202, or 404 when that id isn't playing. The result's `status` is `"ended"` |
+
+```ts
+type MatchSpec = {
+  version: 1;
+  format?: "commander" | "constructed";   // default commander
+  seats: Seat[];                           // 2 to 4, at least one human, in turn order
+  state?: string;                          // development: start from a saved board; seats may then be omitted (you, then AIs)
+  returnUrl?: string;                      // where the table's "Back" links go (the tracker's play page)
+  resultsUrl?: string;                     // POSTed the result when the match ends (below)
+};
+type Seat =
+  | { kind: "human"; name?: string; person?: string; deck: Deck }
+  | { kind: "ai"; opponent: string }                                   // a curated opponent id
+  | { kind: "ai"; name?: string; deck: Deck; profile?: string };
+type Deck =
+  | { name: string; list: string }   // a decklist export: "Commander"/"Deck" sections, `1 Name (SET) 123 *F*`
+  | { id: string };                  // development: "random:RG", "precon:<name>", "cmdr:random", "cmdr:randomprecon", "cmdr:precon:<file>"
+```
+
+Names are made unique within a match ("Matt", "Matt 2"). `person` is opaque here (the tracker's person id)
+and comes back in status and results. A `list` deck with a card Forge doesn't know, or no commander, is
+refused with 400 naming the problem.
+
+**Results.** When a match ends, its result is kept for `GET /match` and, if the spec had `resultsUrl`, POSTed
+there with the control secret (retried a few times; the receiver treats it as idempotent by `matchId`):
+
+```ts
+type Result = {
+  matchId: string;
+  status: "finished" | "ended" | "abandoned";   // played out, ended through DELETE, or stopped without an outcome
+  winner?: string; turn: number; summary: string;
+  startedAt: string; endedAt: string;
+  log: string[];                                 // the game log, oldest first, capped at 800 lines
+  seats: { index: number; kind: "human" | "ai"; name: string; person?: string; deck: string; connected?: boolean }[];
+};
+```
 
 ## Server to client
 
 ### `hello`
-`{ t:"hello", version:2, caps:string[], inMatch:boolean, seat:string, who:string, email?:string }`, sent on every accepted connect.
-`who` is the name at this seat. `email` is present when Cloudflare Access named the person; that email
-is the seat. One socket per seat. A different person is closed with status 4000 (`"<name> is already at this table"`),
-and their match stays reserved for them after a disconnect until it ends. The same person reconnecting
-replaces the previous socket (that socket is closed with 4001). A missing or bad Access token is closed
-with 4003. With no Access configured, `seat` is a token the client sends back as the `seat` query on `/ws`;
-a connection without it is closed with 4000 while the socket is held (`"This seat is open in another window"`).
-If `inMatch`, a full `state` follows, then the current prompt/buttons/selectables/ask and every current `assist`.
+`{ t:"hello", version:2, caps:string[], inMatch:boolean, seat:number, who:string, returnUrl?:string }`, sent on
+every accepted connect. `seat` is this ticket's seat index and `who` its name. One socket per seat: the same
+ticket connecting again replaces the previous socket (closed with 4001). A connect with no ticket, or one that
+isn't a seat at the match here, is closed with 4004. If `inMatch`, a full `state` follows, then the current
+prompt/buttons/selectables/ask and every current `assist`. When the seat's match has already ended, `ended`
+follows instead.
+
+### `ended`
+`{ t:"ended", summary?:string }`: this seat's match is over (you connected after it ended).
 
 `caps` lists optional features this server has, so client and server can evolve separately.
 A client ignores caps it doesn't know and must not rely on a feature whose cap is missing.
@@ -55,7 +112,7 @@ A client ignores caps it doesn't know and must not rely on a feature whose cap i
 | `player.colorIdentity` | `PlayerDto.colorIdentity` |
 | `player.commander` | `PlayerDto.commanders` / `commanderDamage` |
 | `game.turnOrder` | `GameDto.turnOrder` |
-| `match.commander` | `lobby.commanderDecks`, and `startMatch.format: "commander"` |
+| `match.commander` | the server plays Commander (`MatchSpec.format: "commander"`) |
 
 Changes from v1: `caps`; `GameDto.log` replaced by `state.logAppend`/`logReset`;
 `selectables.playerIds`; assists are computed when the engine asks the human for input (not on
@@ -66,54 +123,6 @@ one of the caps above. A client that doesn't know the cap ignores the field.
 `can't be blocked`, `colorIdentity` and `turnOrder`. The server reads them at each decision point
 (when it computes assists) and the next state carries them, so between decision points (most of an
 AI turn) they can lag the board. They are absent until the first decision point of a match.
-
-### `lobby`
-`{ t:"lobby", decks:LobbyDeck[], commanderDecks?:LobbyDeck[], opponents?:CuratedOpponent[], states:string[], games:SavedGame[] }`, sent after
-`hello` when not in a match. `decks` lists what the server can start a Constructed match with (`"random:WU"` style
-ids for generated two-colour decks are always present).
-
-```ts
-type LobbyDeck = { id: string; name: string; colors: string; detail?: string }; // detail: secondary text, e.g. "C17 · 2017"
-```
-
-`opponents` (cap `match.commander`) is the curated Commander roster: `{id, commander, archetype, plan, deck, colors, profile}`. `deck` is the precon's name, `profile` the Forge AI profile it plays with.
-
-`commanderDecks` (cap `match.commander`) lists the decks for a Commander match. `colors` is the commanders' colour
-identity. Ids:
-- `"cmdr:random"`: a generated deck around a random legal commander (Forge's `DeckgenUtil.generateCommanderDeck`).
-- `"cmdr:randomprecon"`: a random preconstructed commander deck. As the opponents' deck, every AI gets a different one.
-- `"cmdr:precon:<file>"`: one of Forge's preconstructed commander decks (`res/quest/commanderprecons`, the file name
-  without `.dck`, e.g. `"Arcane Wizardry [C17] [2017]"`). `name` is the readable part (`"Arcane Wizardry"`), `detail`
-  the set and year.
-- `"cmdr:deck:<name>"`: the person's own commander decks (Forge's commander deck folder). `states` lists the saved board files
-(bench/states, bench/token-pod-turn12.txt, and the web UI's fixtures in forge-gui-web/tools/states).
-`games` is this person's history, newest first (local play sees only games with no email):
-
-```ts
-type SavedGame = {
-  id: string;
-  email?: string;          // the Access identity, absent for local play
-  name: string;            // the name used at the table
-  startedAt: string;       // ISO-8601
-  endedAt: string | null;
-  status: "playing" | "finished" | "abandoned";
-  deck: string;            // lobby deck id
-  deckName: string;
-  opponentDeck: string;
-  opponentDeckName: string;
-  opponents: number;
-  format?: "constructed" | "commander"; // absent in records written before formats: constructed
-  winner: string | null;
-  turn: number | null;
-  summary: string | null;
-};
-```
-
-The same object is what `GET /api/games` returns inside `{ email?: string, games: SavedGame[] }`.
-`GET /api/games/{id}` is one game plus `log: string[]` (the game log, oldest first, capped at 800 lines).
-The file on disk is `{ version: 1, games: [...] }` under `play/games.json` in the Forge home directory.
-A match that was still `playing` when the process starts is marked `abandoned`. The live game itself
-is not resumed; the record is what outlives the process.
 
 ### `state`
 ```ts
@@ -318,10 +327,10 @@ Notes:
 - `arrange.cardIds[0]` is the top of the pile; the answer uses the same orientation.
 - `damage` answer `null` (only when `maySkip`) = let Forge assign damage itself (the server returns null to the engine).
 - `ability` has no title; clients title it with the card name.
-- On `lobby` or a `full` state the client drops any open ask and reveal; the server re-sends what is still open.
+- On a `full` state the client drops any open ask and reveal; the server re-sends what is still open.
 
 ### `gameOver`
-`{ t:"gameOver", winner:string|null, summary:string }`. Then `lobby` again once the match ends.
+`{ t:"gameOver", winner:string|null, summary:string }`. The table stays up with the final board; `hello.returnUrl` is the way back.
 
 ### `assist`
 Help computed by the engine; the UI only displays it and never computes rules itself.
@@ -395,9 +404,6 @@ permanents changed), so during most of an AI turn it shows the board at your las
 
 | Message | Meaning |
 |---|---|
-| `{t:"startMatch", deck:string, opponentDeck:string, opponents:number, format?:"constructed"\|"commander"}` | deck ids from `lobby` (`"random:XY"` or a listed id). opponents 1..3. `format` defaults to `"constructed"` (ids from `decks`). `"commander"` (cap `match.commander`) takes ids from `commanderDecks` and starts Forge's Commander variant: commanders in the command zone, commander tax and damage, 40 life. When `opponents` is absent a Commander match has 3 |
-| `{t:"startMatch", format:"commander", deck:string, opponentIds:string[], deckList?:string, deckName?:string, trackerDeckId?:string}` | Commander against 1..3 curated opponents (`lobby.opponents` ids, in seat order; seats are named for their commanders). `deckList` is an mtg-tracker decklist export ("Commander"/"Deck" sections, `1 Name (SET) 123 *F*`) and replaces `deck`. A card Forge doesn't know, or no commander, is refused with an `error` naming the problem, then a fresh `lobby`. The game record's `deck` is `"tracker:<trackerDeckId>"` and `opponentDeck` is `"curated:<ids>"` |
-| `{t:"startState", state:string}` | start from a saved board (a `lobby.states` entry). The human takes seat 1 |
 | `{t:"selectCard", cardId:number, others?:number[], shift:boolean, button:number}` | click on a card (button 1 left, 3 right). `others`: more cards picked with it, e.g. the rest of a group of identical tokens (IGameController.selectCard otherCardViewsToSelect) |
 | `{t:"selectPlayer", playerId:number, shift:boolean, button:number}` | click on a player |
 | `{t:"ok"}` / `{t:"cancel"}` | the two prompt buttons |
@@ -406,7 +412,7 @@ permanents changed), so during most of an AI turn it shows the board at your las
 | `{t:"undo"}` / `{t:"concede"}` / `{t:"alphaStrike"}` | |
 | `{t:"reorderHand", cardId:number, index:number}` | |
 
-Everything except `startMatch`/`startState` is handled by `WebGameSession.onClientMessage` on WebEdt.
+Every message is handled by the seat's `WebGameSession.onClientMessage` on WebEdt (`answer` directly).
 
 ## Threading (server)
 
