@@ -103,7 +103,7 @@ The table page and its socket (`/play/table/…`, `/play/ws`, card images) go to
 | ID | Milestone | Exit criteria | Status |
 |---|---|---|---|
 | M11.0 | **Move to minikube** | The game server runs in namespace `forge` beside the tracker, `/play` routes to it through the tracker's tunnel, and it reaches the tracker in-cluster | doing (pod up and checked; switching the tunnel's route and retiring the Docker service remain) |
-| M11.1 | **The game server's control API** | The game server starts a match from a spec (POST, shared secret, separate in-cluster port) with any mix of human and AI seats, admits each human socket by its seat ticket, reports status, and ends a match on request. Its lobby, deck lists, email seat and play log are gone. `tools/smoke.mjs` starts its games through the API. PROTOCOL.md documents the API and the ticket handshake | todo |
+| M11.1 | **The game server's control API** | The game server starts a match from a spec (POST, shared secret, separate in-cluster port) with any mix of human and AI seats, admits each human socket by its seat ticket, reports status, and ends a match on request. Its lobby, deck lists, email seat and play log are gone. `tools/smoke.mjs` starts its games through the API. PROTOCOL.md documents the API and the ticket handshake | done on branch `m11/game-server`, not deployed: it ships with M11.2, since the lobby is gone. Smokes (constructed, Commander with a tracker deck and curated opponents, random precons, a saved board, concede during an AI turn), lifecycle checks (409, bad and replaced tickets, end by id, a fresh match after, two human seats both get state), the results POST and the secret checked |
 | M11.2 | **The play module in mtg-tracker, solo** | `mtgtracker/play/`: usernames, `/api/v1/people`, the play page in the tracker's own templates (deck, AI opponents), a table with one human, the handoff to the game server, and game history from its results. Goldfishing works as it does today, through the tracker. Tracker tests cover the module with the game server faked | todo |
 | M11.3 | **Invites and several humans** | The host invites a friend from the people list; the friend sees the invite on the play page, picks a deck and readies. Two browsers (two identities) play a pod to the end. Each sees only their own hand. The headline names who we're waiting on. A player who is out can watch. The game shows in both histories. `tools/smoke.mjs --clients 2` covers the game server's side | todo |
 | M11.4 | **Disconnects pause the game** | When a human's socket drops, every player sees "Paused: waiting for X to reconnect". The game stops: the AIs don't act, and no one can act on the stack meanwhile. Reconnecting resumes with the full state (`onConnect` already re-sends prompt, buttons and ask). The host can end the game for everyone. After 10 minutes with no human connected the game ends with no winner and the server frees (D-M6). Spike first: where to hold the game thread so the AIs stop too (the engine only parks when it asks a human something) | todo |
@@ -117,6 +117,10 @@ The table page and its socket (`/play/table/…`, `/play/ws`, card images) go to
   shows whose table is running.
 - **Two repos move together.** The control API is the contract; version it (a `version` in the
   spec) and keep the tracker's fake game server in step with PROTOCOL.md.
+- **Known for M11.3.** One human conceding while another human plays on leaves the game thread
+  parked on the conceded seat's input (Forge only releases inputs when the game is over); ending
+  the match through the control API still works. A match ended by the host shows "Defeat" and names
+  an AI the winner; it should say the host ended it.
 - **A parked game thread.** A human who never answers parks the game thread on `awaitInput`
   indefinitely. M11.4 handles disconnects; M12's timer handles slow players.
 - **CPU.** AI is the cost, and a 4-player pod with three AIs is the busiest case (M11.5).

@@ -2,10 +2,11 @@
 # Run the Forge web game server on minikube, next to mtg-tracker (same cluster, its own namespace).
 # Run from WSL, where the cluster lives. Build the jar and the UI first (README "Hosted play").
 #
+#   deploy/minikube.sh secret               set the control API's shared secret (from stdin, or a prompt)
 #   deploy/minikube.sh up                   build the image, load it into minikube, apply manifests, wait
 #   deploy/minikube.sh load-pics [DIR]      copy card images into the forge-pics volume (default: the desktop's Forge image cache)
 #   deploy/minikube.sh load-data DIR        copy a play log directory (DIR/play) into the forge-data volume
-#   deploy/minikube.sh forward [PORT]       port-forward the server to http://127.0.0.1:PORT/play/ (default 7781)
+#   deploy/minikube.sh forward [PORT]       port-forward the table to http://127.0.0.1:PORT/play/table/ (default 7781)
 #   deploy/minikube.sh logs                 follow the server's log
 #   deploy/minikube.sh down                 delete the server but keep the volumes
 set -euo pipefail
@@ -21,7 +22,24 @@ pod() {
   "${KUBECTL[@]}" get pod -l app=forge-web -o jsonpath='{.items[0].metadata.name}'
 }
 
+# The control API's shared secret, as the forge-control Secret. mtg-tracker needs the same value.
+cmd_secret() {
+  local secret
+  if [[ -t 0 ]]; then
+    read -rsp "Control secret (leave empty to generate one): " secret
+    echo
+  else
+    secret=$(cat)
+  fi
+  [[ -n $secret ]] || secret=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+  kubectl apply -f deploy/k8s/namespace.yaml >/dev/null
+  printf '%s' "$secret" | "${KUBECTL[@]}" create secret generic forge-control --from-file=secret=/dev/stdin \
+    --dry-run=client -o yaml | "${KUBECTL[@]}" apply -f -
+  echo "Secret forge-control set. Give mtg-tracker the same value."
+}
+
 cmd_up() {
+  "${KUBECTL[@]}" get secret forge-control >/dev/null 2>&1 || { echo "no control secret: run deploy/minikube.sh secret first" >&2; exit 1; }
   ls target/forge-gui-web-*-jar-with-dependencies.jar >/dev/null
   [[ -f ui/dist/index.html ]] || { echo "no ui/dist: run npm run build in ui/" >&2; exit 1; }
   docker build -t "$IMAGE" \
@@ -93,11 +111,12 @@ cmd_forward() {
 }
 
 case "${1:-}" in
+  secret) cmd_secret ;;
   up) cmd_up ;;
   load-pics) shift; cmd_load_pics "$@" ;;
   load-data) shift; cmd_load_data "$@" ;;
   forward) shift; cmd_forward "$@" ;;
   logs) "${KUBECTL[@]}" logs -f "$(pod)" ;;
   down) kubectl delete -f deploy/k8s/deployment.yaml -f deploy/k8s/service.yaml -n "$NS" --ignore-not-found ;;
-  *) sed -n '2,12p' "$0"; exit 1 ;;
+  *) sed -n '2,13p' "$0"; exit 1 ;;
 esac
