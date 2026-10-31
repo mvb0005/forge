@@ -1,7 +1,8 @@
 # The players' side (the table page at /play/table/, its socket, card images). ClusterIP only: reach it
 # locally with `deploy/minikube.sh forward`, or publicly through mtg-tracker's Cloudflare Tunnel connector,
-# whose /play route points at
-#   http://forge-web.mtgtracker.svc.cluster.local:7780 (an alias for this service, see bridge/)
+# whose ^/play/table(/|$) route points at
+#   http://forge-web.forge.svc.cluster.local:80
+# (everything else on the hostname, /play included, goes to mtg-tracker).
 apiVersion: v1
 kind: Service
 metadata:
@@ -12,10 +13,6 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: http
-    # The port the tunnel's /play route already names (bridge/), from when the server ran in Docker.
-    - name: tunnel
-      port: 7780
       targetPort: http
 ---
 # The control API, for mtg-tracker inside the cluster: start, watch and end the match. The tunnel never
