@@ -62,10 +62,19 @@ In production the page is served at `/play` on the tracker's hostname, so it rea
 tracker's `/api/v1` with your own sign-in. Where there's no tracker the page offers Forge's precons instead. The server listens on `127.0.0.1` unless you pass `--host`; it refuses any other
 address unless Cloudflare Access is configured (`CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`).
 
-The homelab compose file runs it in Docker on port 7780, bound to `0.0.0.0` inside the container,
-with card data from `forge-gui/res` and a profile volume so it does not use the desktop Forge
-profile. Card art comes from the local pics cache when that directory is mounted; otherwise images
-fall through to Scryfall.
+It runs on the same minikube cluster as mtg-tracker (in WSL), in namespace `forge`, with card data
+from `forge-gui/res`, a data volume for its profile and play log, and a read-only volume of card
+images copied from the desktop's pics cache. mtg-tracker's Cloudflare Tunnel connector routes `/play`
+to `forge-web.mtgtracker.svc.cluster.local:7780`, a name kept from when the server ran in Docker;
+`deploy/k8s/bridge/forge-web.yaml` makes it an alias for the game server's service. From WSL, after
+building the jar and the UI:
+
+```
+deploy/minikube.sh up                 # build the image, load it into minikube, roll out (ends a running game)
+deploy/minikube.sh load-pics          # refresh the card images from the desktop cache
+deploy/minikube.sh forward            # http://127.0.0.1:7781/play/ (Access is on, so the table refuses sign-in)
+deploy/minikube.sh logs
+```
 
 The server uses the normal Forge user profile (preferences, logs). To keep a development server
 away from your real profile, start it with `APPDATA` and `LOCALAPPDATA` pointing at a scratch

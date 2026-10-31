@@ -1,0 +1,22 @@
+# Forge's user directory (preferences) and the play log (/data/play).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: forge-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Card images, copied from the desktop's image cache by `deploy/minikube.sh load-pics`.
+# The game server only reads them.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: forge-pics
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
