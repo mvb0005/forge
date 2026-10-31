@@ -142,6 +142,7 @@ Each milestone ends playable. Exit criteria are the definition of done.
 | M7 | Multiplayer: auto-focus and fan-out. Seat strips are already on the table | M1, Q-09 | todo |
 | M8 | Customization and accessibility | M2 | todo |
 | M9 | Desktop packaging (Tauri) | | parked |
+| M11 | Multiplayer with friends: one table per server, 4 seats with AI fill, several humans per match, pause on disconnect; replicas deferred (MULTIPLAYER.md). M12, less waiting, comes after | M10 | todo |
 
 During your turn the table draws every opponent battlefield in columns, and on other turns one board stays full size with the rest as strips (M7); Tab fan-out (Q-09) is still open.
 
