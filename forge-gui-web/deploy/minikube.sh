@@ -2,7 +2,7 @@
 # Run the Forge web game server on minikube, next to mtg-tracker (same cluster, its own namespace).
 # Run from WSL, where the cluster lives. Build the jar and the UI first (README "Hosted play").
 #
-#   deploy/minikube.sh secret               set the control API's shared secret (from stdin, or a prompt)
+#   deploy/minikube.sh secret               set the control API's shared secret, for the game server and mtg-tracker
 #   deploy/minikube.sh up                   build the image, load it into minikube, apply manifests, wait
 #   deploy/minikube.sh load-pics [DIR]      copy card images into the forge-pics volume (default: the desktop's Forge image cache)
 #   deploy/minikube.sh load-data DIR        copy a play log directory (DIR/play) into the forge-data volume
@@ -22,7 +22,8 @@ pod() {
   "${KUBECTL[@]}" get pod -l app=forge-web -o jsonpath='{.items[0].metadata.name}'
 }
 
-# The control API's shared secret, as the forge-control Secret. mtg-tracker needs the same value.
+# The control API's shared secret, as the forge-control Secret in both namespaces: the game server (forge)
+# and mtg-tracker (mtgtracker), which reads it as FORGE_CONTROL_SECRET.
 cmd_secret() {
   local secret
   if [[ -t 0 ]]; then
@@ -33,9 +34,11 @@ cmd_secret() {
   fi
   [[ -n $secret ]] || secret=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
   kubectl apply -f deploy/k8s/namespace.yaml >/dev/null
-  printf '%s' "$secret" | "${KUBECTL[@]}" create secret generic forge-control --from-file=secret=/dev/stdin \
-    --dry-run=client -o yaml | "${KUBECTL[@]}" apply -f -
-  echo "Secret forge-control set. Give mtg-tracker the same value."
+  for ns in forge mtgtracker; do
+    printf '%s' "$secret" | kubectl --namespace "$ns" create secret generic forge-control --from-file=secret=/dev/stdin \
+      --dry-run=client -o yaml | kubectl --namespace "$ns" apply -f -
+  done
+  echo "Secret forge-control set in forge and mtgtracker. Restart mtg-tracker to pick it up."
 }
 
 cmd_up() {
