@@ -139,34 +139,10 @@ export type Ask = { t: 'ask'; id: number } & (
   | { kind: 'arrange'; title: string; cardIds: number[]; manipulableIds: number[]; toTop: boolean; toBottom: boolean; toAnywhere: boolean }
 )
 
-export type LobbyDeck = { id: string; name: string; colors: string; detail?: string }
-
-/** A curated Commander opponent: a precon with one plan, played with the AI profile that suits it. */
-export type CuratedOpponent = { id: string; commander: string; archetype: string; plan: string; deck: string; colors: string; profile: string }
-
-export type MatchFormat = 'constructed' | 'commander'
-
-export type SavedGame = {
-  id: string
-  email?: string
-  name: string
-  startedAt: string
-  endedAt: string | null
-  status: 'playing' | 'finished' | 'abandoned' | string
-  deck: string
-  deckName: string
-  opponentDeck: string
-  opponentDeckName: string
-  opponents: number
-  format?: MatchFormat
-  winner: string | null
-  turn: number | null
-  summary: string | null
-}
-
 export type ServerMessage =
-  | { t: 'hello'; version: number; caps?: string[]; inMatch: boolean; seat?: string; who?: string; email?: string }
-  | { t: 'lobby'; decks: LobbyDeck[]; commanderDecks?: LobbyDeck[]; opponents?: CuratedOpponent[]; states: string[]; games?: SavedGame[] }
+  | { t: 'hello'; version: number; caps?: string[]; inMatch: boolean; seat?: number; who?: string; returnUrl?: string }
+  // The match this seat belonged to is over (connected after it ended).
+  | { t: 'ended'; summary?: string }
   | {
       t: 'state'; seq: number; full: boolean; game?: GameWire; players?: PlayerDto[]; cards?: CardDto[]
       removedCards?: number[]; stack?: StackItemDto[]; combat?: CombatDto | null
@@ -187,10 +163,6 @@ export type ServerMessage =
 export type ManaColor = keyof ManaPool
 
 export type ClientMessage =
-  | { t: 'startMatch'; deck: string; opponentDeck: string; opponents: number; format?: MatchFormat }
-  // Commander against curated opponents; deckList is a tracker decklist export, played instead of `deck`.
-  | { t: 'startMatch'; format: 'commander'; deck: string; opponentIds: string[]; deckList?: string; deckName?: string; trackerDeckId?: string }
-  | { t: 'startState'; state: string }
   | { t: 'selectCard'; cardId: number; others?: number[]; shift: boolean; button: number }
   | { t: 'selectPlayer'; playerId: number; shift: boolean; button: number }
   | { t: 'ok' }

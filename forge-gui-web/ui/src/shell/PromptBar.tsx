@@ -27,7 +27,7 @@ function usePrompt() {
     const g = s.game
     return g?.priorityPlayerId != null && !g.localPlayerIds.includes(g.priorityPlayerId) ? (s.players[g.priorityPlayerId]?.name ?? 'opponent') : null
   })
-  const yours = useForge((s) => !!(s.buttons?.ok.enabled || s.buttons?.cancel.enabled || s.selectable.cardIds.size))
+  const yours = useForge((s) => !!(s.buttons?.ok.enabled || s.buttons?.cancel.enabled || s.selectable.cardIds.size || s.selectable.playerIds?.size))
   const asked = promptText(message, stackTop)
   // Not your move unless something is yours to press or pick; the engine can hold your priority while an AI acts.
   return { text: asked || (waiting ? `Waiting for ${waiting}…` : ''), waiting: !yours }

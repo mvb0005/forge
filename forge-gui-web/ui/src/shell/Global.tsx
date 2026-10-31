@@ -38,6 +38,7 @@ export function GameOverModal() {
   const local = useForge((s) => s.game?.localPlayerIds ?? NONE)
   const players = useForge((s) => s.players)
   const close = useForge((s) => s.clearGameOver)
+  const back = useForge((s) => s.returnUrl)
   useEffect(() => {
     if (!over) return
     const h = (e: KeyboardEvent) => {
@@ -55,7 +56,10 @@ export function GameOverModal() {
         <div className={`font-title text-5xl font-bold ${over.winner == null ? 'text-ink' : won ? 'text-playable' : 'text-danger'}`}>{headline}</div>
         <div className="mt-2 text-sm text-ink-dim">{won ? 'You won the game' : over.winner ? `${over.winner} wins the game` : 'Nobody won'}</div>
         {over.summary && <p className="mt-5 whitespace-pre-line rounded-lg bg-felt px-4 py-3 text-left text-sm text-ink-dim">{over.summary}</p>}
-        <Btn variant="primary" className="mt-6 w-full py-2.5" autoFocus onClick={close}>Back to lobby</Btn>
+        {back
+          ? <a href={back} className="mt-6 block w-full"><Btn variant="primary" className="w-full py-2.5" autoFocus>Back to the tracker</Btn></a>
+          : <Btn variant="primary" className="mt-6 w-full py-2.5" autoFocus onClick={close}>See the board</Btn>}
+        {back && <button type="button" className="mt-3 text-sm text-ink-dim hover:text-ink" onClick={close}>See the board</button>}
       </div>
     </div>
   )

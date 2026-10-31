@@ -99,27 +99,6 @@ export const extras: { name: string; msgs: () => ServerMessage[] }[] = [
   { name: 'notice flash', msgs: () => [{ t: 'notice', level: 'flash', title: '', message: 'That card is not a valid choice.' }] },
   { name: 'opponent combat', msgs: () => [{ t: 'state', seq: 2, full: false, game: { ...game0, phase: 'COMBAT_DECLARE_BLOCKERS', activePlayerId: 2, priorityPlayerId: 2 } }, { t: 'prompt', playerId: 1, message: 'Declare blockers.', cardId: null }, { t: 'buttons', playerId: 1, ok: { label: 'OK', enabled: false }, cancel: { label: '', enabled: false }, focusOk: true }] },
   { name: 'reset table', msgs: () => setup },
-  { name: 'game over → lobby', msgs: () => [{ t: 'gameOver', winner: 'You', summary: 'Forge AI lost: life total reached 0.\nTurn 9, 14 minutes.' }, lobby] },
+  { name: 'game over', msgs: () => [{ t: 'gameOver', winner: 'You', summary: 'Forge AI lost: life total reached 0.\nTurn 9, 14 minutes.' }] },
+  { name: 'ended (joined late)', msgs: () => [{ t: 'ended', summary: 'Forge AI won on turn 9' }] },
 ]
-
-export const lobby: ServerMessage = {
-  t: 'lobby',
-  decks: [
-    { id: 'random:WU', name: 'Random Azorius', colors: 'WU' },
-    { id: 'random:UB', name: 'Random Dimir', colors: 'UB' },
-    { id: 'random:BR', name: 'Random Rakdos', colors: 'BR' },
-    { id: 'random:RG', name: 'Random Gruul', colors: 'RG' },
-    { id: 'random:GW', name: 'Random Selesnya', colors: 'GW' },
-    { id: 'random:WB', name: 'Random Orzhov', colors: 'WB' },
-    { id: 'random:UR', name: 'Random Izzet', colors: 'UR' },
-    { id: 'random:BG', name: 'Random Golgari', colors: 'BG' },
-    { id: 'random:RW', name: 'Random Boros', colors: 'RW' },
-    { id: 'random:GU', name: 'Random Simic', colors: 'GU' },
-    { id: 'constructed/Mono Red Aggro.dck', name: 'Mono Red Aggro', colors: 'R' },
-    { id: 'constructed/Elves.dck', name: 'Elves', colors: 'G' },
-    { id: 'constructed/Esper Control.dck', name: 'Esper Control', colors: 'WUB' },
-    { id: 'constructed/Affinity.dck', name: 'Affinity', colors: '' },
-    { id: 'constructed/Jund Midrange.dck', name: 'Jund Midrange', colors: 'BRG' },
-  ],
-  states: ['bench/token-pod-turn12.txt', 'bench/states/combat-trample.txt', 'bench/states/storm-turn6.txt'],
-}

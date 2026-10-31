@@ -1,13 +1,13 @@
 import { create } from 'zustand'
-import type { AssistMessage, Ask, BlockersAssist, CardDto, CombatAssist, CombatDto, CuratedOpponent, EntityRef, GameDto, LobbyDeck, LogEntry, ManaAssist, PlayerDto, SavedGame, ServerMessage, StackItemDto } from './protocol'
+import type { AssistMessage, Ask, BlockersAssist, CardDto, CombatAssist, CombatDto, EntityRef, GameDto, LogEntry, ManaAssist, PlayerDto, ServerMessage, StackItemDto } from './protocol'
 
 // Shared client state. net.ts feeds server messages into apply(); components only read.
 export type ForgeState = {
   connected: boolean
   inMatch: boolean
-  lobby: { decks: LobbyDeck[]; commanderDecks: LobbyDeck[]; opponents: CuratedOpponent[]; states: string[]; games: SavedGame[] } | null
   who: string | null
-  email: string | null
+  returnUrl: string | null // where the game-over and ended screens send you back to (the tracker)
+  ended: { summary: string | null } | null // this seat's match was over before we connected
   game: GameDto | null
   players: Record<number, PlayerDto>
   cards: Record<number, CardDto>
@@ -75,9 +75,9 @@ let noticeSeq = 0
 export const useForge = create<ForgeState>()((set) => ({
   connected: false,
   inMatch: false,
-  lobby: null,
   who: null,
-  email: null,
+  returnUrl: null,
+  ended: null,
   game: null,
   players: {},
   cards: {},
@@ -105,9 +105,9 @@ export const useForge = create<ForgeState>()((set) => ({
     set((s): Partial<ForgeState> => {
       switch (m.t) {
         case 'hello':
-          return { inMatch: m.inMatch, caps: m.caps ?? [], who: m.who ?? null, email: m.email ?? null }
-        case 'lobby':
-          return { lobby: { decks: m.decks, commanderDecks: m.commanderDecks ?? [], opponents: m.opponents ?? [], states: m.states, games: m.games ?? [] }, inMatch: false }
+          return { inMatch: m.inMatch, caps: m.caps ?? [], who: m.who ?? null, returnUrl: m.returnUrl ?? null, ended: null }
+        case 'ended':
+          return { inMatch: false, ended: { summary: m.summary ?? null } }
         case 'state': {
           const players = m.full ? {} : { ...s.players }
           const cards = m.full ? {} : { ...s.cards }
