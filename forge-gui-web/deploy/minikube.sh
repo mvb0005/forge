@@ -45,16 +45,28 @@ cmd_up() {
   "${KUBECTL[@]}" get secret forge-control >/dev/null 2>&1 || { echo "no control secret: run deploy/minikube.sh secret first" >&2; exit 1; }
   ls target/forge-gui-web-*-jar-with-dependencies.jar >/dev/null
   [[ -f ui/dist/index.html ]] || { echo "no ui/dist: run npm run build in ui/" >&2; exit 1; }
-  docker build -t "$IMAGE" \
-    --build-context res=../forge-gui/res \
-    --build-context jar=target \
-    --build-context ui=ui/dist \
-    docker
-  minikube image load "$IMAGE" --overwrite=true
-  kubectl apply -k deploy/k8s
-  # Pick up a rebuilt image under the same tag. Recreate: a running game ends here.
-  "${KUBECTL[@]}" rollout restart deployment/forge-web
+  # A tag per build: minikube keeps the old image under a reused tag while a pod holds it, so loading
+  # forge-web:dev again silently left the old code running. A new tag also makes the rollout itself.
+  local tag
+  tag="forge-web:$(git rev-parse --short HEAD)-$(date +%Y%m%d%H%M%S)"
+  # Build with Windows' own docker.exe when the checkout is on the Windows drive: it reads forge-gui/res
+  # (tens of thousands of small files) natively, seconds instead of minutes over /mnt/c. Same Docker
+  # Desktop engine, so minikube loads the image either way.
+  local docker=(docker) here=$PWD
+  if [[ $PWD == /mnt/* ]] && command -v docker.exe >/dev/null 2>&1; then
+    docker=(docker.exe)
+    here=$(wslpath -w "$PWD")
+  fi
+  "${docker[@]}" build -t "$tag" \
+    --build-context res="$here/../forge-gui/res" \
+    --build-context jar="$here/target" \
+    --build-context ui="$here/ui/dist" \
+    "$here/docker"
+  minikube image load "$tag"
+  # Recreate: a running game ends here.
+  kubectl kustomize deploy/k8s | sed "s#image: $IMAGE\$#image: $tag#" | kubectl apply -f -
   "${KUBECTL[@]}" rollout status deployment/forge-web --timeout=300s
+  echo "Running $tag"
 }
 
 # A short-lived pod with a volume mounted read-write, to copy files into it.

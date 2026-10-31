@@ -77,11 +77,10 @@ send it from the environment.
 It runs on the same minikube cluster as mtg-tracker (in WSL), in namespace `forge`, with card data
 from `forge-gui/res`, a data volume for its profile, and a read-only volume of card images copied
 from the desktop's pics cache. The `forge-web` Service is the players' side; `forge-control` is the
-control API, for the tracker only. mtg-tracker's Cloudflare Tunnel connector routes `/play` to
-`forge-web.mtgtracker.svc.cluster.local:7780`, a name kept from when the server ran in Docker;
-`deploy/k8s/bridge/forge-web.yaml` makes it an alias for the game server's service. Once the
-tracker's play module ships, `/play` goes to the tracker and only `/play/table/` comes here. From
-WSL, after building the jar and the UI:
+control API, for the tracker only. mtg-tracker's Cloudflare Tunnel connector routes
+`^/play/table(/|$)` to `http://forge-web.forge.svc.cluster.local:80`; the rest of the hostname,
+`/play` included, is the tracker. From WSL, after building the jar and the UI (`up` tags each build
+uniquely and builds with Windows' `docker.exe` when the checkout is on the Windows drive):
 
 ```
 deploy/minikube.sh secret             # once: the control API's shared secret (mtg-tracker gets the same value)
