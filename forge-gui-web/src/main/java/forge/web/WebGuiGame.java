@@ -673,6 +673,53 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         }
     }
 
+    private volatile boolean endPending;
+
+    /**
+     * The host ends the match for everyone. Like a concede it only touches the game while the game thread is
+     * parked; otherwise the game thread does it at its next phase change or its next wait for a player.
+     */
+    void endForHost() {
+        GameView gv = getGameView();
+        if (gv == null || gv.isGameOver()) {
+            return;
+        }
+        Game g = gv.getGame();
+        if (g != null && !gameThreadParked()) {
+            synchronized (io) {
+                if (concedeHooked != g) {
+                    g.subscribeToEvents(concedeHook);
+                    concedeHooked = g;
+                }
+            }
+            endPending = true;
+            return;
+        }
+        endNow();
+    }
+
+    /** Every human concedes and the game is over; then every human's waiting input lets go, as when a game ends. */
+    private void endNow() {
+        GameView gv = getGameView();
+        Game g = gv == null ? null : gv.getGame();
+        if (g == null || g.isGameOver()) {
+            return;
+        }
+        for (Player p : g.getRegisteredPlayers()) {
+            if (p.getController() instanceof PlayerControllerHuman && !p.hasLost()) {
+                p.concede();
+            }
+        }
+        if (!g.isGameOver()) {
+            g.setGameOver(GameEndReason.AllHumansLost);
+        }
+        for (Player p : g.getRegisteredPlayers()) {
+            if (p.getController() instanceof PlayerControllerHuman pch) {
+                pch.getInputQueue().onGameOver(true);
+            }
+        }
+    }
+
     private void concedeNow() {
         GameView gv = getGameView();
         if (gv == null || gv.isGameOver()) {
@@ -704,6 +751,11 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     }
 
     private void concedeIfPending() {
+        if (endPending) {
+            endPending = false;
+            endNow();
+            return;
+        }
         if (concedePending) {
             concedePending = false;
             concedeOnThisThread();
@@ -725,11 +777,12 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         for (IGameController c : getOriginalGameControllers()) {
             c.concede();
         }
-        // with several AIs left the game would play on without us; end it the way AbstractGuiGame.concede does
+        // With only AIs left the game would play on without anyone watching; end it the way AbstractGuiGame.concede
+        // does. Another human still in the game keeps playing.
         Game g = gv.getGame();
         if (g != null) {
             g.getAction().invoke(() -> {
-                if (!g.isGameOver()) {
+                if (!g.isGameOver() && g.getPlayers().stream().noneMatch(p -> !p.getController().isAI() && !p.hasLost())) {
                     g.setGameOver(GameEndReason.AllHumansLost);
                 }
             });

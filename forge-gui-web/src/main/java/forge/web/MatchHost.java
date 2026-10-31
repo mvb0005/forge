@@ -3,265 +3,510 @@ package forge.web;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonNull;
-import forge.LobbyPlayer;
-import forge.card.ColorSet;
-import forge.card.MagicColor;
 import forge.deck.Deck;
-import forge.deck.DeckgenUtil;
-import forge.deck.io.DeckSerializer;
-import forge.StaticData;
-import forge.util.MyRandom;
 import forge.game.GameRules;
 import forge.game.GameState;
 import forge.game.GameType;
 import forge.game.player.RegisteredPlayer;
 import forge.gamemodes.match.HostedMatch;
 import forge.gui.interfaces.IGuiGame;
-import forge.item.PaperCard;
-import forge.localinstance.properties.ForgeConstants;
-import forge.model.FModel;
 import forge.player.GamePlayerUtil;
 import forge.player.LobbyPlayerHuman;
 import forge.web.assist.Assists;
 
-import java.io.File;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
- * Owns the one table: one socket, the lobby, and the running match.
- * When Access is configured the seat is a person (their email). A match stays theirs until it ends.
+ * The one table this game server hosts (docs/MULTIPLAYER.md D-M1). A match is started through the control
+ * API from a spec; each human seat gets a ticket, and a browser takes its seat by connecting with it. Who the
+ * people are, their decks and the game history belong to whoever called the control API (mtg-tracker).
  */
 public final class MatchHost {
-    /** Someone else already has this table, or another window has this seat. */
-    static final int SEAT_TAKEN = 4000;
-    /** This socket was closed because the same seat reconnected. */
+    /** This socket was closed because the same seat connected again. */
     static final int SEAT_REPLACED = 4001;
-    /** Cloudflare Access did not name a person. */
-    static final int SIGN_IN = 4003;
-    private static final String[] PAIRS = {"WU", "UB", "BR", "RG", "GW", "WB", "UR", "BG", "RW", "GU"};
-    /** Filenames in res/quest/precons, without the extension. Constructed theme decks, not commander lists. */
-    private static final String[] PRECONS = {
-            "Angelic Might",
-            "Spellweaver",
-            "Zombies Unleashed",
-            "Goblin Assault",
-            "Elvish Predation",
-            "Azorius Guild Kit",
-            "Dimir Guild Kit",
-            "Rakdos Guild Kit",
-            "Gruul Guild Kit",
-            "Selesnya Guild Kit",
-            "Orzhov Guild Kit",
-            "Izzet Guild Kit",
-            "Golgari Guild Kit",
-            "Simic Guild Kit",
-            "Boros Guild Kit",
-            "Sliver Evolution",
-            "Sarkhan, Dragonsoul",
-            "Morph Mayhem",
-            "Huatli, Dinosaur Knight",
-            "Vampire Onslaught",
-    };
-    private static volatile List<Deck> loadedPrecons;
-    /** "Arcane Wizardry [C17] [2017]": name, set, year. */
-    private static final Pattern PRECON_FILE = Pattern.compile("^(.*?) \\[([^\\]]+)\\] \\[(\\d{4})\\]$");
-    private static volatile List<CommanderPrecon> commanderPrecons;
+    /** No seat here for this ticket: no ticket, an old one, or a different match. */
+    static final int NO_SEAT = 4004;
+    static final int SPEC_VERSION = 1;
+    private static final SecureRandom RANDOM = new SecureRandom();
 
-    /** A commander precon as the lobby lists it; the deck itself is read when a match starts. */
-    private record CommanderPrecon(String file, String name, String detail, String colors) {}
+    enum State { IDLE, PLAYING, FINISHED }
 
-    private final Path repoRoot;
-    private final AccessIdentity access;
-    private final PlayLog playLog;
-    private final Object seat = new Object();
-    private volatile ClientChannel channel;
-    private String seatToken;
-    private String ownerEmail;
-    private String ownerName;
-    private String gameId;
-    private volatile WebGuiGame session;
+    /** A seat at the current match. Humans have a ticket and their own session; AIs have neither. */
+    private static final class Seat {
+        final int index;
+        final boolean human;
+        final String name;
+        final String person;
+        final String deckName;
+        final String ticket;
+        WebGuiGame session;
+        volatile ClientChannel channel;
 
-    public MatchHost(Path repoRoot, AccessIdentity access, PlayLog playLog) {
-        this.repoRoot = repoRoot;
-        this.access = access;
-        this.playLog = playLog;
-        Thread index = new Thread(MatchHost::commanderPrecons, "commander-precons");
-        index.setDaemon(true);
-        index.start();
+        Seat(int index, boolean human, String name, String person, String deckName) {
+            this.index = index;
+            this.human = human;
+            this.name = name;
+            this.person = person;
+            this.deckName = deckName;
+            this.ticket = human ? HexFormat.of().formatHex(bytes(16)) : null;
+        }
+
+        private static byte[] bytes(int n) {
+            byte[] b = new byte[n];
+            RANDOM.nextBytes(b);
+            return b;
+        }
     }
 
-    void onConnect(ClientChannel ch, String requested, String jwt) {
-        String email = null;
-        if (access != null) {
-            try {
-                email = access.email(jwt);
-            } catch (AuthException e) {
-                System.err.println("Play sign-in refused: " + e.getMessage());
-                ch.close(SIGN_IN, "Sign in through Cloudflare Access");
+    private final Path repoRoot;
+    private final ResultsSender results;
+    private final Object lock = new Object();
+    // guarded by lock
+    private State state = State.IDLE;
+    private String matchId;
+    private String format;
+    private String returnUrl;
+    private String resultsUrl;
+    private Instant startedAt;
+    private List<Seat> seats = List.of();
+    private JsonObject result;
+    private boolean ending;
+
+    public MatchHost(Path repoRoot, ResultsSender results) {
+        this.repoRoot = repoRoot;
+        this.results = results;
+        Decks.warmUp();
+    }
+
+    // ---------------------------------------------------------------- players' sockets
+
+    void onConnect(ClientChannel ch, String ticket) {
+        Seat seat;
+        ClientChannel previous;
+        State st;
+        String back;
+        synchronized (lock) {
+            seat = ticket == null ? null : seats.stream().filter(s -> ticket.equals(s.ticket)).findFirst().orElse(null);
+            if (seat == null) {
+                ch.close(NO_SEAT, "There's no seat here for this link. Start a game from the tracker.");
                 return;
             }
-        }
-        ClientChannel previous;
-        WebGuiGame s;
-        String token;
-        String who;
-        String seated;
-        synchronized (seat) {
-            boolean held = channel != null;
-            if (email != null) {
-                boolean mine = email.equalsIgnoreCase(ownerEmail);
-                boolean reserved = session != null && ownerEmail != null;
-                if ((held || reserved) && !mine) {
-                    String name = ownerName == null ? "Someone" : ownerName;
-                    ch.close(SEAT_TAKEN, name + " is already at this table");
-                    return;
-                }
-                if (!mine) {
-                    ownerEmail = email;
-                    ownerName = AccessIdentity.displayName(email);
-                    seatToken = UUID.randomUUID().toString();
-                }
-            } else {
-                boolean mine = requested != null && requested.equals(seatToken);
-                if (held && !mine) {
-                    ch.close(SEAT_TAKEN, "This seat is open in another window");
-                    return;
-                }
-                if (!mine) {
-                    seatToken = UUID.randomUUID().toString();
-                    ownerEmail = null;
-                    ownerName = null;
-                }
-            }
-            previous = channel;
-            channel = ch;
-            token = seatToken;
-            s = session;
-            who = ownerName == null ? "You" : ownerName;
-            seated = ownerEmail;
+            previous = seat.channel;
+            seat.channel = ch;
+            st = state;
+            back = returnUrl;
         }
         JsonObject hello = new JsonObject();
         hello.addProperty("t", "hello");
         hello.addProperty("version", 2);
-        hello.addProperty("seat", token);
-        hello.addProperty("who", who);
-        if (seated != null) {
-            hello.addProperty("email", seated);
+        hello.addProperty("seat", seat.index);
+        hello.addProperty("who", seat.name);
+        if (back != null) {
+            hello.addProperty("returnUrl", back);
         }
         JsonArray caps = new JsonArray();
-        caps.add("log.append");
-        caps.add("selectables.players");
-        caps.add("match.commander");
-        for (String c : new String[] {"card.basePT", "card.keywordLabels", "player.colorIdentity", "player.commander", "game.turnOrder"}) {
+        for (String c : new String[] {"log.append", "selectables.players", "match.commander", "card.basePT", "card.keywordLabels",
+                "player.colorIdentity", "player.commander", "game.turnOrder"}) {
             caps.add(c);
         }
         Assists.standard().caps().forEach(caps::add);
         hello.add("caps", caps);
-        hello.addProperty("inMatch", s != null);
+        hello.addProperty("inMatch", st == State.PLAYING);
         ch.send(hello);
-        if (s != null) {
-            s.onConnect(ch);
-        } else {
-            ch.send(lobby());
+        if (st == State.PLAYING && seat.session != null) {
+            seat.session.onConnect(ch);
+        } else if (st == State.FINISHED) {
+            JsonObject over = new JsonObject();
+            over.addProperty("t", "ended");
+            synchronized (lock) {
+                if (result != null && result.has("summary")) {
+                    over.add("summary", result.get("summary"));
+                }
+            }
+            ch.send(over);
         }
-        if (previous != null) {
-            previous.close(SEAT_REPLACED, "This seat reconnected");
+        if (previous != null && previous != ch) {
+            previous.close(SEAT_REPLACED, "This seat connected in another window");
         }
     }
 
     void onDisconnect(ClientChannel ch) {
-        WebGuiGame s = null;
-        synchronized (seat) {
-            if (channel != ch) {
+        Seat seat = seatOf(ch);
+        if (seat == null) {
+            return;
+        }
+        synchronized (lock) {
+            if (seat.channel != ch) {
                 return;
             }
-            channel = null;
-            s = session;
+            seat.channel = null;
         }
+        WebGuiGame s = seat.session;
         if (s != null) {
             s.onDisconnect(ch);
         }
     }
 
     void onMessage(ClientChannel ch, JsonObject msg) {
-        if (ch != channel) {
-            return;
-        }
+        Seat seat = seatOf(ch);
+        WebGuiGame s = seat == null ? null : seat.session;
         String t = msg.has("t") && msg.get("t").isJsonPrimitive() ? msg.get("t").getAsString() : "";
-        switch (t) {
-            case "startMatch", "startState" -> WebEdt.invokeLater(() -> {
+        if (s == null) {
+            System.err.println("Ignoring " + t + " outside a match");
+        } else if (t.equals("answer")) {
+            s.onClientMessage(msg); // completes a blocked ask; never queued behind it on WebEdt
+        } else {
+            WebEdt.invokeLater(() -> {
                 try {
-                    if (session != null) {
-                        error("A match is already running");
-                    } else if (t.equals("startMatch")) {
-                        startMatch(msg);
-                    } else {
-                        startState(msg);
-                    }
+                    s.onClientMessage(msg);
                 } catch (Exception e) {
                     e.printStackTrace();
-                    // An IllegalArgumentException is a refusal written for the player (an unknown card, no commander).
-                    error(e instanceof IllegalArgumentException ? e.getMessage() : "Could not start: " + e);
-                    ClientChannel c = channel;
-                    if (c != null && session == null) {
-                        c.send(lobby());
-                    }
+                    JsonObject o = new JsonObject();
+                    o.addProperty("t", "error");
+                    o.addProperty("message", "Error handling " + t + ": " + e);
+                    ch.send(o);
                 }
             });
-            default -> {
-                WebGuiGame s = session;
-                if (s == null) {
-                    System.err.println("Ignoring " + t + " outside a match");
-                } else if (t.equals("answer")) {
-                    s.onClientMessage(msg); // completes a blocked ask; never queued behind it on WebEdt
-                } else {
-                    WebEdt.invokeLater(() -> {
-                        try {
-                            s.onClientMessage(msg);
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                            error("Error handling " + t + ": " + e);
-                        }
-                    });
+        }
+    }
+
+    private Seat seatOf(ClientChannel ch) {
+        synchronized (lock) {
+            for (Seat s : seats) {
+                if (s.channel == ch) {
+                    return s;
                 }
             }
         }
+        return null;
     }
 
-    private void error(String message) {
-        ClientChannel ch = channel;
-        if (ch != null) {
-            JsonObject o = new JsonObject();
-            o.addProperty("t", "error");
-            o.addProperty("message", message);
-            ch.send(o);
+    // ---------------------------------------------------------------- control API
+
+    /** Thrown for a spec this server won't start; the message is written for the people at the table. */
+    static final class Refused extends RuntimeException {
+        final int status;
+
+        Refused(int status, String message) {
+            super(message);
+            this.status = status;
         }
     }
 
-    private Path statesDir() {
-        return repoRoot.resolve("bench").resolve("states");
+    /** Starts a match from a spec (PROTOCOL.md "Control API"). Returns the match id and each seat's ticket. */
+    JsonObject start(JsonObject spec) {
+        JsonObject[] out = new JsonObject[1];
+        RuntimeException[] failed = new RuntimeException[1];
+        WebEdt.invokeAndWait(() -> {
+            try {
+                out[0] = startOnEdt(spec);
+            } catch (RuntimeException e) {
+                failed[0] = e;
+            }
+        });
+        if (failed[0] != null) {
+            throw failed[0];
+        }
+        return out[0];
     }
+
+    private JsonObject startOnEdt(JsonObject spec) {
+        synchronized (lock) {
+            if (state == State.PLAYING) {
+                throw new Refused(409, "A game is already running here");
+            }
+        }
+        int version = spec.has("version") ? spec.get("version").getAsInt() : -1;
+        if (version != SPEC_VERSION) {
+            throw new Refused(400, "Spec version " + version + " is not " + SPEC_VERSION);
+        }
+        String fmt = str(spec, "format", "commander");
+        boolean commander = fmt.equals("commander");
+        if (!commander && !fmt.equals("constructed")) {
+            throw new Refused(400, "Unknown format " + fmt);
+        }
+        JsonArray seatSpecs = spec.has("seats") && spec.get("seats").isJsonArray() ? spec.getAsJsonArray("seats") : new JsonArray();
+        String stateName = str(spec, "state", null);
+        GameState gameState = stateName == null ? null : loadState(stateName);
+        if (gameState != null && seatSpecs.isEmpty()) {
+            // A saved board with no seats named: you are its first player, AIs the rest.
+            for (int i = 0; i < gameState.getPlayerCount(); i++) {
+                JsonObject seat = new JsonObject();
+                seat.addProperty("kind", i == 0 ? "human" : "ai");
+                seatSpecs.add(seat);
+            }
+        }
+        if (seatSpecs.size() < 2 || seatSpecs.size() > 4) {
+            throw new Refused(400, "A game needs 2 to 4 seats");
+        }
+        if (gameState != null && gameState.getPlayerCount() != seatSpecs.size()) {
+            throw new Refused(400, stateName + " has " + gameState.getPlayerCount() + " players, not " + seatSpecs.size());
+        }
+        if (gameState != null) {
+            commander = readState(stateName).contains("IsCommander"); // the board decides, as SimulateMatch -state does
+        }
+
+        Set<GameType> variants = commander ? EnumSet.of(GameType.Commander) : null;
+        List<Seat> newSeats = new ArrayList<>();
+        List<RegisteredPlayer> players = new ArrayList<>();
+        Set<String> names = new HashSet<>();
+        Set<String> preconsTaken = new HashSet<>();
+        int humans = 0;
+        for (int i = 0; i < seatSpecs.size(); i++) {
+            JsonObject s = seatSpecs.get(i).getAsJsonObject();
+            boolean human = "human".equals(str(s, "kind", ""));
+            if (!human && !"ai".equals(str(s, "kind", ""))) {
+                throw new Refused(400, "Seat " + (i + 1) + " is neither human nor ai");
+            }
+            humans += human ? 1 : 0;
+            Opponents.Opponent curated = human ? null : Opponents.byId(str(s, "opponent", ""));
+            if (!human && s.has("opponent") && curated == null) {
+                throw new Refused(400, "Unknown opponent " + str(s, "opponent", ""));
+            }
+            Deck deck = gameState != null ? new Deck() : deckFor(s, human, commander, curated, preconsTaken, i);
+            String name = str(s, "name", null);
+            if (name == null || name.isBlank()) {
+                name = curated != null ? curated.commander().split(",")[0] : human ? "Player " + (i + 1) : "AI " + i;
+            }
+            name = unique(name.trim(), names);
+
+            RegisteredPlayer rp = commander && gameState == null
+                    ? RegisteredPlayer.forVariants(seatSpecs.size(), variants, deck, null, false, null, null)
+                    : new RegisteredPlayer(deck);
+            if (human) {
+                rp.setPlayer(new LobbyPlayerHuman(name));
+            } else {
+                String profile = curated != null ? curated.profile() : str(s, "profile", null);
+                rp.setPlayer(profile == null ? GamePlayerUtil.createAiPlayer(name, i) : GamePlayerUtil.createAiPlayer(name, i, 0, null, profile));
+            }
+            if (gameState != null) {
+                rp.setStartingHand(0);
+            }
+            players.add(rp);
+            String deckName = gameState != null ? stateName : curated != null ? curated.precon() : Decks.shortName(deck);
+            newSeats.add(new Seat(i, human, name, str(s, "person", null), deckName));
+        }
+        if (humans == 0) {
+            throw new Refused(400, "A game needs at least one human seat");
+        }
+
+        HostedMatch match = new HostedMatch();
+        Map<RegisteredPlayer, IGuiGame> guis = new LinkedHashMap<>();
+        for (int i = 0; i < newSeats.size(); i++) {
+            Seat seat = newSeats.get(i);
+            if (seat.human) {
+                seat.session = new WebGuiGame(match);
+                guis.put(players.get(i), seat.session.gui());
+            }
+        }
+        String id = HexFormat.of().formatHex(Seat.bytes(8));
+        synchronized (lock) {
+            matchId = id;
+            format = commander ? "commander" : "constructed";
+            returnUrl = str(spec, "returnUrl", null);
+            resultsUrl = str(spec, "resultsUrl", null);
+            startedAt = Instant.now();
+            seats = List.copyOf(newSeats);
+            result = null;
+            ending = false;
+            state = State.PLAYING;
+        }
+        if (gameState != null) {
+            match.setStartGameHook(() -> gameState.applyToGameNow(match.getGame()));
+        }
+        match.setOnMatchOver(() -> finished(id));
+        GameRules rules = new GameRules(commander ? GameType.Commander : GameType.Constructed);
+        rules.setGamesPerMatch(1);
+        try {
+            match.startMatch(rules, variants, players, guis, null);
+        } catch (RuntimeException e) {
+            synchronized (lock) {
+                state = State.IDLE;
+                seats = List.of();
+            }
+            for (Seat s : newSeats) {
+                if (s.session != null) {
+                    s.session.dispose();
+                }
+            }
+            throw e;
+        }
+
+        JsonObject o = new JsonObject();
+        o.addProperty("matchId", id);
+        JsonArray seatsOut = new JsonArray();
+        for (Seat s : newSeats) {
+            JsonObject j = new JsonObject();
+            j.addProperty("index", s.index);
+            j.addProperty("kind", s.human ? "human" : "ai");
+            j.addProperty("name", s.name);
+            if (s.person != null) {
+                j.addProperty("person", s.person);
+            }
+            if (s.ticket != null) {
+                j.addProperty("ticket", s.ticket);
+            }
+            seatsOut.add(j);
+        }
+        o.add("seats", seatsOut);
+        return o;
+    }
+
+    private static Deck deckFor(JsonObject seat, boolean human, boolean commander, Opponents.Opponent curated, Set<String> preconsTaken, int index) {
+        if (curated != null) {
+            String id = "cmdr:precon:" + curated.precon();
+            preconsTaken.add(id);
+            return Decks.commanderDeck(id, true);
+        }
+        JsonObject d = seat.has("deck") && seat.get("deck").isJsonObject() ? seat.getAsJsonObject("deck") : null;
+        if (d == null) {
+            throw new Refused(400, "Seat " + (index + 1) + " has no deck");
+        }
+        String list = str(d, "list", null);
+        if (list != null) {
+            try {
+                return TrackerDeck.parse(str(d, "name", "Deck"), list);
+            } catch (IllegalArgumentException e) {
+                throw new Refused(400, e.getMessage());
+            }
+        }
+        String id = str(d, "id", "");
+        try {
+            if (!commander) {
+                return Decks.constructedDeck(id);
+            }
+            if (id.equals("cmdr:randomprecon")) {
+                id = Decks.randomPrecon(preconsTaken);
+            }
+            preconsTaken.add(id);
+            return Decks.commanderDeck(id, !human);
+        } catch (IllegalArgumentException e) {
+            throw new Refused(400, e.getMessage());
+        }
+    }
+
+    private static String unique(String name, Set<String> taken) {
+        String n = name;
+        for (int k = 2; !taken.add(n.toLowerCase()); k++) {
+            n = name + " " + k;
+        }
+        return n;
+    }
+
+    /** Checks a decklist without starting anything: null when Forge can play it, else what's wrong. */
+    static String checkDeck(JsonObject body) {
+        try {
+            TrackerDeck.parse(str(body, "name", "Deck"), str(body, "list", ""));
+            return null;
+        } catch (IllegalArgumentException e) {
+            return e.getMessage();
+        }
+    }
+
+    /** Ends the match with this id for everyone, at the next moment the game thread is waiting on a player. */
+    boolean end(String id) {
+        List<WebGuiGame> sessions = new ArrayList<>();
+        synchronized (lock) {
+            if (state != State.PLAYING || !id.equals(matchId)) {
+                return false;
+            }
+            ending = true;
+            for (Seat s : seats) {
+                if (s.session != null) {
+                    sessions.add(s.session);
+                }
+            }
+        }
+        for (WebGuiGame s : sessions) {
+            WebEdt.invokeLater(s::endForHost);
+        }
+        return true;
+    }
+
+    JsonObject status() {
+        synchronized (lock) {
+            JsonObject o = new JsonObject();
+            o.addProperty("state", state.name().toLowerCase());
+            if (matchId != null) {
+                o.addProperty("matchId", matchId);
+                o.addProperty("format", format);
+                o.addProperty("startedAt", startedAt.toString());
+                JsonArray arr = new JsonArray();
+                for (Seat s : seats) {
+                    JsonObject j = new JsonObject();
+                    j.addProperty("index", s.index);
+                    j.addProperty("kind", s.human ? "human" : "ai");
+                    j.addProperty("name", s.name);
+                    if (s.person != null) {
+                        j.addProperty("person", s.person);
+                    }
+                    j.addProperty("deck", s.deckName);
+                    if (s.human) {
+                        j.addProperty("connected", s.channel != null);
+                    }
+                    arr.add(j);
+                }
+                o.add("seats", arr);
+            }
+            if (result != null) {
+                o.add("result", result);
+            }
+            return o;
+        }
+    }
+
+    /** The match is over: keep its result for GET /match, send it to resultsUrl, and free the sessions. */
+    private void finished(String id) {
+        List<Seat> done;
+        String url;
+        JsonObject r;
+        synchronized (lock) {
+            if (!id.equals(matchId)) {
+                return;
+            }
+            done = seats;
+            WebGuiGame any = done.stream().filter(s -> s.session != null).map(s -> s.session).findFirst().orElse(null);
+            r = any == null ? new JsonObject() : any.outcome().deepCopy();
+            r.addProperty("matchId", id);
+            r.addProperty("status", ending ? "ended" : r.has("gameOver") && r.get("gameOver").getAsBoolean() ? "finished" : "abandoned");
+            r.remove("gameOver");
+            r.addProperty("startedAt", startedAt.toString());
+            r.addProperty("endedAt", Instant.now().toString());
+            result = r;
+            state = State.FINISHED;
+            url = resultsUrl;
+        }
+        for (Seat s : done) {
+            if (s.session != null) {
+                s.session.dispose();
+            }
+        }
+        if (url != null) {
+            JsonObject body = r.deepCopy();
+            body.add("seats", status().get("seats"));
+            results.send(url, body);
+        }
+    }
+
+    // ---------------------------------------------------------------- saved boards (development)
 
     private List<Path> stateFiles() {
         Map<String, Path> found = new LinkedHashMap<>();
         // bench boards, then the web UI's own small fixtures (tools/states)
-        for (Path dir : List.of(statesDir(), repoRoot.resolve("forge-gui-web").resolve("tools").resolve("states"))) {
+        for (Path dir : List.of(repoRoot.resolve("bench").resolve("states"), repoRoot.resolve("forge-gui-web").resolve("tools").resolve("states"))) {
             if (!Files.isDirectory(dir)) {
                 continue;
             }
@@ -278,541 +523,35 @@ public final class MatchHost {
         return new ArrayList<>(found.values());
     }
 
-    private JsonObject lobby() {
-        JsonObject o = new JsonObject();
-        o.addProperty("t", "lobby");
-        JsonArray decks = new JsonArray();
-        for (String pair : PAIRS) {
-            JsonObject d = new JsonObject();
-            d.addProperty("id", "random:" + pair);
-            d.addProperty("name", "Random " + pair);
-            d.addProperty("colors", canonicalColors(pair));
-            decks.add(d);
-        }
-        for (Deck deck : precons()) {
-            JsonObject d = new JsonObject();
-            d.addProperty("id", "precon:" + deck.getName());
-            d.addProperty("name", deck.getName());
-            d.addProperty("colors", deckColors(deck));
-            decks.add(d);
-        }
-        try {
-            for (Deck deck : FModel.getDecks().getConstructed()) {
-                JsonObject d = new JsonObject();
-                d.addProperty("id", "deck:" + deck.getName());
-                d.addProperty("name", deck.getName());
-                d.addProperty("colors", deckColors(deck));
-                decks.add(d);
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        o.add("decks", decks);
-        o.add("commanderDecks", commanderDecks());
-        o.add("opponents", curatedOpponents());
-        JsonArray states = new JsonArray();
-        for (Path p : stateFiles()) {
-            states.add(p.getFileName().toString());
-        }
-        o.add("states", states);
-        String email;
-        synchronized (seat) {
-            email = ownerEmail;
-        }
-        o.add("games", playLog.recent(email, 12));
-        return o;
-    }
-
-    private static JsonArray commanderDecks() {
-        JsonArray decks = new JsonArray();
-        decks.add(lobbyDeck("cmdr:random", "Random commander", "", "Generated around a random legend"));
-        decks.add(lobbyDeck("cmdr:randomprecon", "Random precon", "", "A different precon for each player"));
-        for (CommanderPrecon p : commanderPrecons()) {
-            decks.add(lobbyDeck("cmdr:precon:" + p.file(), p.name(), p.colors(), p.detail()));
-        }
-        try {
-            for (Deck deck : FModel.getDecks().getCommander()) {
-                decks.add(lobbyDeck("cmdr:deck:" + deck.getName(), deck.getName(), commanderColors(deck.getCommanders()), "Your deck"));
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return decks;
-    }
-
-    private static JsonArray curatedOpponents() {
-        Map<String, CommanderPrecon> byFile = new LinkedHashMap<>();
-        for (CommanderPrecon p : commanderPrecons()) {
-            byFile.put(p.file(), p);
-        }
-        JsonArray out = new JsonArray();
-        for (Opponents.Opponent o : Opponents.ROSTER) {
-            CommanderPrecon p = byFile.get(o.precon());
-            if (p == null) {
-                System.err.println("Curated opponent " + o.id() + " has no precon " + o.precon());
-                continue;
-            }
-            JsonObject j = new JsonObject();
-            j.addProperty("id", o.id());
-            j.addProperty("commander", o.commander());
-            j.addProperty("archetype", o.archetype());
-            j.addProperty("plan", o.plan());
-            j.addProperty("deck", p.name());
-            j.addProperty("colors", p.colors());
-            j.addProperty("profile", o.profile());
-            out.add(j);
-        }
-        return out;
-    }
-
-    private static JsonObject lobbyDeck(String id, String name, String colors, String detail) {
-        JsonObject d = new JsonObject();
-        d.addProperty("id", id);
-        d.addProperty("name", name);
-        d.addProperty("colors", colors);
-        if (detail != null && !detail.isEmpty()) {
-            d.addProperty("detail", detail);
-        }
-        return d;
-    }
-
-    private static String commanderColors(List<PaperCard> commanders) {
-        int mask = 0;
-        for (PaperCard c : commanders) {
-            mask |= c.getRules().getColorIdentity().getColor();
-        }
-        return ViewProjector.colors(ColorSet.fromMask(mask));
-    }
-
-    /**
-     * The commander precons by file name, with the commanders' colour identity. Only each file's
-     * [Commander] lines are read (looked up in the card db); the whole deck is parsed when a match starts.
-     */
-    private static List<CommanderPrecon> commanderPrecons() {
-        List<CommanderPrecon> cached = commanderPrecons;
-        if (cached != null) {
-            return cached;
-        }
-        synchronized (CommanderPrecon.class) {
-            if (commanderPrecons != null) {
-                return commanderPrecons;
-            }
-            long t0 = System.nanoTime();
-            List<CommanderPrecon> list = new ArrayList<>();
-            File[] files = new File(ForgeConstants.COMMANDER_PRECON_DIR).listFiles((d, n) -> n.endsWith(".dck"));
-            if (files != null) {
-                Arrays.sort(files);
-                for (File f : files) {
-                    String file = f.getName().substring(0, f.getName().length() - 4);
-                    Matcher m = PRECON_FILE.matcher(file);
-                    String name = m.matches() ? m.group(1) : file;
-                    String detail = m.matches() ? m.group(2) + " · " + m.group(3) : "";
-                    try {
-                        list.add(new CommanderPrecon(file, name, detail, commanderColors(commandersIn(f.toPath()))));
-                    } catch (Exception e) {
-                        System.err.println("Skipping commander precon " + f + ": " + e);
-                    }
-                }
-            }
-            System.err.println("Indexed " + list.size() + " commander precons in " + (System.nanoTime() - t0) / 1_000_000 + " ms");
-            commanderPrecons = list;
-            return list;
-        }
-    }
-
-    private static List<PaperCard> commandersIn(Path file) throws java.io.IOException {
-        List<PaperCard> out = new ArrayList<>();
-        boolean in = false;
-        for (String line : Files.readAllLines(file)) {
-            String l = line.trim();
-            if (l.startsWith("[")) {
-                in = l.equalsIgnoreCase("[Commander]");
-                continue;
-            }
-            if (!in || l.isEmpty()) {
-                continue;
-            }
-            String name = l.replaceFirst("^\\d+\\s+", "");
-            int bar = name.indexOf('|');
-            if (bar >= 0) {
-                name = name.substring(0, bar);
-            }
-            PaperCard c = StaticData.instance().getCommonCards().getCard(name.trim());
-            if (c != null) {
-                out.add(c);
-            }
-        }
-        return out;
-    }
-
-    private static Deck commanderDeckFor(String id, boolean forAi) {
-        Deck deck = null;
-        if ("cmdr:random".equals(id)) {
-            deck = DeckgenUtil.generateCommanderDeck(forAi, GameType.Commander);
-        } else if (id != null && id.startsWith("cmdr:precon:")) {
-            File f = new File(ForgeConstants.COMMANDER_PRECON_DIR, id.substring("cmdr:precon:".length()) + ".dck");
-            if (f.isFile()) {
-                deck = DeckSerializer.fromFile(f);
-            }
-        } else if (id != null && id.startsWith("cmdr:deck:")) {
-            deck = FModel.getDecks().getCommander().get(id.substring("cmdr:deck:".length()));
-        }
-        if (deck == null) {
-            throw new IllegalArgumentException("Unknown commander deck " + id);
-        }
-        if (deck.getCommanders().isEmpty()) {
-            throw new IllegalArgumentException(deck.getName() + " has no commander");
-        }
-        return deck;
-    }
-
-    /** Precon ids for n seats, all different (while there are enough). */
-    private static List<String> randomPrecons(int n, Set<String> taken) {
-        List<String> ids = new ArrayList<>();
-        for (CommanderPrecon p : commanderPrecons()) {
-            String id = "cmdr:precon:" + p.file();
-            if (!taken.contains(id)) {
-                ids.add(id);
-            }
-        }
-        if (ids.isEmpty()) {
-            throw new IllegalArgumentException("No commander precons found");
-        }
-        Collections.shuffle(ids, MyRandom.getRandom());
-        List<String> out = new ArrayList<>();
-        for (int i = 0; i < n; i++) {
-            out.add(ids.get(i % ids.size()));
-        }
-        return out;
-    }
-
-    /** "Arcane Wizardry" for a precon's "Arcane Wizardry [C17] [2017]". */
-    private static String shortName(Deck deck) {
-        String n = deck.getName() == null ? "" : deck.getName();
-        Matcher m = PRECON_FILE.matcher(n);
-        return m.matches() ? m.group(1) : n;
-    }
-
-    private static String canonicalColors(String s) {
-        StringBuilder sb = new StringBuilder();
-        for (char c : "WUBRG".toCharArray()) {
-            if (s.indexOf(c) >= 0) {
-                sb.append(c);
-            }
-        }
-        return sb.toString();
-    }
-
-    private static String deckColors(Deck deck) {
-        int mask = 0;
-        for (Map.Entry<PaperCard, Integer> e : deck.getMain()) {
-            mask |= e.getKey().getRules().getColor().getColor();
-        }
-        return ViewProjector.colors(ColorSet.fromMask(mask));
-    }
-
-    private static Deck deckFor(String id) {
-        if (id != null && id.startsWith("random:")) {
-            List<String> names = new ArrayList<>();
-            for (char c : id.substring("random:".length()).toUpperCase().toCharArray()) {
-                byte color = MagicColor.fromName(c);
-                if (color != 0) {
-                    names.add(MagicColor.toLongString(color));
-                }
-            }
-            if (names.isEmpty()) {
-                throw new IllegalArgumentException("Bad deck id " + id);
-            }
-            return DeckgenUtil.buildColorDeck(names, null, true);
-        }
-        if (id != null && id.startsWith("deck:")) {
-            Deck d = FModel.getDecks().getConstructed().get(id.substring("deck:".length()));
-            if (d != null) {
-                return d;
-            }
-        }
-        if (id != null && id.startsWith("precon:")) {
-            String name = id.substring("precon:".length());
-            for (Deck d : precons()) {
-                if (name.equals(d.getName())) {
-                    return d;
-                }
-            }
-        }
-        throw new IllegalArgumentException("Unknown deck " + id);
-    }
-
-    private static List<Deck> precons() {
-        List<Deck> cached = loadedPrecons;
-        if (cached != null) {
-            return cached;
-        }
-        synchronized (MatchHost.class) {
-            if (loadedPrecons != null) {
-                return loadedPrecons;
-            }
-            List<Deck> loaded = new ArrayList<>();
-            for (String name : PRECONS) {
-                File file = new File(ForgeConstants.QUEST_PRECON_DIR, name + ".dck");
-                try {
-                    Deck deck = DeckSerializer.fromFile(file);
-                    if (deck == null || deck.getMain() == null || deck.getMain().isEmpty()) {
-                        System.err.println("Skipping precon " + file);
-                        continue;
-                    }
-                    loaded.add(deck);
-                } catch (Exception e) {
-                    System.err.println("Skipping precon " + name);
-                    e.printStackTrace();
-                }
-            }
-            loadedPrecons = loaded;
-            return loaded;
-        }
-    }
-
-    private static String str(JsonObject o, String key, String dflt) {
-        JsonElement e = o.get(key);
-        return e != null && e.isJsonPrimitive() ? e.getAsString() : dflt;
-    }
-
-    private void startMatch(JsonObject msg) {
-        if ("commander".equals(str(msg, "format", "constructed"))) {
-            startCommander(msg);
-            return;
-        }
-        String deck = str(msg, "deck", "random:RG");
-        String oppDeck = str(msg, "opponentDeck", "random:UB");
-        int opponents = 1;
-        try {
-            opponents = Math.max(1, Math.min(3, msg.get("opponents").getAsInt()));
-        } catch (Exception ignored) {
-        }
-
-        Deck mine = deckFor(deck);
-        Deck opp = deckFor(oppDeck);
-        List<RegisteredPlayer> players = new ArrayList<>();
-        RegisteredPlayer human = new RegisteredPlayer(mine);
-        human.setPlayer(seatedPlayer());
-        players.add(human);
-        for (int i = 1; i <= opponents; i++) {
-            RegisteredPlayer ai = new RegisteredPlayer(deckFor(oppDeck));
-            ai.setPlayer(GamePlayerUtil.createAiPlayer("AI " + i, i));
-            players.add(ai);
-        }
-        GameRules rules = new GameRules(GameType.Constructed);
-        rules.setGamesPerMatch(1);
-        launch(rules, null, players, human, null, "constructed", deck, nameOf(mine, deck), oppDeck, nameOf(opp, oppDeck), opponents);
-    }
-
-    /** Commander the way the desktop lobby starts it (GameLobby): forVariants with the Commander variant applied. */
-    private void startCommander(JsonObject msg) {
-        String deck = str(msg, "deck", "cmdr:randomprecon");
-        String oppDeck = str(msg, "opponentDeck", "cmdr:randomprecon");
-        int opponents = 3;
-        try {
-            opponents = Math.max(1, Math.min(3, msg.get("opponents").getAsInt()));
-        } catch (Exception ignored) {
-        }
-        // A tracker deck arrives as its decklist export; the page read it from the tracker with the player's own sign-in.
-        String deckList = str(msg, "deckList", "");
-        String myId = !deckList.isEmpty() ? "tracker:" + str(msg, "trackerDeckId", "")
-                : deck.equals("cmdr:randomprecon") ? randomPrecons(1, Set.of()).get(0) : deck;
-        Deck mine = !deckList.isEmpty() ? TrackerDeck.parse(str(msg, "deckName", "Tracker deck"), deckList) : commanderDeckFor(myId, false);
-        List<Opponents.Opponent> curated = new ArrayList<>();
-        if (msg.has("opponentIds") && msg.get("opponentIds").isJsonArray()) {
-            for (JsonElement e : msg.getAsJsonArray("opponentIds")) {
-                Opponents.Opponent o = Opponents.byId(e.getAsString());
-                if (o == null) {
-                    throw new IllegalArgumentException("Unknown opponent " + e.getAsString());
-                }
-                curated.add(o);
-            }
-            if (curated.isEmpty() || curated.size() > 3) {
-                throw new IllegalArgumentException("Pick one to three opponents");
-            }
-            opponents = curated.size();
-            oppDeck = "curated:" + String.join(",", curated.stream().map(Opponents.Opponent::id).toList());
-        }
-        List<String> oppIds = new ArrayList<>();
-        if (!curated.isEmpty()) {
-            for (Opponents.Opponent o : curated) {
-                oppIds.add("cmdr:precon:" + o.precon());
-            }
-        } else if (oppDeck.equals("cmdr:randomprecon")) {
-            oppIds.addAll(randomPrecons(opponents, Set.of(myId)));
-        } else {
-            for (int i = 0; i < opponents; i++) {
-                oppIds.add(oppDeck);
-            }
-        }
-        Set<GameType> variants = EnumSet.of(GameType.Commander);
-        int seats = opponents + 1;
-        List<RegisteredPlayer> players = new ArrayList<>();
-        RegisteredPlayer human = RegisteredPlayer.forVariants(seats, variants, mine, null, false, null, null);
-        human.setPlayer(seatedPlayer());
-        players.add(human);
-        List<String> oppNames = new ArrayList<>();
-        for (int i = 1; i <= opponents; i++) {
-            Deck d = commanderDeckFor(oppIds.get(i - 1), true);
-            RegisteredPlayer ai = RegisteredPlayer.forVariants(seats, variants, d, null, false, null, null);
-            if (curated.isEmpty()) {
-                oppNames.add(shortName(d));
-                ai.setPlayer(GamePlayerUtil.createAiPlayer("AI " + i, i));
-            } else {
-                // The seat is named for its commander ("Neyali"), and plays with the profile that suits its plan.
-                Opponents.Opponent o = curated.get(i - 1);
-                String seatName = o.commander().split(",")[0];
-                oppNames.add(seatName + " (" + o.archetype().toLowerCase() + ")");
-                ai.setPlayer(GamePlayerUtil.createAiPlayer(seatName, i, 0, null, o.profile()));
-            }
-            players.add(ai);
-        }
-        GameRules rules = new GameRules(GameType.Commander);
-        rules.setGamesPerMatch(1);
-        launch(rules, variants, players, human, null, "commander", myId, shortName(mine), oppDeck, String.join(", ", oppNames), opponents);
-    }
-
-    private void startState(JsonObject msg) throws Exception {
-        String name = str(msg, "state", "");
-        Path file = null;
+    private Path stateFile(String name) {
         for (Path p : stateFiles()) {
             if (p.getFileName().toString().equals(name)) {
-                file = p;
+                return p;
             }
         }
-        if (file == null) {
-            throw new IllegalArgumentException("Unknown state " + name);
-        }
-        GameState state = new GameState();
-        try (InputStream in = Files.newInputStream(file)) {
-            state.parse(in);
-        }
-        boolean commander = Files.readString(file).contains("IsCommander");
-        GameType type = commander ? GameType.Commander : GameType.Constructed;
-
-        // the state sets every zone, so players don't need decks (same as SimulateMatch -state)
-        List<RegisteredPlayer> players = new ArrayList<>();
-        RegisteredPlayer human = null;
-        for (int p = 0; p < state.getPlayerCount(); p++) {
-            RegisteredPlayer rp = new RegisteredPlayer(new Deck());
-            rp.setPlayer(p == 0 ? seatedPlayer() : GamePlayerUtil.createAiPlayer("AI " + p, p));
-            rp.setStartingHand(0);
-            if (p == 0) {
-                human = rp;
-            }
-            players.add(rp);
-        }
-        GameRules rules = new GameRules(type);
-        rules.setGamesPerMatch(1);
-        String label = "state:" + name;
-        launch(rules, commander ? EnumSet.of(type) : null, players, human, state, commander ? "commander" : "constructed", label, name, label, name, Math.max(0, players.size() - 1));
+        throw new Refused(400, "Unknown state " + name);
     }
 
-    private LobbyPlayer seatedPlayer() {
-        synchronized (seat) {
-            return ownerName == null ? GamePlayerUtil.getGuiPlayer() : new LobbyPlayerHuman(ownerName);
-        }
-    }
-
-    private static String nameOf(Deck deck, String fallback) {
-        String n = deck == null ? null : deck.getName();
-        return n == null || n.isBlank() ? fallback : n;
-    }
-
-    private void launch(GameRules rules, Set<GameType> variants, List<RegisteredPlayer> players, RegisteredPlayer human, GameState state,
-            String format, String deckId, String deckName, String oppId, String oppName, int opponents) {
-        HostedMatch match = new HostedMatch();
-        WebGuiGame gui = new WebGuiGame(match);
-        session = gui;
-        ClientChannel ch = channel;
-        if (ch != null) {
-            gui.onConnect(ch);
-        }
-        if (state != null) {
-            match.setStartGameHook(() -> state.applyToGameNow(match.getGame()));
-        }
-        match.setOnMatchOver(() -> {
-            endGame(gui);
-            if (session == gui) {
-                session = null;
-            }
-            gui.dispose();
-            ClientChannel c = channel;
-            if (c != null) {
-                c.send(lobby());
-            }
-        });
-        beginGame(format, deckId, deckName, oppId, oppName, opponents);
-        Map<RegisteredPlayer, IGuiGame> guis = Map.of(human, gui.gui());
+    private String readState(String name) {
         try {
-            match.startMatch(rules, variants, players, guis, null);
-        } catch (RuntimeException e) {
-            endGame(gui);
-            session = null;
-            gui.dispose();
-            throw e;
+            return Files.readString(stateFile(name));
+        } catch (java.io.IOException e) {
+            throw new Refused(400, "Can't read state " + name);
         }
     }
 
-    /** The record the tracker can read. Written before the match blocks, closed when it ends. */
-    private void beginGame(String format, String deckId, String deckName, String oppId, String oppName, int opponents) {
-        String id = UUID.randomUUID().toString();
-        String email;
-        String name;
-        synchronized (seat) {
-            email = ownerEmail;
-            name = ownerName == null ? "You" : ownerName;
-            gameId = id;
+    private GameState loadState(String name) {
+        GameState gs = new GameState();
+        try (InputStream in = Files.newInputStream(stateFile(name))) {
+            gs.parse(in);
+        } catch (Exception e) {
+            throw new Refused(400, "Can't read state " + name + ": " + e.getMessage());
         }
-        JsonObject g = new JsonObject();
-        g.addProperty("id", id);
-        if (email != null) {
-            g.addProperty("email", email);
-        }
-        g.addProperty("name", name);
-        g.addProperty("startedAt", Instant.now().toString());
-        g.add("endedAt", JsonNull.INSTANCE);
-        g.addProperty("status", "playing");
-        g.addProperty("deck", deckId);
-        g.addProperty("deckName", deckName);
-        g.addProperty("opponentDeck", oppId);
-        g.addProperty("opponentDeckName", oppName);
-        g.addProperty("opponents", opponents);
-        g.addProperty("format", format);
-        g.add("winner", JsonNull.INSTANCE);
-        g.add("turn", JsonNull.INSTANCE);
-        g.add("summary", JsonNull.INSTANCE);
-        g.add("log", new JsonArray());
-        try {
-            playLog.begin(g);
-        } catch (RuntimeException e) {
-            e.printStackTrace();
-        }
+        return gs;
     }
 
-    private void endGame(WebGuiGame gui) {
-        String id;
-        synchronized (seat) {
-            id = gameId;
-            gameId = null;
-        }
-        if (id == null) {
-            return;
-        }
-        try {
-            playLog.finish(id, gui.outcome());
-        } catch (RuntimeException e) {
-            e.printStackTrace();
-        }
-    }
-
-    /** Games for the person this token names, or local games when Access is not configured. */
-    JsonObject gamesApi(String jwt, String id) {
-        String email = access == null ? null : access.email(jwt);
-        if (id == null || id.isEmpty()) {
-            return playLog.list(email);
-        }
-        return playLog.one(email, id);
+    static String str(JsonObject o, String key, String dflt) {
+        JsonElement e = o.get(key);
+        return e != null && e.isJsonPrimitive() ? e.getAsString() : dflt;
     }
 }

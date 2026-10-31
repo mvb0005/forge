@@ -42,21 +42,33 @@ public final class WebMain {
         String bind = System.getProperty("forge.web.host", "127.0.0.1");
         String pics = System.getProperty("forge.web.pics");
         String ui = System.getProperty("forge.web.ui");
+        String prefix = "/play/table";
+        int controlPort = 7790;
+        String controlBind = null;
         for (int i = 0; i < args.length - 1; i++) {
             switch (args[i]) {
                 case "--port" -> port = Integer.parseInt(args[++i]);
                 case "--host" -> bind = args[++i];
                 case "--pics" -> pics = args[++i];
                 case "--ui" -> ui = args[++i];
+                case "--prefix" -> prefix = args[++i];
+                case "--control-port" -> controlPort = Integer.parseInt(args[++i]);
+                case "--control-host" -> controlBind = args[++i];
                 default -> { }
             }
         }
+        if (controlBind == null) {
+            controlBind = bind;
+        }
 
-        AccessIdentity access = AccessIdentity.fromEnv();
-        if (access == null && !InetAddress.getByName(bind).isLoopbackAddress()) {
-            // Without Access anyone who can reach the port gets the table and the game history.
-            System.err.println("Refusing to listen on " + bind + " without Cloudflare Access."
-                    + " Set CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD, or bind 127.0.0.1.");
+        // Whoever reaches the control port can start and end matches; off this machine it needs the secret.
+        String secret = System.getenv("FORGE_CONTROL_SECRET");
+        if (secret != null && secret.isBlank()) {
+            secret = null;
+        }
+        if (secret == null && !InetAddress.getByName(controlBind).isLoopbackAddress()) {
+            System.err.println("Refusing to open the control API on " + controlBind + " without FORGE_CONTROL_SECRET."
+                    + " Set it, or bind the control API to 127.0.0.1 (--control-host).");
             System.exit(2);
         }
 
@@ -86,11 +98,11 @@ public final class WebMain {
         }
 
         Path uiDir = ui != null ? Path.of(ui) : repoRoot.resolve("forge-gui-web").resolve("ui").resolve("dist");
-        System.out.println(access == null ? "Play auth: open (a local seat, not a person)" : "Play auth: Cloudflare Access");
-        MatchHost host = new MatchHost(repoRoot, access, PlayLog.open());
-        WebServer server = new WebServer(port, Files.isDirectory(uiDir) ? uiDir : null, host);
+        MatchHost host = new MatchHost(repoRoot, new ResultsSender(secret));
+        new ControlServer(controlPort, host, secret).start(controlBind);
+        WebServer server = new WebServer(port, Files.isDirectory(uiDir) ? uiDir : null, host, prefix);
         server.start(bind);
-        System.out.println("Forge web listening on http://" + bind + ":" + port + "/ (ui: " + (Files.isDirectory(uiDir) ? uiDir : "none") + ")");
+        System.out.println("Forge web listening on http://" + bind + ":" + port + prefix + "/ (ui: " + (Files.isDirectory(uiDir) ? uiDir : "none") + ")");
         server.awaitClose();
     }
 
