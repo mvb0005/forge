@@ -1,0 +1,18 @@
+# ClusterIP only: reach it locally with `deploy/minikube.sh forward`, or publicly through
+# mtg-tracker's Cloudflare Tunnel connector, whose /play route points at
+#   http://forge-web.mtgtracker.svc.cluster.local:7780 (an alias for this service, see bridge/)
+apiVersion: v1
+kind: Service
+metadata:
+  name: forge-web
+spec:
+  selector:
+    app: forge-web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+    # The port the tunnel's /play route already names (bridge/), from when the server ran in Docker.
+    - name: tunnel
+      port: 7780
+      targetPort: http

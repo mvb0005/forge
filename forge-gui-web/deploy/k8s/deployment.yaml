@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forge-web
+  labels:
+    app: forge-web
+spec:
+  # One table per game server (docs/MULTIPLAYER.md D-M1), and a running game lives in memory:
+  # never two pods at once.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: forge-web
+  template:
+    metadata:
+      labels:
+        app: forge-web
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: web
+          image: forge-web:dev
+          imagePullPolicy: Never  # loaded straight into minikube's runtime
+          env:
+            - name: JAVA_OPTS
+              value: -Xmx3g
+            # Same Cloudflare Access application as mtg-tracker. A seat is that verified person.
+            - name: CF_ACCESS_TEAM_DOMAIN
+              value: mattbonsall.cloudflareaccess.com
+            - name: CF_ACCESS_AUD
+              value: 1a6309f80efd31267954a4393b4437e86f6b21f977a143bc8ab35a54c8eac2e4
+            # Who a signed-in person is on the tracker (M11.1): asked in-cluster with their own Access token.
+            - name: TRACKER_URL
+              value: http://mtgtracker.mtgtracker.svc.cluster.local
+          ports:
+            - name: http
+              containerPort: 7777
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: pics
+              mountPath: /pics
+              readOnly: true
+          # Loading the card database takes a while; the table isn't up until then.
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 4Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: forge-data
+        - name: pics
+          persistentVolumeClaim:
+            claimName: forge-pics
