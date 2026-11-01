@@ -22,6 +22,7 @@ import java.io.File;
 import java.net.InetAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -45,6 +46,9 @@ public final class WebMain {
         String prefix = "/play/table";
         int controlPort = 7790;
         String controlBind = null;
+        boolean oneMatch = List.of(args).contains("--one-match");
+        int linger = 600;
+        int abandon = 600;
         for (int i = 0; i < args.length - 1; i++) {
             switch (args[i]) {
                 case "--port" -> port = Integer.parseInt(args[++i]);
@@ -54,6 +58,8 @@ public final class WebMain {
                 case "--prefix" -> prefix = args[++i];
                 case "--control-port" -> controlPort = Integer.parseInt(args[++i]);
                 case "--control-host" -> controlBind = args[++i];
+                case "--linger" -> linger = Integer.parseInt(args[++i]);
+                case "--abandon" -> abandon = Integer.parseInt(args[++i]);
                 default -> { }
             }
         }
@@ -99,6 +105,9 @@ public final class WebMain {
 
         Path uiDir = ui != null ? Path.of(ui) : repoRoot.resolve("forge-gui-web").resolve("ui").resolve("dist");
         MatchHost host = new MatchHost(repoRoot, new ResultsSender(secret));
+        if (oneMatch) {
+            host.oneMatch(Duration.ofSeconds(linger), Duration.ofSeconds(abandon));
+        }
         new ControlServer(controlPort, host, secret).start(controlBind);
         WebServer server = new WebServer(port, Files.isDirectory(uiDir) ? uiDir : null, host, prefix);
         server.start(bind);

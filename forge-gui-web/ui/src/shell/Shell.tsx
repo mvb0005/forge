@@ -6,7 +6,7 @@ import { GameOverModal, Toasts } from './Global'
 import '@fontsource/spectral/latin-700.css'
 import './landing.css'
 
-type Link = 'connecting' | 'open' | 'retrying' | 'noSeat' | 'replaced'
+type Link = 'connecting' | 'open' | 'retrying' | 'noSeat' | 'replaced' | 'over'
 
 const SEAT_REPLACED = 4001
 const NO_SEAT = 4004
@@ -42,6 +42,8 @@ function useConnection() {
     let ws: WebSocket | null = null
     let timer: ReturnType<typeof setTimeout> | undefined
     let delay = 500
+    // Once the match is over, a closed socket is the table closing (a table pod exits after its game), not a blip.
+    let over = false
     const { apply, setConnected, clearAsk } = useForge.getState()
     const ticket = seatTicket()
 
@@ -71,6 +73,7 @@ function useConnection() {
           console.warn('bad frame', e.data)
           return
         }
+        if (m.t === 'gameOver' || m.t === 'ended') over = true
         try {
           apply(m)
         } catch (err) {
@@ -89,6 +92,10 @@ function useConnection() {
         }
         if (ev.code === SEAT_REPLACED) {
           setLink('replaced')
+          return
+        }
+        if (over) {
+          setLink('over')
           return
         }
         setLink('retrying')
@@ -117,9 +124,9 @@ export function Shell({ match }: { match: ReactNode }) {
     <>
       {closed ? <SeatClosed link={link} note={note} />
         : inMatch ? <div className="fixed inset-0">{match}</div>
-        : ended ? <Ended summary={ended.summary} />
+        : ended || link === 'over' ? <Ended summary={ended?.summary ?? null} />
         : <Splash link={link} />}
-      {link !== 'open' && !closed && inMatch && <LinkBadge link={link} retryIn={retryIn} />}
+      {link !== 'open' && link !== 'over' && !closed && inMatch && <LinkBadge link={link} retryIn={retryIn} />}
       <Toasts />
       <GameOverModal />
     </>
