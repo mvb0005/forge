@@ -49,7 +49,8 @@ export type Frame = {
 export function tableFrame(view: { w: number; h: number }, strips: boolean, stackLen: number, _combat = false, fanout = false): Frame {
   const sideW = clamp(view.w * 0.15, 220, 300)
   const leftW = Math.max(400, view.w - sideW)
-  const seatW = clamp(view.w * 0.1, 150, 210)
+  // With every player in a band, the left gutter is each band's player border: plaque and command zone.
+  const seatW = fanout ? clamp(view.w * 0.15, 210, 260) : clamp(view.w * 0.1, 150, 210)
   const actW = clamp(view.w * 0.14, 220, 300)
   const handH = clamp(view.h * 0.15, 100, 168)
   const x0 = EDGE

@@ -51,7 +51,8 @@ describe('table layouts', () => {
       for (const [pid, p] of placements) for (const id of [pid, ...(p.memberIds ?? [])]) covered.set(id, (covered.get(id) ?? 0) + 1)
       for (const id of [...me.zones.battlefield, ...opp.zones.battlefield, ...me.zones.hand]) expect(covered.get(id), `card ${id}`).toBe(1)
       for (const [, p] of placements) {
-        if (p.kind === 'field') expect(inside(p, p.edge === 'bottom' ? regions.top : regions.bottom), `field ${p.x},${p.y}`).toBe(true)
+        // With bands, an attacker can sit in its defender's band (on your side, say), so it is inside either.
+        if (p.kind === 'field') expect(inside(p, p.edge === 'bottom' ? regions.top : regions.bottom) || inside(p, p.edge === 'bottom' ? regions.bottom : regions.top), `field ${p.x},${p.y}`).toBe(true)
         if (p.kind === 'hand') expect(p.x >= regions.hand.x - 0.5 && p.x + p.w <= regions.hand.x + regions.hand.w + 0.5).toBe(true)
       }
     })
@@ -218,9 +219,13 @@ describe('table layouts', () => {
     expect(mine.regions['half:4'].y).toBeLessThan(mine.regions['half:1'].y)
     expect(mine.regions['half:1'].h).toBeGreaterThan(mine.regions['half:2'].h * 1.5)
     expect(mine.regions['half:2'].h).toBeCloseTo(mine.regions['half:4'].h)
-    for (const id of [2, 3, 4]) expect(mine.regions[`seat:${id}`].x).toBeGreaterThan(mine.regions[`field:${id}`].x + mine.regions[`field:${id}`].w - 1)
-    // Yours is beside your hand, clear of the control panel and of the other seats.
-    expect(mine.regions['seat:1'].y).toBeGreaterThanOrEqual(mine.regions['field:1'].y + mine.regions['field:1'].h)
+    // Every player's border is the left gutter of their own band, clear of the battlefield.
+    for (const id of [1, 2, 3, 4]) {
+      const border = mine.regions[`border:${id}`]
+      expect(border.x + border.w).toBeLessThanOrEqual(mine.regions[`field:${id}`].x)
+      expect(border.y).toBeCloseTo(mine.regions[`half:${id}`].y)
+      expect(border.h).toBeCloseTo(mine.regions[`half:${id}`].h)
+    }
     const seen = covered(mine.placements)
     for (const pid of [1, 2, 3, 4]) for (const id of s.players![pid].zones.battlefield) expect(seen.get(id), `card ${id}`).toBe(1)
     for (const [, p] of mine.placements) {
@@ -231,17 +236,18 @@ describe('table layouts', () => {
     expect(ordered.regions['half:4'].y).toBeLessThan(ordered.regions['half:2'].y)
     expect(ordered.regions['half:2'].y).toBeLessThan(ordered.regions['half:3'].y)
 
+    // Krenko attacks you: in combat the attacked player has the tall band, the attacker's shrinks.
     const theirs = run(input(s))
     expect(theirs.regions.strips).toBeUndefined()
     for (const id of [1, 2, 3, 4]) expect(theirs.regions[`half:${id}`]).toBeTruthy()
-    expect(theirs.regions['half:4'].h).toBeGreaterThan(theirs.regions['half:2'].h * 1.5)
+    expect(theirs.regions['half:1'].h).toBeGreaterThan(theirs.regions['half:2'].h * 1.5)
     expect(theirs.regions['half:2'].h).toBeCloseTo(theirs.regions['half:3'].h)
-    expect(theirs.regions['half:1'].h).toBeCloseTo(theirs.regions['half:2'].h)
+    expect(theirs.regions['half:4'].h).toBeCloseTo(theirs.regions['half:2'].h)
     const focusSeen = covered(theirs.placements)
     for (const pid of [1, 2, 3, 4]) for (const id of s.players![pid].zones.battlefield) expect(focusSeen.get(id), `card ${id}`).toBe(1)
   })
 
-  it('keeps each attacker on their own band', () => {
+  it("brings each attacker to the player it attacks, over that player's blockers", () => {
     const s = fixture('four')
     const base = input(s, { game: { ...s.game!, activePlayerId: 1, phase: 'COMBAT_DECLARE_ATTACKERS' } })
     const spirit = Object.values(base.cards).find((c) => c.name === 'Selfless Spirit')!
@@ -261,9 +267,12 @@ describe('table layouts', () => {
       return p!
     }
     const sx = (p: Placement, r: Region) => p.x >= r.x - 1 && p.x + p.w <= r.x + r.w + 1 && p.y >= r.y - 1 && p.y <= r.y + r.h
-    expect(sx(at(spirit.id), lay.regions['field:1'])).toBe(true)
-    expect(sx(at(knight.id), lay.regions['field:1'])).toBe(true)
+    expect(sx(at(spirit.id), lay.regions['field:2'])).toBe(true)
+    expect(sx(at(knight.id), lay.regions['field:4'])).toBe(true)
     expect(sx(at(atraxa.id), lay.regions['field:2'])).toBe(true)
+    expect(at(atraxa.id).y, "the blocker is under the attacker it blocks").toBeGreaterThan(at(spirit.id).y)
+    expect(Math.abs(at(atraxa.id).x - at(spirit.id).x), 'in the same column').toBeLessThan(at(spirit.id).w)
+    expect(lay.regions['half:2'].h).toBeGreaterThan(lay.regions['half:1'].h * 1.5)
     expect(lay.placements.get(urza.id)?.kind).toBe('field')
     const home = Object.values(base.cards).filter((c) => c.name === 'Knight Ally' && c.id !== knight.id)
     expect(home.length).toBeGreaterThan(0)
