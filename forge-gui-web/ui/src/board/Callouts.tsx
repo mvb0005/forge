@@ -151,12 +151,14 @@ export function Callouts({ regions }: { regions: Record<string, Region> }) {
       {[...lines].map(([id, ls]) => {
         const border = regions[`border:${id}`]
         if (!border || !ls.length) return null
+        const fight = regions[`engage:${id}`] // an attacked player's callout sits past the fight, not over it
+        const at = fight ? fight.x + fight.w + 14 : border.x + border.w + 6
         const yours = meIds.includes(id) && ls.some((l) => l.tone === 'you')
         const accent = TONE[ls[0].tone]
         return (
           <div key={id} className="bf-pop lk-text"
             style={{
-              position: 'absolute', left: border.x + border.w + 6, top: border.y + 8, zIndex: 21, maxWidth: 320, minWidth: 180, pointerEvents: 'none',
+              position: 'absolute', left: at, top: border.y + 8, zIndex: 21, maxWidth: 320, minWidth: 180, pointerEvents: 'none',
               padding: '7px 11px 8px 12px', borderRadius: 5, color: 'var(--lk-parchment-dim)', fontSize: 13, lineHeight: 1.35,
               background: yours ? 'linear-gradient(rgb(245 213 138 / .14), rgb(245 213 138 / .05)), rgb(18 14 10 / .94)' : 'rgb(18 14 10 / .92)',
               boxShadow: `0 0 0 1px ${yours ? 'var(--lk-gold-soft)' : 'var(--lk-metal-line)'}, 0 4px 16px rgb(0 0 0 / .5)${yours ? ', 0 0 22px rgb(245 213 138 / .14)' : ''}`,
