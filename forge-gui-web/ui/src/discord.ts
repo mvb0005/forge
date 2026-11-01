@@ -29,15 +29,36 @@ export function backUrl(url: string | null): string | null {
   return `${url}?${q}`
 }
 
+/** One line in the tracker's log per step of the voice setup: the Activity's console is out of sight. */
+function trace(step: string, detail = '') {
+  try {
+    void fetch('/.proxy/api/trace', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ step, detail }) })
+  } catch {
+    // nothing to do
+  }
+}
+
 /** Signs in to Discord again, asking for voice too, and follows who is speaking. */
 export async function listenForVoice() {
-  if (!inDiscord) return
+  const inFrame = (() => {
+    try {
+      return window.parent !== window
+    } catch {
+      return true
+    }
+  })()
+  if (!inDiscord) {
+    if (inFrame) trace('not started', `no frame_id in ${location.search.slice(0, 120)}`)
+    return
+  }
   const clientId = new URLSearchParams(location.search).get('app')
-  if (!clientId) return
+  if (!clientId) return trace('not started', 'no app id')
+  trace('start')
   try {
     const { DiscordSDK, Events } = await import('@discord/embedded-app-sdk')
     const sdk = new DiscordSDK(clientId)
     await sdk.ready()
+    trace('ready', `channel ${sdk.channelId ?? 'none'}`)
     // Voice is asked for here, not in the lobby: Discord shows its consent prompt the first time (it won't
     // grant this scope silently), and a refusal only means no rings.
     const { code } = await sdk.commands.authorize({
@@ -46,11 +67,13 @@ export async function listenForVoice() {
       state: '',
       scope: ['identify', 'guilds.members.read', 'rpc.voice.read'],
     })
+    trace('authorized')
     const res = await fetch('/.proxy/api/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) })
-    if (!res.ok) return
+    if (!res.ok) return trace('session refused', String(res.status))
     const { accessToken } = await res.json()
     await sdk.commands.authenticate({ access_token: accessToken })
-    if (!sdk.channelId) return
+    trace('authenticated')
+    if (!sdk.channelId) return trace('no channel')
     const set = (id: string, on: boolean) =>
       useForge.setState((s) => {
         const speaking = new Set(s.speaking)
@@ -60,7 +83,8 @@ export async function listenForVoice() {
       })
     await sdk.subscribe(Events.SPEAKING_START, (e: { user_id: string }) => set(e.user_id, true), { channel_id: sdk.channelId })
     await sdk.subscribe(Events.SPEAKING_STOP, (e: { user_id: string }) => set(e.user_id, false), { channel_id: sdk.channelId })
+    trace('listening', `channel ${sdk.channelId}`)
   } catch (e) {
-    console.warn('Discord voice unavailable', e) // a text channel launch, or no voice permission: no rings
+    trace('failed', e instanceof Error ? e.message : JSON.stringify(e))
   }
 }
