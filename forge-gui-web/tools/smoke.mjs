@@ -6,6 +6,8 @@
 //                             [--concede-on-ai]  with --turns: concede during an AI's turn instead of at our priority
 //                             [--tracker-deck FILE] [--curated neyali,jeleva]  Commander with an mtg-tracker decklist export
 //                             (tools/decks/) and/or curated opponents from the control API's `opponents` roster
+//                             [--join MATCHID:TICKET]  play a match someone else started (the tracker), through the
+//                             router at /play/table/<id>/ on --port; no control API calls
 // Policy: answer asks with a valid default; in our main phases with OK enabled, first try each playable
 // card once (lands first) unless --passive, then OK; otherwise click a selectable (Cancel after 5 repeats
 // of the same prompt); otherwise a selectable player; otherwise Cancel; with nothing enabled at all, click our
@@ -292,20 +294,22 @@ function matchSpec() {
   return { version: 1, format, seats: [me, ...ais], returnUrl: "/" };
 }
 
-if (curated) {
+const join = opt("join", null);
+if (curated && !join) {
   const roster = (await control("GET", "/opponents")).body.opponents || [];
   console.log(`control: ${roster.length} curated opponents: ${roster.map((o) => `${o.id} (${o.archetype}, ${o.profile})`).join(", ")}`);
   for (const id of curated.split(",")) if (!roster.some((o) => o.id === id)) { errors++; console.log("opponent not listed:", id); }
 }
-const startRes = await control("POST", "/match", matchSpec());
+const [joinId, joinTicket] = join ? join.split(":") : [];
+const startRes = join ? { status: 201, body: { matchId: joinId, seats: [{ ticket: joinTicket }] } } : await control("POST", "/match", matchSpec());
 if (startRes.status !== 201) {
   console.log(`control: POST /match refused (${startRes.status}): ${startRes.body.error}`);
   process.exit(1);
 }
 const mySeat = startRes.body.seats.find((s) => s.ticket);
-console.log(`control: match ${startRes.body.matchId}, seats ${startRes.body.seats.map((s) => `${s.name} (${s.kind})`).join(", ")}`);
+if (!join) console.log(`control: match ${startRes.body.matchId}, seats ${startRes.body.seats.map((s) => `${s.name} (${s.kind})`).join(", ")}`);
 started = true;
-const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?ticket=${mySeat.ticket}`);
+const ws = new WebSocket(join ? `ws://127.0.0.1:${port}/play/table/${joinId}/ws?ticket=${joinTicket}` : `ws://127.0.0.1:${port}/ws?ticket=${mySeat.ticket}`);
 const send = (o) => {
   if (verbose) console.log(">>", JSON.stringify(o).slice(0, 200));
   ws.send(JSON.stringify(o));
@@ -594,6 +598,7 @@ ws.onmessage = (ev) => {
       gameOver = m;
       console.log(`gameOver: ${m.summary}`);
       setTimeout(async () => {
+        if (join) return finish(0);
         // the tracker reads the result back from the control API
         const st = (await control("GET", "/match")).body;
         if (st.state !== "finished" || st.matchId !== startRes.body.matchId || !st.result || !st.result.status) {

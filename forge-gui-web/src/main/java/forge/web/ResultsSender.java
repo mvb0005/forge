@@ -6,11 +6,12 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 /**
- * Posts a finished match's result to the URL its spec named (the tracker), with the control secret, so the
- * tracker can tell it came from here. Retries a few times; GET /match keeps the result too, so a result that
+ * Posts a finished match's result, and each seat's replay, to the URLs its spec named (the tracker), with the
+ * control secret, so the tracker can tell they came from here. Retries a few times; GET /match keeps the result too, so a result that
  * never arrives can still be read until the next match starts. The tracker treats it as idempotent by matchId.
  */
 final class ResultsSender {
@@ -23,18 +24,22 @@ final class ResultsSender {
     }
 
     void send(String url, JsonObject result) {
-        Thread t = new Thread(() -> post(url, result.toString()), "results");
+        send(url, result.toString().getBytes(StandardCharsets.UTF_8), "application/json");
+    }
+
+    void send(String url, byte[] body, String contentType) {
+        Thread t = new Thread(() -> post(url, body, contentType), "results");
         t.setDaemon(true);
         t.start();
     }
 
-    private void post(String url, String body) {
+    private void post(String url, byte[] body, String contentType) {
         for (int i = 0; i < ATTEMPTS; i++) {
             try {
                 HttpRequest.Builder req = HttpRequest.newBuilder(URI.create(url))
-                        .timeout(Duration.ofSeconds(10))
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(body));
+                        .timeout(Duration.ofSeconds(30))
+                        .header("Content-Type", contentType)
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(body));
                 if (secret != null) {
                     req.header("Authorization", "Bearer " + secret);
                 }
@@ -42,9 +47,9 @@ final class ResultsSender {
                 if (status / 100 == 2) {
                     return;
                 }
-                System.err.println("Results to " + url + ": HTTP " + status);
+                System.err.println("POST " + url + ": HTTP " + status);
             } catch (Exception e) {
-                System.err.println("Results to " + url + ": " + e);
+                System.err.println("POST " + url + ": " + e);
             }
             try {
                 Thread.sleep(2000L << i);
@@ -53,6 +58,6 @@ final class ResultsSender {
                 return;
             }
         }
-        System.err.println("Gave up sending results to " + url);
+        System.err.println("Gave up sending to " + url);
     }
 }

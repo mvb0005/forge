@@ -92,6 +92,10 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     // everything below that is not volatile is guarded by io, which also orders every outgoing message
     private final Object io = new Object();
     private ClientChannel channel;
+    /** This seat's replay, if the match records one: everything sent, connected or not. */
+    private Recorder recorder;
+    private boolean capturing;
+    private JsonObject captured;
     private boolean forceFull = true;
     private boolean resendAfterFull = true;
     private long seq;
@@ -231,9 +235,42 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     }
 
     private void sendLocked(JsonObject m) {
+        if (capturing) {
+            captured = m;
+            return;
+        }
+        if (recorder != null) {
+            recorder.add(m.toString());
+        }
         ClientChannel ch = channel;
         if (ch != null) {
             ch.send(m);
+        }
+    }
+
+    void record(Recorder r) {
+        synchronized (io) {
+            recorder = r;
+        }
+    }
+
+    /** A full state of the board as this seat sees it now, sent and recorded nowhere (a replay's last line). */
+    String snapshot() {
+        synchronized (io) {
+            capturing = true;
+            captured = null;
+            boolean wasFull = forceFull;
+            boolean resend = resendAfterFull;
+            forceFull = true;
+            resendAfterFull = false;
+            try {
+                flushLocked();
+            } finally {
+                capturing = false;
+                resendAfterFull = resend;
+                forceFull = wasFull || captured != null;
+            }
+            return captured == null ? null : captured.toString();
         }
     }
 
@@ -282,7 +319,7 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
 
     private void flushLocked() {
         GameView gv = getGameView();
-        if (gv == null || channel == null) {
+        if (gv == null || channel == null && recorder == null && !capturing) {
             return;
         }
         long t0 = System.nanoTime();
@@ -1626,10 +1663,9 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
             GameLog gl = gv.getGameLog();
             JsonArray log = new JsonArray();
             if (gl != null) {
-                List<GameLogEntry> entries = gl.getAllEntries();
-                int from = Math.max(0, entries.size() - 800);
-                for (int i = from; i < entries.size(); i++) {
-                    log.add(entries.get(i).toString());
+                // the whole game: the tracker keeps it as the game's history
+                for (GameLogEntry e : gl.getAllEntries()) {
+                    log.add(e.toString());
                 }
             }
             o.add("log", log);

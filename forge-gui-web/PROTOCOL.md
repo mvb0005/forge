@@ -58,6 +58,7 @@ type MatchSpec = {
   state?: string;                          // development: start from a saved board; seats may then be omitted (you, then AIs)
   returnUrl?: string;                      // where the table's "Back" links go (the tracker's play page)
   resultsUrl?: string;                     // POSTed the result when the match ends (below)
+  replayUrl?: string;                      // each human seat's replay is POSTed to <replayUrl>/<matchId>/<seat> (below)
 };
 type Seat =
   | { kind: "human"; name?: string; person?: string; deck: Deck }
@@ -81,10 +82,30 @@ type Result = {
   status: "finished" | "ended" | "abandoned";   // played out, ended through DELETE, or stopped without an outcome
   winner?: string; turn: number; summary: string;
   startedAt: string; endedAt: string;
-  log: string[];                                 // the game log, oldest first, capped at 800 lines
+  log: string[];                                 // the whole game log, oldest first
   seats: { index: number; kind: "human" | "ai"; name: string; person?: string; deck: string; connected?: boolean }[];
 };
 ```
+
+**Replays.** With `replayUrl`, each human seat's session records every message it is sent, in order, from the
+start of the match to its end, whether or not a browser is connected (while nobody is, the server keeps
+building that seat's state for the recording; a reconnect still gets a full state). When the match ends,
+finished, ended or abandoned, the file is POSTed to `<replayUrl>/<matchId>/<seat>` as `application/gzip`
+with the control secret, retried like results. It is gzipped JSON lines:
+
+```ts
+// line 1
+type ReplayHeader = { replay: 1; matchId: string; seat: number; who: string; version: 2; caps: string[];
+  format: string; startedAt: string; seats: { index: number; kind: "human" | "ai"; name: string; deck: string }[] };
+// then one line per message, ms since the match started
+type ReplayLine = { ms: number; m: ServerMessage };
+// last: the final board as a full state, and the result. Not applied when replaying; a replay is checked against it
+type ReplayEnd = { ms: number; snapshot: true; result: Result; m?: StateMessage };
+```
+
+Replaying is feeding a `hello` built from the header, then each `m`, to the client's store (`ui/src/replay.ts`);
+`ui/tools/replay.check.test.ts` checks a file ends on its snapshot. A replay is what that seat saw: other
+players' hands stay hidden. A server that dies before the match ends sends no replay.
 
 ## Server to client
 

@@ -59,6 +59,7 @@ public final class MatchHost {
         final String deckName;
         final String ticket;
         WebGuiGame session;
+        Recorder recorder;
         volatile ClientChannel channel;
 
         Seat(int index, boolean human, String name, String person, String deckName) {
@@ -86,6 +87,7 @@ public final class MatchHost {
     private String format;
     private String returnUrl;
     private String resultsUrl;
+    private String replayUrl;
     private Instant startedAt;
     private List<Seat> seats = List.of();
     private JsonObject result;
@@ -143,6 +145,17 @@ public final class MatchHost {
 
     // ---------------------------------------------------------------- players' sockets
 
+    /** The optional features this server has (PROTOCOL.md "hello"). */
+    private static JsonArray caps() {
+        JsonArray caps = new JsonArray();
+        for (String c : new String[] {"log.append", "selectables.players", "match.commander", "card.basePT", "card.keywordLabels",
+                "player.colorIdentity", "player.commander", "game.turnOrder"}) {
+            caps.add(c);
+        }
+        Assists.standard().caps().forEach(caps::add);
+        return caps;
+    }
+
     /** A seat's socket. {@code table} is the match id from the page's path (/play/table/&lt;id&gt;/), or null at the bare path. */
     void onConnect(ClientChannel ch, String ticket, String table) {
         Seat seat;
@@ -172,13 +185,7 @@ public final class MatchHost {
         if (back != null) {
             hello.addProperty("returnUrl", back);
         }
-        JsonArray caps = new JsonArray();
-        for (String c : new String[] {"log.append", "selectables.players", "match.commander", "card.basePT", "card.keywordLabels",
-                "player.colorIdentity", "player.commander", "game.turnOrder"}) {
-            caps.add(c);
-        }
-        Assists.standard().caps().forEach(caps::add);
-        hello.add("caps", caps);
+        hello.add("caps", caps());
         hello.addProperty("inMatch", st == State.PLAYING);
         ch.send(hello);
         if (st == State.PLAYING && seat.session != null) {
@@ -382,6 +389,7 @@ public final class MatchHost {
             format = commander ? "commander" : "constructed";
             returnUrl = str(spec, "returnUrl", null);
             resultsUrl = str(spec, "resultsUrl", null);
+            replayUrl = str(spec, "replayUrl", null);
             startedAt = Instant.now();
             seats = List.copyOf(newSeats);
             result = null;
@@ -389,6 +397,33 @@ public final class MatchHost {
             abandoning = false;
             lastSeen = startedAt;
             state = State.PLAYING;
+        }
+        if (replayUrl != null) {
+            JsonArray seatsOut = new JsonArray();
+            for (Seat s : newSeats) {
+                JsonObject j = new JsonObject();
+                j.addProperty("index", s.index);
+                j.addProperty("kind", s.human ? "human" : "ai");
+                j.addProperty("name", s.name);
+                j.addProperty("deck", s.deckName);
+                seatsOut.add(j);
+            }
+            for (Seat s : newSeats) {
+                if (s.session == null) {
+                    continue;
+                }
+                JsonObject header = new JsonObject();
+                header.addProperty("matchId", id);
+                header.addProperty("seat", s.index);
+                header.addProperty("who", s.name);
+                header.addProperty("version", 2);
+                header.add("caps", caps());
+                header.addProperty("format", commander ? "commander" : "constructed");
+                header.addProperty("startedAt", startedAt.toString());
+                header.add("seats", seatsOut);
+                s.recorder = new Recorder(header);
+                s.session.record(s.recorder);
+            }
         }
         if (gameState != null) {
             match.setStartGameHook(() -> gameState.applyToGameNow(match.getGame()));
@@ -534,10 +569,12 @@ public final class MatchHost {
         }
     }
 
-    /** The match is over: keep its result for GET /match, send it to resultsUrl, and free the sessions. */
+    /** The match is over: keep its result for GET /match, send it to resultsUrl and each seat's replay to
+     * replayUrl, and free the sessions. */
     private void finished(String id) {
         List<Seat> done;
         String url;
+        String replays;
         JsonObject r;
         synchronized (lock) {
             if (!id.equals(matchId)) {
@@ -555,8 +592,14 @@ public final class MatchHost {
             state = State.FINISHED;
             finishedAt = Instant.now();
             url = resultsUrl;
+            replays = replayUrl;
         }
         for (Seat s : done) {
+            if (s.recorder != null) {
+                byte[] file = s.recorder.finish(s.session.snapshot(), r);
+                System.out.println("Replay of match " + id + " seat " + s.index + ": " + s.recorder.lines() + " lines, " + file.length + " B");
+                results.send(replays + "/" + id + "/" + s.index, file, "application/gzip");
+            }
             if (s.session != null) {
                 s.session.dispose();
             }
