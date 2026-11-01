@@ -49,6 +49,7 @@ public final class WebMain {
         boolean oneMatch = List.of(args).contains("--one-match");
         int linger = 600;
         int abandon = 600;
+        int joinWait = 120;
         int respond = 10;
         for (int i = 0; i < args.length - 1; i++) {
             switch (args[i]) {
@@ -61,6 +62,7 @@ public final class WebMain {
                 case "--control-host" -> controlBind = args[++i];
                 case "--linger" -> linger = Integer.parseInt(args[++i]);
                 case "--abandon" -> abandon = Integer.parseInt(args[++i]);
+                case "--join-wait" -> joinWait = Integer.parseInt(args[++i]);
                 case "--respond-seconds" -> respond = Integer.parseInt(args[++i]);
                 default -> { }
             }
@@ -112,7 +114,7 @@ public final class WebMain {
         WebGuiGame.respondSeconds = respond;
         MatchHost host = new MatchHost(repoRoot, new ResultsSender(secret));
         if (oneMatch) {
-            host.oneMatch(Duration.ofSeconds(linger), Duration.ofSeconds(abandon));
+            host.oneMatch(Duration.ofSeconds(linger), Duration.ofSeconds(abandon), Duration.ofSeconds(joinWait));
         }
         new ControlServer(controlPort, host, secret).start(controlBind);
         WebServer server = new WebServer(port, Files.isDirectory(uiDir) ? uiDir : null, host, prefix);

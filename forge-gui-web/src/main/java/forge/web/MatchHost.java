@@ -113,7 +113,7 @@ public final class MatchHost {
      * {@code linger} after it's over (results sent, the board still viewable) the server exits. Until a match
      * starts it waits as a spare, for as long as it takes.
      */
-    void oneMatch(Duration linger, Duration abandon) {
+    void oneMatch(Duration linger, Duration abandon, Duration joinWait) {
         oneMatch = true;
         ScheduledExecutorService tick = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "One match");
@@ -122,6 +122,7 @@ public final class MatchHost {
         });
         tick.scheduleWithFixedDelay(() -> {
             String id;
+            Duration waited;
             synchronized (lock) {
                 Instant now = Instant.now();
                 if (state == State.FINISHED && now.isAfter(finishedAt.plus(linger))) {
@@ -133,20 +134,26 @@ public final class MatchHost {
                 }
                 if (seats.stream().anyMatch(s -> s.human && s.channel != null)) {
                     lastSeen = now;
+                    joined = true;
                     return;
                 }
-                if (!now.isAfter(lastSeen.plus(abandon))) {
+                // A game nobody ever sat down at (a start whose players never reached the table) frees its table
+                // soon; one whose players left waits longer for them to come back.
+                Duration wait = joined ? abandon : joinWait;
+                if (!now.isAfter(lastSeen.plus(wait))) {
                     return;
                 }
                 abandoning = true;
                 id = matchId;
+                waited = wait;
             }
-            System.out.println("Nobody has been at match " + id + " for " + abandon.toMinutes() + " minutes; ending it");
+            System.out.println("Nobody has been at match " + id + " for " + waited.toSeconds() + " s; ending it");
             end(id);
         }, 15, 15, TimeUnit.SECONDS);
     }
 
     private volatile boolean oneMatch;
+    private boolean joined; // guarded by lock: a human has been at this match's table
 
     // ---------------------------------------------------------------- players' sockets
 
@@ -407,6 +414,7 @@ public final class MatchHost {
             ending = false;
             abandoning = false;
             lastSeen = startedAt;
+            joined = false;
             state = State.PLAYING;
         }
         if (replayUrl != null) {
