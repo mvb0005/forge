@@ -74,21 +74,25 @@ The players' port admits only seat tickets. The control API listens where the pl
 with it, every call carries `Authorization: Bearer <secret>`. `tools/start.mjs` and `tools/smoke.mjs`
 send it from the environment.
 
-It runs on the same minikube cluster as mtg-tracker (in WSL), in namespace `forge`, with card data
-from `forge-gui/res`, a data volume for its profile, and a read-only volume of card images copied
-from the desktop's pics cache. The `forge-web` Service is the players' side; `forge-control` is the
-control API, for the tracker only. mtg-tracker's Cloudflare Tunnel connector routes
-`^/play/table(/|$)` to `http://forge-web.forge.svc.cluster.local:80`; the rest of the hostname,
-`/play` included, is the tracker. From WSL, after building the jar and the UI (`up` tags each build
-uniquely and builds with Windows' `docker.exe` when the checkout is on the Windows drive):
+It runs on the same minikube cluster as mtg-tracker (in WSL), in namespace `forge`: a game server
+pod per game, made by mtg-tracker from the `forge-table` template, plus one warm spare
+(docs/MULTIPLAYER.md D-M9). Each has card data from `forge-gui/res` and a read-only volume of card
+images copied from the desktop's pics cache, and runs with `--one-match` (it closes 10 minutes after
+its game ends, and ends a game no human has been at for 10 minutes; `--linger` and `--abandon` change
+both, in seconds). The `forge-web` Service is the router: mtg-tracker's Cloudflare Tunnel connector
+routes `^/play/table(/|$)` to `http://forge-web.forge.svc.cluster.local:80`, and the router sends
+`/play/table/<id>/` to pod `<id>.tables.forge`; the rest of the hostname, `/play` included, is the
+tracker, which reaches each pod's control API at `<id>.tables.forge.svc.cluster.local:7790`. From
+WSL, after building the jar and the UI (`up` tags each build uniquely and builds with Windows'
+`docker.exe` when the checkout is on the Windows drive):
 
 ```
 deploy/minikube.sh secret             # once: the control API's shared secret (mtg-tracker gets the same value)
-deploy/minikube.sh up                 # build the image, load it into minikube, roll out once a running game ends
-deploy/minikube.sh up --now           # the same, ending a running game
+deploy/minikube.sh up                 # build the image and make it the table template; running games keep theirs
 deploy/minikube.sh load-pics          # refresh the card images from the desktop cache
-deploy/minikube.sh forward            # http://127.0.0.1:7781/play/table/
-deploy/minikube.sh logs
+deploy/minikube.sh tables             # the table pods: spare, playing, done
+deploy/minikube.sh forward            # the router at http://127.0.0.1:7781/play/table/<id>/
+deploy/minikube.sh logs [ID]          # a table's log, or the router's
 ```
 
 The server uses the normal Forge user profile (preferences, logs). To keep a development server

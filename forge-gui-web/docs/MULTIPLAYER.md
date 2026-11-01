@@ -7,9 +7,9 @@ definition of done, D- are decisions, Q- are open questions.
 
 Friends play a Commander pod together, each with a deck from their own tracker account. The players
 are people Matt has added to mtg-tracker. A table seats 4 by default (configurable), with curated
-AIs in the seats no human takes. A game server hosts exactly one table (D-M1). More tables later
-means more game servers (M11.5, deferred). Waiting on other people is cut down later (M12), not
-first.
+AIs in the seats no human takes. A game server hosts exactly one table (D-M1), and every game gets
+its own game server pod (D-M9), so up to 4 games run at once and a deploy never cuts one short.
+Waiting on other people is cut down later (M12), not first.
 
 Far future: the same table as a Discord game (a Discord Activity: the web client in Discord's
 iframe, people known by their Discord id), and perhaps a hosted cluster instead of minikube. Nothing
@@ -35,11 +35,12 @@ The game server (`forge-gui-web`) keeps only:
 It has no lobby, no decks list, no identity lookups and no play log of its own.
 
 ```
-browser ── /play/... (tracker module: play page, tables, invites) ──> mtg-tracker
+browser ── /play/... (tracker module: play page, tables, invites) ──> mtg-tracker ── Kubernetes API:
+   │                                                                     │          table pods, spare
    │                                                                     │ control API (in-cluster,
-   │                                                                     │ shared secret)
-   └── /play/table/?ticket=… + its WebSocket ──> game server <───────────┘
-                                                     │ results ──> tracker (in-cluster)
+   │                                                                     │ shared secret, per table)
+   └── /play/table/<id>/?ticket=… + its WebSocket ──> router ──> table pod <id> (a game server)
+                                                                     │ results ──> tracker (in-cluster)
 ```
 
 **The handoff.**
@@ -60,14 +61,23 @@ browser ── /play/... (tracker module: play page, tables, invites) ──> mt
   server checks nothing else about who you are.
 
 **Routing.** The tunnel keeps one hostname. `/play` and the play module's pages go to the tracker.
-The table page and its socket (`/play/table/…`, `/play/ws`, card images) go to the game server.
+`/play/table/…` goes to the forge router (nginx, Service `forge-web`), which sends
+`/play/table/<id>/…` (the page, its socket, card images) to the pod `<id>.tables.forge`.
+
+**Table pods (D-M9).** The tracker (`mtgtracker/play/tables.py`) makes each game server pod from the
+`forge-table` template that `deploy/minikube.sh up` writes, named `forge-table-<id>` with hostname
+`<id>`; the match takes the same id. It keeps one spare warm (a game starts in under a second),
+runs at most 4 games, marks a table `done` once its game is over, and deletes the pod once it has
+exited. A pod runs with `--one-match`: 10 minutes with no human connected ends the game as abandoned,
+and 10 minutes after the game ends (results sent, the board still viewable) the server exits. A
+deploy only changes the template: the spare is swapped for one on the new build, and running games
+keep theirs until they end.
 
 ## Where we are
 
-- **The game server is on minikube.** It runs in namespace `forge` beside the tracker
-  (`deploy/minikube.sh`). The node has 16 CPUs and 64 GB; the pod asks for 1 CPU and 2 GiB and may
-  use 4 CPUs and 4 GiB. It reaches the tracker in-cluster. The tunnel's `/play` route still points
-  at the old Docker server until Matt switches it (M11.0).
+- **Game servers are pods on minikube.** They run in namespace `forge` beside the tracker
+  (`deploy/minikube.sh`), one per game plus a spare. The node has 16 CPUs and 64 GB; a table pod asks
+  for 0.5 CPU and 2 GiB and may use 2 CPUs and 4 GiB, so 4 games and a spare stay well inside it.
 - **The engine already handles several humans.** `HostedMatch.startMatch` takes a map from
   `RegisteredPlayer` to `IGuiGame`. Forge's own network server gives each remote player a
   `RemoteClientGuiGame`. `AbstractGuiGame.mayView` hides cards per local player, so one
@@ -89,13 +99,14 @@ The table page and its socket (`/play/table/…`, `/play/ws`, card images) go to
 
 | ID | Decision | Status |
 |---|---|---|
-| D-M1 | One table per game server. It keeps games sandboxed from each other (Forge has never run several matches in one JVM) and needs no table registry in the game server. More tables means more servers (M11.5) | locked (Matt) |
+| D-M1 | One table per game server. It keeps games sandboxed from each other (Forge has never run several matches in one JVM) and needs no table registry in the game server. More tables means more servers (D-M9) | locked (Matt) |
 | D-M2 | Rules stay in the engine. "Waiting on", pause and seat state inside a match come from the game server; the client displays them | locked |
 | D-M3 | A person is their tracker person id. The tracker knows who is signed in (Access, as today) and gains usernames: an optional, unique handle set on the profile, shown in invites. `/api/v1/people` lists id, username and name, never emails | locked (Matt) |
 | D-M4 | A game server that is busy refuses a new match, and the tracker tells the host whose table is running; nothing queues silently | locked |
 | D-M5 | Tables seat 4 by default; seat count is configurable; curated AIs fill the seats no human takes | locked (Matt) |
 | D-M6 | A disconnected player pauses the game for everyone (M11.3); nothing is decided for them. A match with no human connected for 10 minutes ends with no winner and frees the server | locked (Matt) |
 | D-M7 | Invites come from the tracker's people list. Friends must also be in the Cloudflare Access policy | locked (Matt) |
+| D-M9 | A game server pod per game, made by the tracker through the Kubernetes API (a service account allowed pods and the template in `forge` only), behind a router that sends `/play/table/<id>/` to pod `<id>`. One warm spare; at most 4 games at once. A deploy changes only the template, so running games keep their build until they end | locked (Matt, 2026-10-31) |
 | D-M8 | All connecting logic (people, tables, invites, seats, decks, history) lives in mtg-tracker as a distinct module, `mtgtracker/play/`: its own routers, templates, services and tables (`play_*`, in their own migrations), touching the rest of the tracker only through users and deck exports. The game server only runs games | locked (Matt) |
 
 ## Milestones
@@ -108,7 +119,7 @@ The table page and its socket (`/play/table/…`, `/play/ws`, card images) go to
 | M11.3 | **Invites and several humans** | The host invites a friend from the people list; the friend sees the invite on the play page, picks a deck and readies. Two browsers (two identities) play a pod to the end. Each sees only their own hand. The headline names who we're waiting on. A player who is out can watch. The game shows in both histories. `tools/smoke.mjs --clients 2` covers the game server's side | todo |
 | M11.4 | **Disconnects pause the game** | When a human's socket drops, every player sees "Paused: waiting for X to reconnect". The game stops: the AIs don't act, and no one can act on the stack meanwhile. Reconnecting resumes with the full state (`onConnect` already re-sends prompt, buttons and ask). The host can end the game for everyone. After 10 minutes with no human connected the game ends with no winner and the server frees (D-M6). Spike first: where to hold the game thread so the AIs stop too (the engine only parks when it asks a human something) | todo |
 | M11.5 | **Capacity** | Measure one pod's CPU and RAM (the bench stack can) and tune the pod's requests and limits | todo |
-| M11.6 | **Replicas** (deferred) | More tables at once: the play module creates a game server pod per table through the Kubernetes API (a service account allowed only to create and delete pods in `forge`) and sends each table's players to their pod. Later, the same manifests could move to a hosted cluster | deferred (Matt) |
+| M11.6 | **A pod per game** (D-M9) | The tracker runs each game on its own game server pod with a warm spare and a cap of 4; a router sends each table's players to its pod; a deploy leaves running games alone; finished and abandoned tables close and are cleared away. Later, the same manifests could move to a hosted cluster | done 2026-10-31: tracker tests against a fake Kubernetes API; on the cluster, two games at once through the router, a socket idle 75 s, refresh, a deploy with games running, the fifth game refused, end and abandonment |
 | M12 | **Less waiting** (later) | Ordered by leverage: 1) no priority prompt when you can't do anything (the engine already sends `playable`; trade-off: an instant pass shows you have no tricks); 2) phase stops and auto-yield; 3) a per-decision timer with a time bank: on expiry, pass priority, and mandatory choices take a defined default; 4) AI think time, already capped at 5 s. Needs M11.3 | later |
 
 ## Risks

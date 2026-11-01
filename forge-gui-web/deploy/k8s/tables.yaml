@@ -1,0 +1,47 @@
+# Game servers, one pod per table (docs/MULTIPLAYER.md D-M9). mtg-tracker creates each pod from the
+# forge-table template (table-pod.json, image set by `deploy/minikube.sh up`), named forge-table-<id> with
+# hostname <id>, keeps one warm spare, and deletes them when their game is over. A deploy only changes the
+# template: running tables keep their build until they end.
+#
+# This headless Service gives each table pod a name, <id>.tables.forge.svc.cluster.local, for the router
+# (players, port 7777) and the tracker (control API, port 7790).
+apiVersion: v1
+kind: Service
+metadata:
+  name: tables
+spec:
+  clusterIP: None
+  selector:
+    app: forge-table
+  ports:
+    - name: http
+      port: 7777
+    - name: control
+      port: 7790
+---
+# mtg-tracker's service account manages the table pods here, and reads their template.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tables
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "create", "delete", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["forge-table"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tables-mtgtracker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tables
+subjects:
+  - kind: ServiceAccount
+    name: mtgtracker
+    namespace: mtgtracker

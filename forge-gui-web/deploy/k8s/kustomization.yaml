@@ -4,5 +4,16 @@ namespace: forge
 resources:
   - namespace.yaml
   - pvc.yaml
-  - deployment.yaml
-  - service.yaml
+  - tables.yaml
+  - router.yaml
+configMapGenerator:
+  # The router's nginx config; a change gets a new name, so the router restarts with it.
+  - name: forge-router
+    files:
+      - default.conf=router.conf
+  # The table pod template mtg-tracker creates game servers from, under a fixed name it can read.
+  - name: forge-table
+    files:
+      - pod.json=table-pod.json
+    options:
+      disableNameSuffixHash: true
