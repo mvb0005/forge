@@ -3,13 +3,14 @@
 # Run from WSL, where the cluster lives. Build the jar and the UI first (README "Hosted play").
 #
 #   deploy/minikube.sh secret               set the control API's shared secret, for the game server and mtg-tracker
-#   deploy/minikube.sh up [--now]           build the image, load it into minikube, wait for a running game to end
-#                                           (--now ends it instead), apply manifests, wait for the rollout
+#   deploy/minikube.sh up                   build the image, load it into minikube, make it the table template, apply
+#                                           the router and the rest (running tables keep their build until they end)
 #   deploy/minikube.sh load-pics [DIR]      copy card images into the forge-pics volume (default: the desktop's Forge image cache)
 #   deploy/minikube.sh load-data DIR        copy a play log directory (DIR/play) into the forge-data volume
-#   deploy/minikube.sh forward [PORT]       port-forward the table to http://127.0.0.1:PORT/play/table/ (default 7781)
-#   deploy/minikube.sh logs                 follow the server's log
-#   deploy/minikube.sh down                 delete the server but keep the volumes
+#   deploy/minikube.sh forward [PORT]       port-forward the router to http://127.0.0.1:PORT/play/table/<id>/ (default 7781)
+#   deploy/minikube.sh tables               list the table pods (spare, playing, done)
+#   deploy/minikube.sh logs [ID]            follow a table's log, or the router's
+#   deploy/minikube.sh down                 delete the router and every table (games end) but keep the volumes
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -18,12 +19,6 @@ NS=forge
 IMAGE=forge-web:dev
 PICS_DEFAULT=/mnt/c/Users/admin/AppData/Local/Forge/Cache/pics
 KUBECTL=(kubectl --namespace "$NS")
-POLL=15
-ABANDONED=600
-
-pod() {
-  "${KUBECTL[@]}" get pod -l app=forge-web -o jsonpath='{.items[0].metadata.name}'
-}
 
 # The control API's shared secret, as the forge-control Secret in both namespaces: the game server (forge)
 # and mtg-tracker (mtgtracker), which reads it as FORGE_CONTROL_SECRET.
@@ -44,47 +39,7 @@ cmd_secret() {
   echo "Secret forge-control set in forge and mtgtracker. Restart mtg-tracker to pick it up."
 }
 
-# The running server's GET /match, asked from inside its pod (the pod has the secret); {} when there's no server.
-table_status() {
-  "${KUBECTL[@]}" exec deploy/forge-web -- sh -c \
-    'wget -qO- --header "Authorization: Bearer $FORGE_CONTROL_SECRET" http://127.0.0.1:7790/match' 2>/dev/null || echo '{}'
-}
-
-# Waits while the running server has a game on. A game whose humans have all been away for ABANDONED seconds is
-# abandoned (docs/MULTIPLAYER.md), so it doesn't hold the deploy.
-wait_for_table() {
-  local away=0 said=
-  while true; do
-    local line
-    line=$(table_status | python3 -c '
-import json, sys
-s = json.load(sys.stdin)
-if s.get("state") != "playing":
-    print("free")
-else:
-    humans = [x for x in s.get("seats", []) if x.get("kind") == "human"]
-    on = any(x.get("connected") for x in humans)
-    names = ", ".join(x["name"] for x in s["seats"])
-    print(("playing" if on else "away") + " " + s["matchId"] + " " + names)
-')
-    case $line in
-      free) return ;;
-      playing*) away=0 ;;
-      away*) away=$((away + POLL)) ;;
-    esac
-    if (( away >= ABANDONED )); then
-      echo "Nobody has been at the table for $((ABANDONED / 60)) minutes; deploying over it."
-      return
-    fi
-    [[ -n $said ]] || echo "A game is on (${line#* }). Deploying when it ends; up --now to end it instead."
-    said=1
-    sleep "$POLL"
-  done
-}
-
 cmd_up() {
-  local now=0
-  [[ ${1:-} == --now ]] && now=1
   "${KUBECTL[@]}" get secret forge-control >/dev/null 2>&1 || { echo "no control secret: run deploy/minikube.sh secret first" >&2; exit 1; }
   ls target/forge-gui-web-*-jar-with-dependencies.jar >/dev/null
   [[ -f ui/dist/index.html ]] || { echo "no ui/dist: run npm run build in ui/" >&2; exit 1; }
@@ -107,12 +62,11 @@ cmd_up() {
     --build-context ui="$here/ui/dist" \
     "$here/docker"
   minikube image load "$tag"
-  # The server hosts one table, so a new build has nothing to do while a game is on: let it finish first.
-  [[ $now == 1 ]] || wait_for_table
-  # Recreate: a running game ends here.
-  kubectl kustomize deploy/k8s | sed "s#image: $IMAGE\$#image: $tag#" | kubectl apply -f -
-  "${KUBECTL[@]}" rollout status deployment/forge-web --timeout=300s
-  echo "Running $tag"
+  # The new build only goes into the table template: mtg-tracker swaps the spare for one on it, and running
+  # tables keep theirs until their game ends.
+  kubectl kustomize deploy/k8s | sed "s#\"$IMAGE\"#\"$tag\"#" | kubectl apply -f -
+  "${KUBECTL[@]}" rollout status deployment/forge-router --timeout=120s
+  echo "New tables run $tag"
 }
 
 # A short-lived pod with a volume mounted read-write, to copy files into it.
@@ -173,11 +127,14 @@ cmd_forward() {
 
 case "${1:-}" in
   secret) cmd_secret ;;
-  up) shift; cmd_up "$@" ;;
+  up) cmd_up ;;
   load-pics) shift; cmd_load_pics "$@" ;;
   load-data) shift; cmd_load_data "$@" ;;
   forward) shift; cmd_forward "$@" ;;
-  logs) "${KUBECTL[@]}" logs -f "$(pod)" ;;
-  down) kubectl delete -f deploy/k8s/deployment.yaml -f deploy/k8s/service.yaml -n "$NS" --ignore-not-found ;;
-  *) sed -n '2,12p' "$0"; exit 1 ;;
+  tables) "${KUBECTL[@]}" get pods -l app=forge-table -L forge/state -o wide ;;
+  logs) if [[ -n ${2:-} ]]; then "${KUBECTL[@]}" logs -f "forge-table-$2"; else "${KUBECTL[@]}" logs -f deployment/forge-router; fi ;;
+  down)
+    "${KUBECTL[@]}" delete deployment forge-router --ignore-not-found
+    "${KUBECTL[@]}" delete pods -l app=forge-table --ignore-not-found ;;
+  *) sed -n '2,13p' "$0"; exit 1 ;;
 esac

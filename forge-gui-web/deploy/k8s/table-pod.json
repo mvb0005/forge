@@ -1,0 +1,44 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "labels": {"app": "forge-table"}
+  },
+  "spec": {
+    "subdomain": "tables",
+    "restartPolicy": "Never",
+    "automountServiceAccountToken": false,
+    "securityContext": {"runAsNonRoot": true, "runAsUser": 10001, "runAsGroup": 10001, "fsGroup": 10001},
+    "containers": [
+      {
+        "name": "table",
+        "image": "forge-web:dev",
+        "imagePullPolicy": "Never",
+        "env": [
+          {"name": "JAVA_OPTS", "value": "-Xmx3g"},
+          {"name": "FORGE_ARGS", "value": "--one-match"},
+          {"name": "FORGE_CONTROL_SECRET", "valueFrom": {"secretKeyRef": {"name": "forge-control", "key": "secret"}}}
+        ],
+        "ports": [
+          {"name": "http", "containerPort": 7777},
+          {"name": "control", "containerPort": 7790}
+        ],
+        "securityContext": {"allowPrivilegeEscalation": false, "capabilities": {"drop": ["ALL"]}},
+        "volumeMounts": [
+          {"name": "data", "mountPath": "/data"},
+          {"name": "pics", "mountPath": "/pics", "readOnly": true}
+        ],
+        "startupProbe": {"tcpSocket": {"port": "http"}, "periodSeconds": 2, "failureThreshold": 150},
+        "readinessProbe": {"httpGet": {"path": "/healthz", "port": "control"}, "periodSeconds": 5},
+        "resources": {
+          "requests": {"cpu": "500m", "memory": "2Gi"},
+          "limits": {"cpu": "2", "memory": "4Gi"}
+        }
+      }
+    ],
+    "volumes": [
+      {"name": "data", "emptyDir": {}},
+      {"name": "pics", "persistentVolumeClaim": {"claimName": "forge-pics", "readOnly": true}}
+    ]
+  }
+}

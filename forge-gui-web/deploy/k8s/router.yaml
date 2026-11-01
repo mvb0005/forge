@@ -1,0 +1,66 @@
+# The players' side: mtg-tracker's Cloudflare Tunnel connector routes ^/play/table(/|$) to
+#   http://forge-web.forge.svc.cluster.local:80
+# and this router sends /play/table/<id>/... (the page, its socket, card images) to that table's pod.
+# Everything else on the hostname, /play included, is mtg-tracker.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forge-router
+  labels:
+    app: forge-router
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: forge-router
+  template:
+    metadata:
+      labels:
+        app: forge-router
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+      containers:
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:1.27-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nginx/conf.d
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+      volumes:
+        - name: config
+          configMap:
+            name: forge-router
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: forge-web
+spec:
+  selector:
+    app: forge-router
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
