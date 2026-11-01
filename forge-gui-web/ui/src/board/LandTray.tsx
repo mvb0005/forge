@@ -1,7 +1,7 @@
 import { memo } from 'react'
 import { ManaSymbol } from '../look/ManaSymbol'
 import { usePeek } from '../popover/usePeek'
-import { SHELF, shelfColumns, shelfRows, type TrayGroup } from './lands'
+import { SHELF, shelfColumns, shelfRows, shelfWidth, type TrayGroup } from './lands'
 
 const FILL: Record<string, string> = {
   W: 'var(--lk-mana-w)', U: 'var(--lk-mana-u)', B: 'var(--lk-mana-b)', R: 'var(--lk-mana-r)', G: 'var(--lk-mana-g)', C: 'var(--lk-mana-c)',
@@ -12,9 +12,11 @@ const FILL: Record<string, string> = {
  * stack (lands that make the same mana, or a named land or rock) with untapped/total. A stack with nothing
  * untapped lies sideways and fades. `glow`: stacks you can use now (frost). `opened`: the lands are drawn on
  * the battlefield; the toggle under the count opens and folds them. Clicking a stack picks a land in it.
+ * `w`, `h`: the region the layout carved for it; when it is narrower than the names need, they are dropped.
  */
-export const LandTray = memo(function LandTray({ groups, h, open, glow, opened, onToggle, onPick }: {
+export const LandTray = memo(function LandTray({ groups, w, h, open, glow, opened, onToggle, onPick }: {
   groups: TrayGroup[]
+  w: number
   h: number
   open: number
   glow?: (g: TrayGroup) => boolean
@@ -24,7 +26,8 @@ export const LandTray = memo(function LandTray({ groups, h, open, glow, opened, 
 }) {
   if (!groups.length) return null
   const rows = Math.min(shelfRows(h), groups.length)
-  const cols = shelfColumns(groups, h)
+  const tight = w < shelfWidth(groups, h) - 0.5
+  const cols = shelfColumns(groups, h, tight)
   return (
     <div
       style={{
@@ -36,7 +39,7 @@ export const LandTray = memo(function LandTray({ groups, h, open, glow, opened, 
       <div style={{ width: SHELF.head, boxSizing: 'border-box', flex: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, borderRight: '1px solid var(--lk-metal-faint)', marginRight: SHELF.colGap, paddingRight: 2 }}>
         <b className="lk-title" title={`${open} mana open`} style={{ fontSize: 24, fontWeight: 700, lineHeight: 0.9, color: open ? 'var(--lk-parchment)' : 'var(--lk-parchment-mute)', fontVariantNumeric: 'tabular-nums' }}>{open}</b>
         <span className="lk-text" style={{ fontSize: 9, color: 'var(--lk-parchment-mute)', letterSpacing: 0.4 }}>open</span>
-        {onToggle && rows > 1 && (
+        {onToggle && shelfRows(h) > 1 && (
           <button
             type="button"
             title={opened ? 'Fold the lands back onto the shelf' : 'Show the lands on the battlefield'}
@@ -52,13 +55,13 @@ export const LandTray = memo(function LandTray({ groups, h, open, glow, opened, 
         )}
       </div>
       <div style={{ display: 'grid', gridAutoFlow: 'column', gridTemplateRows: `repeat(${rows}, ${SHELF.rowH}px)`, gridTemplateColumns: cols.map((w) => `${w}px`).join(' '), rowGap: SHELF.gap, columnGap: SHELF.colGap, alignContent: 'center' }}>
-        {groups.map((g) => <Stack key={g.key} g={g} glow={!!glow?.(g)} onPick={onPick} />)}
+        {groups.map((g) => <Stack key={g.key} g={g} named={!tight} glow={!!glow?.(g)} onPick={onPick} />)}
       </div>
     </div>
   )
 })
 
-function Stack({ g, glow, onPick }: { g: TrayGroup; glow: boolean; onPick?: (ids: number[]) => void }) {
+function Stack({ g, named, glow, onPick }: { g: TrayGroup; named: boolean; glow: boolean; onPick?: (ids: number[]) => void }) {
   const ids = [...g.open, ...g.tapped]
   const peek = usePeek({ kind: 'card', id: ids[0] })
   const n = g.open.length
@@ -79,7 +82,7 @@ function Stack({ g, glow, onPick }: { g: TrayGroup; glow: boolean; onPick?: (ids
         {n}
         {n !== total && <span style={{ fontSize: '0.62em', color: 'var(--lk-parchment-mute)', fontWeight: 500 }}>/{total}</span>}
       </b>
-      {g.name && (
+      {g.name && named && (
         <span className="lk-text" style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--lk-parchment-dim)', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</span>
       )}
     </span>

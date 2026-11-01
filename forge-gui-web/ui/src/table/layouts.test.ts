@@ -5,7 +5,7 @@ import { CARD_RATIO } from '../board/layout'
 import type { CombatDto } from '../protocol'
 import type { ForgeState } from '../store'
 import type { LayoutInput, Placement, Region, TableMode } from './contract'
-import { SHELF, shelfRows, shelfWidth, type TrayGroup } from '../board/lands'
+import { isShelfCard, SHELF, shelfRows, shelfWidth, trayGroups, type TrayGroup } from '../board/lands'
 import { LAYOUTS, tableMode } from './layouts'
 import { tableSignature } from './signature'
 
@@ -153,7 +153,8 @@ describe('table layouts', () => {
     const three = [g('a'), g('b'), g('c')]
     expect(shelfWidth([...three, g('d')], 110) - shelfWidth(three, 110)).toBe(SHELF.cellW + SHELF.colGap)
     expect(shelfWidth([...three, g('d')], 230)).toBe(shelfWidth(three, 230))
-    expect(shelfWidth([...three, g('r', 'Sol Ring')], 110) - shelfWidth(three, 110)).toBe(SHELF.namedW + SHELF.colGap)
+    expect(shelfWidth([...three, g('r', 'Sol Ring')], 110) - shelfWidth(three, 110)).toBe(SHELF.cellW + 52 + SHELF.colGap)
+    expect(shelfWidth([...three, g('r', 'Sol Ring')], 110, true) - shelfWidth(three, 110)).toBe(SHELF.cellW + SHELF.colGap)
   })
 
   it('opens a player’s lands onto their battlefield when they ask, and keeps the shelf where it was', () => {
@@ -168,7 +169,7 @@ describe('table layouts', () => {
     expect(open.placements.get(theirs)).toMatchObject({ kind: 'zone' })
   })
 
-  for (const [id, view] of [['quiet', VIEW], ['pod', VIEW], ['four', VIEW], ['commander', VIEW], ['four', { w: 1280, h: 720 }], ['commander', { w: 1280, h: 720 }]] as const) {
+  for (const [id, view] of [['quiet', VIEW], ['pod', VIEW], ['four', VIEW], ['commander', VIEW], ['four', { w: 1568, h: 778 }], ['commander', { w: 1568, h: 778 }], ['four', { w: 1280, h: 720 }], ['commander', { w: 1280, h: 720 }]] as const) {
     it(`carves each land shelf off the right end of its battlefield, clear of the cards (${id}, ${view.w}x${view.h})`, () => {
       const s = fixture(id)
       const i = input(s, { viewport: view })
@@ -180,7 +181,6 @@ describe('table layouts', () => {
       const lefts = new Set<number>()
       for (const [pid, shelf, field] of shelves) {
         expect(shelf.w, `shelf ${pid}`).toBeGreaterThan(0)
-        expect(shelf.w).toBeLessThanOrEqual(field.w * 0.25 + 0.5)
         expect(shelf.y).toBeCloseTo(field.y)
         expect(shelf.h).toBeCloseTo(field.h)
         rights.add(Math.round(shelf.x + shelf.w))
@@ -192,6 +192,10 @@ describe('table layouts', () => {
           if (p.kind === 'field') expect(p.x + p.w / 2 + (p.rot ? p.w * CARD_RATIO : p.w) / 2, `card ${cid}`).toBeLessThanOrEqual(shelf.x + 0.5)
           if (p.kind === 'zone') expect(p.x >= shelf.x - 0.5 && p.x + p.w <= shelf.x + shelf.w + 0.5 && p.y >= shelf.y && p.y <= shelf.y + shelf.h, `anchor ${cid}`).toBe(true)
         }
+      }
+      for (const [pid, shelf, field] of shelves) {
+        const groups = trayGroups(i.players[pid].zones.battlefield.map((cid) => i.cards[cid]).filter(isShelfCard))
+        expect(shelfWidth(groups, field.h, true), `shelf ${pid} fits`).toBeLessThanOrEqual(shelf.w + 0.5)
       }
       expect(lefts.size, 'every shelf starts at the same x').toBe(1)
       expect(rights.size).toBe(1)

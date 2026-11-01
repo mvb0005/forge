@@ -54,28 +54,32 @@ export const isShelfCard = (c: CardDto) => c.types.includes('Land') || isRock(c)
 
 /**
  * The land shelf at the right end of a battlefield: the open-mana count in a header column, then the
- * stacks in columns of as many rows as fit, top to bottom. A column with a named stack (a rock, a fetch) is wider.
+ * stacks in columns of as many rows as fit, top to bottom. A column with a named stack (a rock, a fetch)
+ * is as wide as its longest name, up to `nameMax`. A tight shelf drops the names (peek still names them).
  */
-export const SHELF = { pad: 6, head: 44, rowH: 28, gap: 3, colGap: 8, cellW: 58, namedW: 118 }
+export const SHELF = { pad: 6, head: 44, rowH: 28, gap: 3, colGap: 8, cellW: 58, charW: 6.5, nameMax: 64 }
 /** Room kept clear around a shelf: from the battlefield's cards on its left, and from the field's edge on its right. */
 export const SHELF_GAP = 10
 export const SHELF_INSET = 4
 
 export const shelfRows = (h: number) => Math.max(1, Math.floor((h - 2 * SHELF.pad + SHELF.gap) / (SHELF.rowH + SHELF.gap)))
 
+const cellW = (g: TrayGroup, tight: boolean) => SHELF.cellW + (g.name && !tight ? Math.min(SHELF.nameMax, Math.ceil(g.name.length * SHELF.charW)) : 0)
+
 /** Width of each column of stacks on a shelf this tall. */
-export function shelfColumns(groups: TrayGroup[], h: number): number[] {
+export function shelfColumns(groups: TrayGroup[], h: number, tight = false): number[] {
   const rows = shelfRows(h)
   const cols: number[] = []
   groups.forEach((g, i) => {
     const c = Math.floor(i / rows)
-    cols[c] = Math.max(cols[c] ?? 0, g.name ? SHELF.namedW : SHELF.cellW)
+    cols[c] = Math.max(cols[c] ?? 0, cellW(g, tight))
   })
   return cols
 }
 
-export function shelfWidth(groups: TrayGroup[], h: number) {
-  const cols = shelfColumns(groups, h)
+/** The width of a shelf's region (with room clear around it). */
+export function shelfWidth(groups: TrayGroup[], h: number, tight = false) {
+  const cols = shelfColumns(groups, h, tight)
   if (!cols.length) return 0
   return SHELF_GAP + 2 * SHELF.pad + SHELF.head + cols.reduce((a, w) => a + w + SHELF.colGap, 0) + SHELF_INSET
 }

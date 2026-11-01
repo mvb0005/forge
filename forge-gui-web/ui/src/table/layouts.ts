@@ -55,15 +55,17 @@ export function commandSlots(field: Region, n: number, fieldH = field.h): Region
 const shrink = (r: Region, by: number): Region => (by ? { x: r.x + by, y: r.y, w: r.w - by, h: r.h } : r)
 const trim = (r: Region, by: number): Region => (by ? { ...r, w: r.w - by } : r)
 
-/** At most this share of a battlefield's width goes to its land shelf. */
+/** About this share of a battlefield's width goes to its land shelf at most. */
 export const SHELF_MAX = 0.25
 /**
  * How much of the right edge of each field the land shelves take: the widest player's shelf at the
- * height of their own field, so every field ends at the same x.
+ * height of their own field, so every field ends at the same x. Over the cap the shelves drop their
+ * names; if that still doesn't fit, the cap gives way rather than hide a stack.
  */
 export function landCarve(seats: { player: PlayerDto | undefined; h: number }[], cards: Record<number, CardDto>, fieldW: number) {
-  const need = seats.map(({ player, h }) => (player ? shelfWidth(trayGroups(player.zones.battlefield.map((id) => cards[id]).filter((c): c is CardDto => !!c && isShelfCard(c))), h) : 0))
-  return Math.round(Math.min(fieldW * SHELF_MAX, Math.max(0, ...need)))
+  const groups = seats.map(({ player, h }) => ({ h, g: player ? trayGroups(player.zones.battlefield.map((id) => cards[id]).filter((c): c is CardDto => !!c && isShelfCard(c))) : [] }))
+  const need = (tight: boolean) => Math.max(0, ...groups.map(({ g, h }) => shelfWidth(g, h, tight)))
+  return Math.round(Math.min(need(false), Math.max(fieldW * SHELF_MAX, need(true))))
 }
 /** The shelf: the right `carve` px of a field. */
 export const shelfOf = (field: Region, carve: number): Region => ({ x: field.x + field.w - carve, y: field.y, w: carve, h: field.h })

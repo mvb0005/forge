@@ -90,10 +90,11 @@ export function Ribbon({ player, isMe, style }: { player: PlayerDto; isMe: boole
   const opened = useBoardUi((s) => s.openLands.includes(player.id))
   const toggle = useBoardUi((s) => s.toggleLands)
   const glow = useMemo(() => (isMe ? (g: TrayGroup) => usable || g.open.some((id) => playable.has(id)) : undefined), [isMe, usable, playable])
+  const w = typeof style?.width === 'number' ? style.width : 0
   const h = typeof style?.height === 'number' ? style.height : 110
   return (
     <div style={{ ...style, display: 'flex', alignItems: isMe ? 'flex-end' : 'flex-start', justifyContent: 'flex-end', paddingRight: SHELF_INSET, boxSizing: 'border-box', overflow: 'visible' }}>
-      <LandTray groups={groups} h={h} open={open} glow={glow} opened={opened} onToggle={() => toggle(player.id)} onPick={isMe ? pickIds : undefined} />
+      <LandTray groups={groups} w={w} h={h} open={open} glow={glow} opened={opened} onToggle={() => toggle(player.id)} onPick={isMe ? pickIds : undefined} />
     </div>
   )
 }
