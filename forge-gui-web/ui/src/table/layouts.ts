@@ -1,6 +1,7 @@
 import { orderedHand } from '../board/handOrder'
 import { CARD_RATIO } from '../board/layout'
 import { layoutTable, PAD, type SideLayout } from '../board/fieldLayout'
+import { isShelfCard, shelfWidth, trayGroups } from '../board/lands'
 import type { CardDto, PhaseName, PlayerDto } from '../protocol'
 import type { LayoutFn, LayoutInput, LayoutResult, Placement, Region, TableMode } from './contract'
 import { STACK, stackItemY, tableFrame, type Frame } from './frame'
@@ -8,8 +9,8 @@ import { STACK, stackItemY, tableFrame, type Frame } from './frame'
 // Layout functions per table mode. 'main' and 'combat' share one pass; combat lines attackers up
 // against their blockers and folds the back lanes. With two or more opponents every player, you
 // included, keeps a full-width band on every turn, and the active player's band is the tall one.
-// Lands fold into the mana ribbon (invisible anchors there, so they fly in and out) unless one of
-// them can be chosen right now.
+// Lands fold into the land shelf at the right end of their battlefield (invisible anchors there, so
+// they fly in and out) unless one of them can be chosen right now or the player opened them.
 
 const COL_GAP = 8
 
@@ -66,12 +67,28 @@ export function commandSlots(field: Region, n: number, fieldH = field.h): Region
   return Array.from({ length: n }, (_, i) => ({ x: field.x + COMMAND.pad + i * (w + COMMAND.gap), y, w, h }))
 }
 const shrink = (r: Region, by: number): Region => (by ? { x: r.x + by, y: r.y, w: r.w - by, h: r.h } : r)
+const trim = (r: Region, by: number): Region => (by ? { ...r, w: r.w - by } : r)
+
+/** About this share of a battlefield's width goes to its land shelf at most. */
+export const SHELF_MAX = 0.25
+/**
+ * How much of the right edge of each field the land shelves take: the widest player's shelf at the
+ * height of their own field, so every field ends at the same x. Over the cap the shelves drop their
+ * names; if that still doesn't fit, the cap gives way rather than hide a stack.
+ */
+export function landCarve(seats: { player: PlayerDto | undefined; h: number }[], cards: Record<number, CardDto>, fieldW: number) {
+  const groups = seats.map(({ player, h }) => ({ h, g: player ? trayGroups(player.zones.battlefield.map((id) => cards[id]).filter((c): c is CardDto => !!c && isShelfCard(c))) : [] }))
+  const need = (tight: boolean) => Math.max(0, ...groups.map(({ g, h }) => shelfWidth(g, h, tight)))
+  return Math.round(Math.min(need(false), Math.max(fieldW * SHELF_MAX, need(true))))
+}
+/** The shelf: the right `carve` px of a field. */
+export const shelfOf = (field: Region, carve: number): Region => ({ x: field.x + field.w - carve, y: field.y, w: carve, h: field.h })
 
 const isFoldedLand = (c: CardDto) => c.types.includes('Land') && !c.types.includes('Creature') && c.attachedToId == null
 
-/** A player's lands fold into the ribbon unless one of them can be chosen now. */
-export function foldsLands(cards: CardDto[], selectable?: Set<number>) {
-  return !selectable?.size || !cards.some((c) => isFoldedLand(c) && selectable.has(c.id))
+/** A player's lands fold into their shelf unless they opened it or one of the lands can be chosen now. */
+export function foldsLands(cards: CardDto[], selectable?: Set<number>, open = false) {
+  return !open && (!selectable?.size || !cards.some((c) => isFoldedLand(c) && selectable.has(c.id)))
 }
 const PILE_SHOWN = 3 // newest cards of a graveyard/exile kept as anchors, so arrivals and departures fly
 
@@ -166,19 +183,19 @@ function placeBands(
   const inner = frame.top.h - gap * (order.length - 1)
   const sum = order.reduce((n, id) => n + weight(id), 0)
   const gutter = frame.oppSeat
+  // The lands' shelf at the right end of every band, as wide as the widest player's (the commanders are in the border).
+  const shelf = landCarve(order.map((id) => ({ player: players[id], h: inner * weight(id) / sum })), cards, frame.top.w)
   let y = frame.top.y
   const shortest = inner / sum
   const bands = order.map((id) => {
     const h = inner * weight(id) / sum
     const field: Region = { x: frame.top.x, y, w: frame.top.w, h }
     // Each band's left gutter is the player's border: life, name and counters, with the command zone
-    // at its right edge. The battlefield keeps the whole felt.
+    // at its right edge. The lands' shelf is at the right end of the battlefield.
     const seat: Region = { x: gutter.x, y, w: gutter.w, h }
     const cmdIds = players[id]?.commanders?.map((c) => c.cardId) ?? []
     const slots = borderCommandSlots(seat, cmdIds.length, shortest)
-    const cmdW = slots.length ? seat.x + seat.w - slots[0].x : 0
-    const ribbonH = Math.min(56, h / 2)
-    const ribbon: Region = { x: gutter.x, y: y + h - ribbonH, w: gutter.w - cmdW, h: ribbonH }
+    const ribbon = shelfOf(field, shelf)
     regions[`half:${id}`] = { x: gutter.x, y, w: field.x + field.w - gutter.x, h }
     regions[`seat:${id}`] = seat
     regions[`border:${id}`] = seat
@@ -190,7 +207,7 @@ function placeBands(
       if (cards[cid] && players[id]?.zones.command.includes(cid)) put(cid, { kind: 'command', x: r.x, y: r.y, w: r.w, rot: 0, z: 5900 + i })
     })
     y += h + gap
-    return { id, field, cardsField: field, ribbon, seat }
+    return { id, field, cardsField: trim(field, shelf), ribbon, seat }
   })
 
   for (const band of bands) {
@@ -251,7 +268,7 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
   const folded = new Map<number, Region>()
   const unfolded = (p: PlayerDto | undefined, ribbon: Region) => {
     const all = list(p)
-    if (!foldsLands(all, input.selectable)) return all
+    if (!foldsLands(all, input.selectable, !!p && !!input.openLands?.includes(p.id))) return all
     const rest: CardDto[] = []
     for (const c of all) {
       if (isFoldedLand(c)) folded.set(c.id, ribbon)
@@ -263,12 +280,15 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
   const cols = fanout ? placeBands(input, combat, frame, ids, regions, put, unfolded) : null
   if (!fanout) {
     // One opponent full size on top, you at the bottom. Other opponents are strips.
-    const topCards = unfolded(opp, frame.oppRibbon)
-    const botCards = unfolded(me, frame.meRibbon)
-    const shown = new Set([...topCards, ...botCards].map((c) => c.id))
     const carve = commandCarve([opp, me], Math.min(frame.top.h, frame.bottom.h))
-    const top = shrink(frame.top, carve)
-    const bottom = shrink(frame.bottom, carve)
+    const shelf = landCarve([{ player: opp, h: frame.top.h }, { player: me, h: frame.bottom.h }], cards, frame.top.w - carve)
+    regions.oppRibbon = shelfOf(frame.top, shelf)
+    regions.meRibbon = shelfOf(frame.bottom, shelf)
+    const topCards = unfolded(opp, regions.oppRibbon)
+    const botCards = unfolded(me, regions.meRibbon)
+    const shown = new Set([...topCards, ...botCards].map((c) => c.id))
+    const top = trim(shrink(frame.top, carve), shelf)
+    const bottom = trim(shrink(frame.bottom, carve), shelf)
     const size = { W: Math.min(top.w, bottom.w) - 2, H: Math.min(top.h, bottom.h) - 2 }
     const maxW = Math.min(260, Math.max(90, size.W / 7))
     const sides = layoutTable(topCards, botCards, combat ? input.combat : null, input.highlighted, (id) => shown.has(id), size, maxW, combat)
@@ -323,9 +343,9 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
     })
   })
 
-  // Invisible anchors at the piles and in the mana ribbons, so cards fly into and out of them.
+  // Invisible anchors at the piles and on the land shelves, so cards fly into and out of them.
   const anchor = (id: number, x: number, y: number) => put(id, { kind: 'zone', x, y, w: ZONE_W, rot: 0, z: 1, opacity: 0 })
-  for (const [id, r] of folded) anchor(id, r.x + 20, r.y)
+  for (const [id, r] of folded) anchor(id, r.x + Math.max(0, (r.w - ZONE_W) / 2), r.y + 4)
   const pile = (ids: number[], x: number, y: number, n = PILE_SHOWN) => ids.slice(-n).forEach((id) => anchor(id, x, y))
   if (me) {
     const { x, y } = frame.piles

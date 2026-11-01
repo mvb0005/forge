@@ -1,7 +1,7 @@
 import type { Region } from './contract'
 
 // The table's chrome rectangles for a viewport: the two battlefield halves, the seam between
-// them, the seats, mana ribbons, the action column (stack, control panel, piles), the hand and
+// them, the seats, the action column (stack, control panel, piles), the hand and
 // the log. Combat does not insert a bar. The ring is drawn around the cards that step into it.
 // The seam and the control panel stay put. Pure, so the card layout and the chrome agree.
 
@@ -11,7 +11,7 @@ const GAP = 8
 const EDGE = 18 // inside the mat's rim
 export const LINE_H = 64
 export const STRIP_H = 104
-export const RIBBON_H = 50 // the mana ribbon. Abilities open out of it, onto the mat.
+export const RIBBON_H = 50 // the strip above your hand that your seat plate reaches up into
 export const COL_HEAD = 64 // the same player plaque, compact, above each opponent column
 export const ACT_BUTTONS_H = 82 // Cancel over OK
 export const ACT_H = 196 // the current action in large type, then the buttons. It does not move when combat starts.
@@ -32,13 +32,13 @@ export type Frame = {
   side: Region // right column (log)
   strips: Region | null // multiplayer: unfocused opponents
   oppSeat: Region // focused opponent's shield and name
-  oppRibbon: Region
+  oppRibbon: Region // the focused opponent's land shelf: the layout carves it off the right of `top`
   top: Region // opponent's battlefield (cards)
   line: Region // the type line
   stack: Region
   act: Region // the action plate
   meSeat: Region
-  meRibbon: Region
+  meRibbon: Region // your land shelf, off the right of `bottom`
   bottom: Region // your battlefield (cards)
   hand: Region
   piles: Region // your library, graveyard, exile, command
@@ -67,11 +67,9 @@ export function tableFrame(view: { w: number; h: number }, strips: boolean, stac
   const topY = y
   const bottomY = lineY + LINE_H + GAP
   const head = fanout ? COL_HEAD : 0
-  const trayH = 0
   void _combat
-  const topH = half - RIBBON_H - head
-  const top = { x: feltX, y: topY + RIBBON_H + head, w: feltW, h: fanout ? Math.max(36, topH) : half - RIBBON_H }
-  const bottom = { x: feltX, y: bottomY + trayH, w: feltW, h: Math.max(36, half - RIBBON_H - trayH) }
+  const top = { x: feltX, y: topY + head, w: feltW, h: Math.max(36, half - head) }
+  const bottom = { x: feltX, y: bottomY, w: feltW, h: half }
   const hand = { x: feltX, y: bottomY + half + GAP, w: feltW, h: handH }
   const line = { x: x0, y: lineY, w: innerW, h: LINE_H }
   const sh = stackHeight(stackLen)
@@ -87,13 +85,13 @@ export function tableFrame(view: { w: number; h: number }, strips: boolean, stac
       side: { x: leftW, y: 0, w: view.w - leftW, h: view.h },
       strips: null,
       oppSeat: { x: x0, y: boardTop, w: seatW, h: boardH },
-      oppRibbon: { x: feltX, y: boardTop, w: feltW, h: 0 },
+      oppRibbon: { x: feltX + feltW, y: boardTop, w: 0, h: 0 },
       top: board,
       line: { x: x0, y: boardTop + boardH, w: innerW, h: 0 },
       stack: { x: actX, y: Math.max(EDGE, act.y - GAP - sh), w: actW, h: sh },
       act,
       meSeat: { x: x0, y: hand.y, w: seatW, h: handH },
-      meRibbon: { x: feltX, y: hand.y - RIBBON_H, w: feltW, h: RIBBON_H },
+      meRibbon: { x: feltX + feltW, y: hand.y, w: 0, h: 0 },
       bottom: { x: board.x, y: board.y, w: board.w, h: board.h },
       hand,
       piles: { x: actX, y: hand.y, w: actW, h: handH },
@@ -106,17 +104,17 @@ export function tableFrame(view: { w: number; h: number }, strips: boolean, stac
     side: { x: leftW, y: 0, w: view.w - leftW, h: view.h },
     strips: stripR,
     oppSeat: { x: x0, y: topY, w: seatW, h: half },
-    oppRibbon: { x: feltX, y: topY + head, w: feltW, h: RIBBON_H },
+    oppRibbon: { x: feltX + feltW, y: top.y, w: 0, h: top.h },
     top,
     line,
     stack: { x: actX, y: stackBase - sh, w: actW, h: sh },
     act: { x: actX, y: hand.y - GAP - ACT_H, w: actW, h: ACT_H },
     meSeat: { x: x0, y: bottomY + half - RIBBON_H, w: seatW, h: handH + RIBBON_H + GAP },
-    meRibbon: { x: feltX, y: bottomY + half - RIBBON_H, w: feltW, h: RIBBON_H },
+    meRibbon: { x: feltX + feltW, y: bottom.y, w: 0, h: bottom.h },
     bottom,
     hand,
     piles: { x: actX, y: hand.y, w: actW, h: handH },
-    tray: { x: feltX, y: bottomY, w: feltW, h: trayH },
+    tray: { x: feltX, y: bottomY, w: feltW, h: 0 },
     split: { x: 0, y: lineY + LINE_H / 2, w: leftW, h: 0 },
   }
 }
