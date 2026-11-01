@@ -10,4 +10,4 @@ ENV HOME=/data
 VOLUME /data
 EXPOSE 7777
 
-ENTRYPOINT ["sh", "-c", "exec java -Duser.home=/data $JAVA_OPTS -jar /opt/forge/forge-web.jar --host 0.0.0.0 --port 7777 --ui /opt/forge/ui --pics /pics"]
+ENTRYPOINT ["sh", "-c", "exec java -Duser.home=/data $JAVA_OPTS -jar /opt/forge/forge-web.jar --host 0.0.0.0 --port 7777 --ui /opt/forge/ui --pics /pics $FORGE_ARGS"]

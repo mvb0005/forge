@@ -45,13 +45,14 @@ JSON in and out. Errors are `{ error: string }`, written for the people at the t
 | `GET /healthz` | `{ok:true}`, no secret needed |
 | `GET /opponents` | `{opponents: CuratedOpponent[]}`: the curated Commander roster, `{id, commander, archetype, plan, deck, colors, profile}`. `deck` is the precon's name, `profile` the Forge AI profile it plays with |
 | `POST /decks/check` | body `{name, list}` (a decklist export). `{ok:true}`, or `{ok:false, error}` naming unknown cards or a missing commander. Starts nothing |
-| `POST /match` | starts a match from a spec (below). 201 `{matchId, seats:[{index, kind, name, person?, ticket?}]}`; every human seat has a ticket, valid as soon as this returns. 409 while a match is playing (one table per server). 400 for a bad spec or deck |
+| `POST /match` | starts a match from a spec (below). 201 `{matchId, seats:[{index, kind, name, person?, ticket?}]}`; every human seat has a ticket, valid as soon as this returns. 409 while a match is playing (one table per server), or with `--one-match` once this server's match is over. 400 for a bad spec or deck |
 | `GET /match` | `{state:"idle"\|"playing"\|"finished", matchId?, format?, startedAt?, seats?:[{index, kind, name, person?, deck, connected?}], result?}`. `result` is the last match's, kept until the next `POST /match` |
 | `DELETE /match/{matchId}` | ends that match for everyone: every human concedes and the game is over. 202, or 404 when that id isn't playing. The result's `status` is `"ended"` |
 
 ```ts
 type MatchSpec = {
   version: 1;
+  matchId?: string;                        // 16 lowercase hex characters; a table pod's id (default: random)
   format?: "commander" | "constructed";   // default commander
   seats: Seat[];                           // 2 to 4, at least one human, in turn order
   state?: string;                          // development: start from a saved board; seats may then be omitted (you, then AIs)

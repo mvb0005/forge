@@ -18,6 +18,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -27,6 +28,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -41,6 +46,7 @@ public final class MatchHost {
     static final int NO_SEAT = 4004;
     static final int SPEC_VERSION = 1;
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final Pattern MATCH_ID = Pattern.compile("[0-9a-f]{16}");
 
     enum State { IDLE, PLAYING, FINISHED }
 
@@ -84,12 +90,56 @@ public final class MatchHost {
     private List<Seat> seats = List.of();
     private JsonObject result;
     private boolean ending;
+    private boolean abandoning;
+    /** When a human was last at the table, or the match started. */
+    private Instant lastSeen;
+    private Instant finishedAt;
 
     public MatchHost(Path repoRoot, ResultsSender results) {
         this.repoRoot = repoRoot;
         this.results = results;
         Decks.warmUp();
     }
+
+    /**
+     * A table pod hosts one match (docs/MULTIPLAYER.md D-M9): no humans for {@code abandon} ends it as abandoned, and
+     * {@code linger} after it's over (results sent, the board still viewable) the server exits. Until a match
+     * starts it waits as a spare, for as long as it takes.
+     */
+    void oneMatch(Duration linger, Duration abandon) {
+        oneMatch = true;
+        ScheduledExecutorService tick = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "One match");
+            t.setDaemon(true);
+            return t;
+        });
+        tick.scheduleWithFixedDelay(() -> {
+            String id;
+            synchronized (lock) {
+                Instant now = Instant.now();
+                if (state == State.FINISHED && now.isAfter(finishedAt.plus(linger))) {
+                    System.out.println("Match " + matchId + " is over; this table closes");
+                    System.exit(0);
+                }
+                if (state != State.PLAYING || ending) {
+                    return;
+                }
+                if (seats.stream().anyMatch(s -> s.human && s.channel != null)) {
+                    lastSeen = now;
+                    return;
+                }
+                if (!now.isAfter(lastSeen.plus(abandon))) {
+                    return;
+                }
+                abandoning = true;
+                id = matchId;
+            }
+            System.out.println("Nobody has been at match " + id + " for " + abandon.toMinutes() + " minutes; ending it");
+            end(id);
+        }, 15, 15, TimeUnit.SECONDS);
+    }
+
+    private volatile boolean oneMatch;
 
     // ---------------------------------------------------------------- players' sockets
 
@@ -233,6 +283,15 @@ public final class MatchHost {
             if (state == State.PLAYING) {
                 throw new Refused(409, "A game is already running here");
             }
+            if (oneMatch && state == State.FINISHED) {
+                throw new Refused(409, "This table's game is over");
+            }
+        }
+        String id = str(spec, "matchId", null);
+        if (id == null) {
+            id = HexFormat.of().formatHex(Seat.bytes(8));
+        } else if (!MATCH_ID.matcher(id).matches()) {
+            throw new Refused(400, "A match id is 16 lowercase hex characters");
         }
         int version = spec.has("version") ? spec.get("version").getAsInt() : -1;
         if (version != SPEC_VERSION) {
@@ -317,7 +376,7 @@ public final class MatchHost {
                 guis.put(players.get(i), seat.session.gui());
             }
         }
-        String id = HexFormat.of().formatHex(Seat.bytes(8));
+        String started = id;
         synchronized (lock) {
             matchId = id;
             format = commander ? "commander" : "constructed";
@@ -327,12 +386,14 @@ public final class MatchHost {
             seats = List.copyOf(newSeats);
             result = null;
             ending = false;
+            abandoning = false;
+            lastSeen = startedAt;
             state = State.PLAYING;
         }
         if (gameState != null) {
             match.setStartGameHook(() -> gameState.applyToGameNow(match.getGame()));
         }
-        match.setOnMatchOver(() -> finished(id));
+        match.setOnMatchOver(() -> finished(started));
         GameRules rules = new GameRules(commander ? GameType.Commander : GameType.Constructed);
         rules.setGamesPerMatch(1);
         try {
@@ -486,12 +547,13 @@ public final class MatchHost {
             WebGuiGame any = done.stream().filter(s -> s.session != null).map(s -> s.session).findFirst().orElse(null);
             r = any == null ? new JsonObject() : any.outcome().deepCopy();
             r.addProperty("matchId", id);
-            r.addProperty("status", ending ? "ended" : r.has("gameOver") && r.get("gameOver").getAsBoolean() ? "finished" : "abandoned");
+            r.addProperty("status", abandoning ? "abandoned" : ending ? "ended" : r.has("gameOver") && r.get("gameOver").getAsBoolean() ? "finished" : "abandoned");
             r.remove("gameOver");
             r.addProperty("startedAt", startedAt.toString());
             r.addProperty("endedAt", Instant.now().toString());
             result = r;
             state = State.FINISHED;
+            finishedAt = Instant.now();
             url = resultsUrl;
         }
         for (Seat s : done) {
