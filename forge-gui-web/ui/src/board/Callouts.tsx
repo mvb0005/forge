@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { CardDto, EntityRef, PlayerDto } from '../protocol'
 import type { Region } from '../table/contract'
+import { send } from '../net'
 import { useForge } from '../store'
 
 // What is happening to whom, beside each player's border (3-4 players): one callout per player with a part in
@@ -142,6 +143,21 @@ function useCountdown() {
   return by == null ? null : Math.max(0, Math.ceil((by - now) / 1000))
 }
 
+/** "In response": you're answering and want longer. The server adds the time (and says so with a new timer). */
+export function MoreTime() {
+  return (
+    <button type="button" title="20 more seconds before priority passes for you"
+      onClick={(e) => {
+        e.stopPropagation()
+        send({ t: 'moreTime' })
+      }}
+      className="lk-title"
+      style={{ pointerEvents: 'auto', border: '1px solid var(--lk-gold-soft)', borderRadius: 3, background: 'rgb(245 213 138 / .1)', color: 'var(--lk-gold)', cursor: 'pointer', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '1px 6px', lineHeight: '16px' }}>
+      In response +20s
+    </button>
+  )
+}
+
 export function Callouts({ regions }: { regions: Record<string, Region> }) {
   const lines = useCallouts()
   const meIds = useForge(useShallow((s) => s.game?.localPlayerIds ?? []))
@@ -170,6 +186,7 @@ export function Callouts({ regions }: { regions: Record<string, Region> }) {
               <div className="lk-label" style={{ display: 'flex', gap: 8, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--lk-gold)', marginBottom: 2 }}>
                 <span>Your move</span>
                 {left != null && <span style={{ marginLeft: 'auto', color: left <= 3 ? 'var(--lk-ember-light)' : 'var(--lk-parchment-dim)', fontVariantNumeric: 'tabular-nums' }}>Passing in {left}s</span>}
+                {left != null && <MoreTime />}
               </div>
             )}
             {ls.map((l, i) => (

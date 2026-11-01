@@ -169,6 +169,7 @@ export type ClientMessage =
   | { t: 'selectCard'; cardId: number; others?: number[]; shift: boolean; button: number }
   | { t: 'selectPlayer'; playerId: number; shift: boolean; button: number }
   | { t: 'ok' }
+  | { t: 'moreTime' } // "In response": 20 more seconds on the respond timer
   | { t: 'cancel' }
   | { t: 'answer'; id: number; value: unknown }
   | { t: 'useMana'; color: ManaColor }

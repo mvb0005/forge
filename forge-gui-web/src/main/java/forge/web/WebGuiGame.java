@@ -93,8 +93,12 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         t.setDaemon(true);
         return t;
     });
+    /** Seconds "In response" adds to a running respond timer (the client's moreTime). */
+    static final int MORE_SECONDS = 20;
     // guarded by io
     private ScheduledFuture<?> respondTimer;
+    private long respondDeadline; // System.currentTimeMillis() when the timer passes
+    private Runnable respondPass;
 
     private static final ScheduledExecutorService FLUSHER = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "Web state flush");
@@ -690,6 +694,7 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
             return;
         }
         switch (t) {
+            case "moreTime" -> moreTime();
             case "selectCard" -> {
                 CardView c = knownCards.get(m.get("cardId").getAsInt());
                 if (c == null) {
@@ -1540,14 +1545,32 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
             }
             PlayerControllerHuman h = human;
             InputPassPriority pp = priority;
-            respondTimer = RESPOND.schedule(() -> WebEdt.invokeLater(() -> {
+            respondPass = () -> WebEdt.invokeLater(() -> {
                 if (!disposed && h.getInputQueue().getInput() == pp) {
                     pp.passPriority();
                 }
-            }), seconds, TimeUnit.SECONDS);
-            JsonObject t = msg("timer");
-            t.addProperty("seconds", seconds);
-            sendLocked(t);
+            });
+            scheduleRespondLocked(seconds * 1000L);
+        }
+    }
+
+    // io held
+    private void scheduleRespondLocked(long ms) {
+        respondDeadline = System.currentTimeMillis() + ms;
+        respondTimer = RESPOND.schedule(respondPass, ms, TimeUnit.MILLISECONDS);
+        JsonObject t = msg("timer");
+        t.addProperty("seconds", (ms + 999) / 1000);
+        sendLocked(t);
+    }
+
+    /** "In response": the player is answering and wants longer. Adds MORE_SECONDS to the running timer, if any. */
+    private void moreTime() {
+        synchronized (io) {
+            if (respondTimer == null || !respondTimer.cancel(false)) {
+                return;
+            }
+            long left = Math.max(0, respondDeadline - System.currentTimeMillis());
+            scheduleRespondLocked(left + MORE_SECONDS * 1000L);
         }
     }
 
