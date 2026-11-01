@@ -1,5 +1,5 @@
 import { orderedHand } from '../board/handOrder'
-import { CARD_RATIO } from '../board/layout'
+import { CARD_RATIO, buildGroups, combatRoles } from '../board/layout'
 import { layoutTable, PAD, type SideLayout } from '../board/fieldLayout'
 import { isShelfCard, shelfWidth, trayGroups } from '../board/lands'
 import type { CardDto, PhaseName, PlayerDto } from '../protocol'
@@ -39,6 +39,8 @@ export const PILE_X = [0, 78, 156] // library, graveyard, exile/command inside t
 export const COMMAND = { gap: 6, pad: 8, chipH: 34, maxW: 132 }
 /** Room a defender's band leaves at its left in combat (3-4 players) for the callout beside the player's border. */
 export const CALLOUT_W = 300
+const ENGAGE_MIN_H = 72 // shortest card in a fight row before the attackers wrap into another column
+const ENGAGE_MAX_W = 220 // as large as the rest of the board: the fight is what matters now
 /** The command zone inside a player border (3-4 players): commander cards stacked at the border's right edge. */
 export const BORDER = { pad: 8, cardMaxW: 92, share: 0.42 }
 export function borderCommandSlots(border: Region, n: number, bandH = border.h): Region[] {
@@ -149,6 +151,67 @@ function paintSide(
   }
 }
 
+/**
+ * A fight in the attacked player's band (3-4 players): one row per attacker (identical unblocked ones as one
+ * tile), the attacker facing the player's border with its blockers standing between them, so an unblocked
+ * attacker has nothing in its way. The rows sit at the left of the band, against the border; more attackers
+ * than rows wrap into another column. Publishes `engage:<player>` (the fight, for its ring and the callout
+ * beside it), `lane:col:<attacker>` and `slot:<attacker>` (where a blocker would stand, for the block slots).
+ * Returns the defender's cards it placed as blockers.
+ */
+function engage(
+  defender: number,
+  field: Region,
+  attackers: CardDto[],
+  row: CardDto[],
+  input: LayoutInput,
+  regions: Record<string, Region>,
+  put: (id: number, p: Placement) => void,
+): Set<number> {
+  const combat = input.combat!
+  const groups = buildGroups(attackers, combatRoles(combat), input.highlighted)
+  const mineIds = new Set(row.map((c) => c.id))
+  const fights = groups.map((g) => {
+    const ids = new Set(g.ids)
+    const blockers = [...new Set(combat.bands.filter((b) => b.attackerIds.some((a) => ids.has(a))).flatMap((b) => [...b.blockerIds, ...b.plannedBlockerIds]))].filter((id) => mineIds.has(id))
+    return { g, blockers }
+  })
+  const pad = 6
+  const gap = 6
+  const n = fights.length
+  const spots = Math.max(1, ...fights.map((f) => f.blockers.length)) // room for a blocker even before one is chosen
+  const H = field.h - 2 * pad
+  let cols = 1
+  while (cols < n && H / Math.ceil(n / cols) < ENGAGE_MIN_H) cols++
+  const perCol = Math.ceil(n / cols)
+  const cardH = Math.min(H / perCol - (perCol > 1 ? gap : 0), ENGAGE_MAX_W * CARD_RATIO)
+  const w = cardH / CARD_RATIO
+  const cellW = (spots + 1) * (w + gap)
+  const used = new Set<number>()
+  fights.forEach(({ g, blockers }, i) => {
+    const c = Math.floor(i / perCol)
+    const r = i % perCol
+    const x0 = field.x + pad + c * (cellW + gap * 2)
+    const y = field.y + pad + r * (cardH + gap)
+    const ax = x0 + spots * (w + gap)
+    const head = g.ids[0]
+    put(head, {
+      kind: 'field', x: ax, y, w, rot: 0, z: 2000 + i * 10, edge: 'bottom',
+      count: g.ids.length > 1 ? g.ids.length : undefined,
+      memberIds: g.ids.length > 1 ? g.ids.slice(1) : undefined,
+    })
+    blockers.forEach((id, k) => {
+      used.add(id)
+      put(id, { kind: 'field', x: ax - (k + 1) * (w + gap), y, w, rot: 0, z: 2000 + i * 10 + 1 + k, edge: 'top' })
+    })
+    regions[`lane:col:${head}`] = { x: x0, y, w: cellW - gap, h: cardH }
+    regions[`slot:${head}`] = { x: ax - (blockers.length + 1) * (w + gap), y, w, h: cardH }
+  })
+  const rows = Math.min(n, perCol)
+  regions[`engage:${defender}`] = { x: field.x, y: field.y, w: pad + cols * (cellW + gap * 2) - gap, h: 2 * pad + rows * cardH + (rows - 1) * gap }
+  return used
+}
+
 function placeBands(
   input: LayoutInput,
   combat: boolean,
@@ -215,18 +278,22 @@ function placeBands(
     const row = unfolded(players[band.id], band.ribbon).filter((c) => !moved.has(c.id))
     const attackers = incoming.get(band.id)
     const lane = combat ? { y: band.field.y, h: band.field.h } : null
-    if (attackers?.length) {
-      // Attackers in the top half, the defender's own permanents below, lined up attacker over blocker; the
-      // left of the band stays clear for the defender's callout ("attacked by ...").
-      const f = shrink(band.cardsField, Math.min(CALLOUT_W, band.cardsField.w * 0.3))
-      const top: Region = { x: f.x, y: f.y, w: f.w, h: f.h / 2 }
-      const bottom: Region = { x: f.x, y: f.y + f.h / 2, w: f.w, h: f.h / 2 }
-      const size = { W: f.w - 2, H: f.h / 2 - 2 }
-      const maxW = Math.min(220, Math.max(56, Math.min(size.W / 8, size.H / CARD_RATIO)))
-      const shown = new Set([...row, ...attackers].map((c) => c.id))
-      const lay = layoutTable(attackers, row, input.combat, input.highlighted, (id) => shown.has(id), size, maxW, combat)
-      paintSide(lay.top, top, 'bottom', size, regions, cards, put, null, lane)
-      paintSide(lay.bottom, bottom, 'top', size, regions, cards, put, mine ? 'bottom:back' : null, lane)
+    if (attackers?.length && input.combat) {
+      const used = engage(band.id, band.cardsField, attackers, row, input, regions, put)
+      // The rest of the defender's board keeps to the right of the fight, past room for their callout when
+      // the rest of the board can spare it.
+      const zone = regions[`engage:${band.id}`]
+      const rest = row.filter((c) => !used.has(c.id))
+      const right = band.cardsField.x + band.cardsField.w
+      const free = right - (zone.x + zone.w + COL_GAP)
+      const need = Math.min(free, 24 + rest.length * 90)
+      const restX = zone.x + zone.w + COL_GAP + Math.max(0, Math.min(CALLOUT_W, free - need))
+      const restF: Region = { x: restX, y: band.cardsField.y, w: Math.max(40, right - restX), h: band.cardsField.h }
+      const size = { W: restF.w - 2, H: restF.h - 2 }
+      const maxW = Math.min(220, Math.max(56, Math.min(size.W / 6, size.H / CARD_RATIO)))
+      const shown = new Set(rest.map((c) => c.id))
+      const lay = layoutTable(mine ? [] : rest, mine ? rest : [], null, input.highlighted, (id) => shown.has(id), size, maxW, false)
+      paintSide(mine ? lay.bottom : lay.top, restF, mine ? 'top' : 'bottom', size, regions, cards, put, mine ? 'bottom:back' : null, null)
       continue
     }
     const size = { W: band.cardsField.w - 2, H: band.cardsField.h - 2 }

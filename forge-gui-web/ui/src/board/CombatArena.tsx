@@ -41,11 +41,15 @@ export function BlockSlots({ layout }: { layout: LayoutResult }) {
     // The attacker's own rule (evasion, menace) teaches more than a bare "Block", even when someone can block it.
     const rule = mostCommon(entry.cannotBlock.map((c) => c.reason).filter((r) => r.includes(':'))) ?? (entry.canBlock.length ? 'Block' : (mostCommon(entry.cannotBlock.map((c) => c.reason)) ?? 'No blockers'))
     const lane = layout.regions[key]
-    const base = { attackerId: entry.attackerId, y: bottom.y + PAD + 1, w: p.w, h, laneX: p.x, laneY: p.y, laneW: lane.w, through: dmg > 0 ? `else ${dmg} to you` : null }
+    const spot = layout.regions[`slot:${head}`] // 3-4 players: where a blocker would stand, between the attacker and you
+    const base = spot
+      ? { attackerId: entry.attackerId, y: spot.y, w: spot.w, h: spot.h, laneX: lane.x, laneY: lane.y, laneW: lane.w, through: dmg > 0 ? `else ${dmg} to you` : null }
+      : { attackerId: entry.attackerId, y: bottom.y + PAD + 1, w: p.w, h, laneX: p.x, laneY: p.y, laneW: lane.w, through: dmg > 0 ? `else ${dmg} to you` : null }
     // Menace lanes always show two slots (D-11); the second one says what it's for.
     const n = Math.max(1, entry.minBlockers)
     for (let i = have; i < n; i++) {
-      const x = n > 1 ? p.x + (i * (lane.w - p.w)) / (n - 1) : p.x
+      const x = spot ? spot.x - (i - have) * (spot.w + 6) : n > 1 ? p.x + (i * (lane.w - p.w)) / (n - 1) : p.x
+      if (spot && x < lane.x - 1) break // no room left of the attacker for another slot
       slots.push({ ...base, key: `${entry.attackerId}:${i}`, x, rule: i === 0 ? rule : entry.minBlockers === 2 ? 'Menace · needs a second blocker' : `Blocker ${i + 1} of ${n}`, through: i === 0 ? base.through : null })
     }
   }

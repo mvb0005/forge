@@ -328,8 +328,13 @@ describe('table layouts', () => {
     expect(sx(at(spirit.id), lay.regions['field:2'])).toBe(true)
     expect(sx(at(knight.id), lay.regions['field:4'])).toBe(true)
     expect(sx(at(atraxa.id), lay.regions['field:2'])).toBe(true)
-    expect(at(atraxa.id).y, "the blocker is under the attacker it blocks").toBeGreaterThan(at(spirit.id).y)
-    expect(Math.abs(at(atraxa.id).x - at(spirit.id).x), 'in the same column').toBeLessThan(at(spirit.id).w)
+    // The blocker stands between the attacker and the player it attacks: same row, nearer the border.
+    expect(at(atraxa.id).y).toBeCloseTo(at(spirit.id).y)
+    expect(at(atraxa.id).x).toBeLessThan(at(spirit.id).x)
+    expect(at(atraxa.id).x).toBeGreaterThanOrEqual(lay.regions['border:2'].x + lay.regions['border:2'].w)
+    expect(lay.regions['engage:2']).toBeTruthy()
+    // An unblocked attacker leaves a blocker's spot free between it and the player.
+    expect(at(knight.id).x).toBeGreaterThan(lay.regions['field:4'].x + at(knight.id).w)
     expect(lay.regions['half:2'].h).toBeGreaterThan(lay.regions['half:1'].h * 1.5)
     expect(lay.placements.get(urza.id)?.kind).toBe('field')
     const home = Object.values(base.cards).filter((c) => c.name === 'Knight Ally' && c.id !== knight.id)
