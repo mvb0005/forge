@@ -9,7 +9,6 @@ import { Arrows } from './Arrows'
 import { Arena } from './Arena'
 import { BlockSlots } from './CombatArena'
 import { Scoreboard } from './Scoreboard'
-import { StackView } from './Center'
 import { SidePanel } from './Preview'
 import { Callouts } from './Callouts'
 import { CommandSlots, Piles, PlayerBorder, Ribbon, SeatPlate, StripSeat, useSeatColors } from './Seat'
@@ -110,9 +109,6 @@ export function MatchTable({ centerSlot }: { centerSlot: ReactNode }) {
           {me && !meIsBand && <Ribbon player={me} isMe style={{ ...at(r.meRibbon), display: 'flex', alignItems: 'flex-end', zIndex: 4, overflow: 'visible' }} />}
           <Arena layout={layout} />
           {game && !columns.length && <ScoreSpot meId={meId} multi={Object.keys(players).length > 2} x={r.oppSeat.x + 16} seam={r.line.y} lineH={r.line.h} />}
-          <div style={{ ...at(r.stack), zIndex: 9 }}>
-            <StackView h={r.stack.h} />
-          </div>
           <div style={{ ...at(r.act), zIndex: 22, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 10 }}>
             {!columns.length && <PromptHeadline />}
             <div style={{ height: ACT_BUTTONS_H, flex: 'none' }}>{centerSlot}</div>

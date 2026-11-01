@@ -123,13 +123,13 @@ describe('table layouts', () => {
     expect(atts.every((a) => a.kind === 'attach' && a.x === host.x && a.y < host.y && a.z < host.z)).toBe(true)
   })
 
-  it('puts a spell on the stack in its stack slot and anchors graveyards at the seat', () => {
+  it('sends a spell on the stack off toward the stack panel and anchors graveyards at the seat', () => {
     const s = fixture('quiet')
     const { placements, regions } = run(input(s))
     const spell = s.stack![0].sourceCardId!
     const p = placements.get(spell)!
-    expect(p.kind).toBe('stack')
-    expect(p.x).toBeGreaterThanOrEqual(regions.stack.x)
+    expect(p).toMatchObject({ kind: 'zone', opacity: 0 })
+    expect(p.x + p.w).toBeGreaterThanOrEqual(regions.side.x - 1)
     const gy = s.players![1].zones.graveyard
     expect(placements.get(gy[gy.length - 1])).toMatchObject({ kind: 'zone', opacity: 0 })
   })

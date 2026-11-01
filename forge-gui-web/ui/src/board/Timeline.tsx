@@ -117,7 +117,8 @@ export function Timeline() {
   const active = activeId != null ? players[activeId] : undefined
   const now = active ? `${meIds?.includes(active.id) ? 'Your' : `${active.name}'s`} turn${stepWords(phase) ? ` · ${stepWords(phase)}` : ''}` : null
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    // Only as tall as it needs (it scrolls past that), so the stack sits right under "Now".
+    <div className="flex min-h-0 flex-col" style={{ flex: '0 1 auto' }}>
       <div className="lk-title mb-2 flex items-baseline justify-between border-b pb-2" style={{ borderColor: 'var(--lk-metal-line)' }}>
         <span style={{ fontWeight: 700, fontSize: 17 }}>Timeline</span>
         <button type="button" onClick={() => setAll((a) => !a)} title="Mana and phase lines too"

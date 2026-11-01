@@ -4,7 +4,7 @@ import { layoutTable, PAD, type SideLayout } from '../board/fieldLayout'
 import { isShelfCard, shelfWidth, trayGroups } from '../board/lands'
 import type { CardDto, PhaseName, PlayerDto } from '../protocol'
 import type { LayoutFn, LayoutInput, LayoutResult, Placement, Region, TableMode } from './contract'
-import { STACK, stackItemY, tableFrame, type Frame } from './frame'
+import { STACK, tableFrame, type Frame } from './frame'
 
 // Layout functions per table mode. 'main' and 'combat' share one pass; combat lines attackers up
 // against their blockers and folds the back lanes. With two or more opponents every player, you
@@ -394,20 +394,12 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
     })
   }
 
-  // Spells on the stack sit in their item's thumbnail slot.
+  // Spells on the stack are drawn by the stack panel under the timeline (right-hand column): on the table
+  // they head off that way and fade.
   stack.forEach((item, i) => {
     const id = item.sourceCardId
     if (id == null || cards[id]?.zone !== 'stack') return
-    const visible = i < STACK.shown
-    put(id, {
-      kind: visible ? 'stack' : 'zone',
-      x: frame.stack.x + STACK.thumbX,
-      y: frame.stack.y + frame.stack.h - (visible ? stackItemY(i) : 0) + STACK.thumbY,
-      w: STACK.thumbW,
-      rot: 0,
-      z: 7000 + STACK.shown - i,
-      opacity: visible ? undefined : 0,
-    })
+    put(id, { kind: 'zone', x: frame.side.x - STACK.thumbW, y: frame.side.y + frame.side.h * 0.6, w: STACK.thumbW, rot: 0, z: 7000 - i, opacity: 0 })
   })
 
   // Invisible anchors at the piles and on the land shelves, so cards fly into and out of them.
