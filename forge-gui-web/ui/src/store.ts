@@ -27,6 +27,7 @@ export type ForgeState = {
   notices: { id: number; level: 'info' | 'error' | 'flash'; title: string; message: string }[]
   gameOver: { winner: string | null; summary: string } | null
   respondBy: number | null // Date.now() ms when the server passes priority for you, if it's timing you
+  speaking: Set<string> // Discord user ids talking in the Activity's voice channel now (discord.ts)
   setConnected: (c: boolean) => void
   dismissNotice: (id: number) => void
   clearReveal: () => void
@@ -98,6 +99,7 @@ export const useForge = create<ForgeState>()((set) => ({
   notices: [],
   gameOver: null,
   respondBy: null,
+  speaking: new Set(),
   setConnected: (connected) => set({ connected }),
   dismissNotice: (id) => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })),
   clearReveal: () => set({ reveal: null }),

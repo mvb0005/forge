@@ -215,7 +215,11 @@ final class ViewProjector {
         zones.add("exile", ids(p.getCards(ZoneType.Exile)));
         zones.add("command", ids(p.getCards(ZoneType.Command)));
         o.add("zones", zones);
-        o.addProperty("avatarImg", imgUrl(p.getAvatarCardImageKey()));
+        String[] face = gui.face(p.getName());
+        o.addProperty("avatarImg", face != null && face[0] != null ? face[0] : imgUrl(p.getAvatarCardImageKey()));
+        if (face != null && face[1] != null) {
+            o.addProperty("discordId", face[1]);
+        }
         o.addProperty("hasLost", p.getHasLost());
         String identity = gui.facts().colorIdentity(p.getId());
         if (identity != null) {

@@ -1,4 +1,5 @@
-import { useEffect } from 'react'
+import { backUrl, inDiscord } from '../discord'
+import { useEffect, useState } from 'react'
 import { useForge } from '../store'
 import { Btn, IconBtn } from './ui'
 
@@ -33,12 +34,14 @@ export function Toasts() {
   )
 }
 
+const LOBBY_SECONDS = 8
+
 export function GameOverModal() {
   const over = useForge((s) => s.gameOver)
   const local = useForge((s) => s.game?.localPlayerIds ?? NONE)
   const players = useForge((s) => s.players)
   const close = useForge((s) => s.clearGameOver)
-  const back = useForge((s) => s.returnUrl)
+  const back = backUrl(useForge((s) => s.returnUrl))
   useEffect(() => {
     if (!over) return
     const h = (e: KeyboardEvent) => {
@@ -47,6 +50,18 @@ export function GameOverModal() {
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
   }, [over, close])
+  // In the Discord Activity the game hands everyone back to the lobby (its deck select) on its own; "See the
+  // board" stays to look first. The wait gives the result time to reach the tracker, so the lobby is picking again.
+  const [left, setLeft] = useState(LOBBY_SECONDS)
+  useEffect(() => {
+    if (!over || !inDiscord || !back) return
+    setLeft(LOBBY_SECONDS)
+    const t = setInterval(() => setLeft((n) => Math.max(0, n - 1)), 1000)
+    return () => clearInterval(t)
+  }, [over, back])
+  useEffect(() => {
+    if (over && inDiscord && back && left === 0) location.href = back
+  }, [over, back, left])
   if (!over) return null
   const won = over.winner != null && local.some((id) => players[id]?.name === over.winner)
   const headline = over.winner == null ? 'Draw' : won ? 'Victory' : 'Defeat'
@@ -57,7 +72,7 @@ export function GameOverModal() {
         <div className="mt-2 text-sm text-ink-dim">{won ? 'You won the game' : over.winner ? `${over.winner} wins the game` : 'Nobody won'}</div>
         {over.summary && <p className="mt-5 whitespace-pre-line rounded-lg bg-felt px-4 py-3 text-left text-sm text-ink-dim">{over.summary}</p>}
         {back
-          ? <a href={back} className="mt-6 block w-full"><Btn variant="primary" className="w-full py-2.5" autoFocus>Back to the tracker</Btn></a>
+          ? <a href={back} className="mt-6 block w-full"><Btn variant="primary" className="w-full py-2.5" autoFocus>{inDiscord ? `Back to the lobby (${left}s)` : 'Back to the tracker'}</Btn></a>
           : <Btn variant="primary" className="mt-6 w-full py-2.5" autoFocus onClick={close}>See the board</Btn>}
         {back && <button type="button" className="mt-3 text-sm text-ink-dim hover:text-ink" onClick={close}>See the board</button>}
       </div>

@@ -22,6 +22,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -31,6 +32,7 @@ import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -47,6 +49,9 @@ public final class MatchHost {
     static final int SPEC_VERSION = 1;
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final Pattern MATCH_ID = Pattern.compile("[0-9a-f]{16}");
+    /** A seat's picture is only ever a Discord avatar on Discord's CDN (the table shows it, proxied in Discord). */
+    private static final Pattern AVATAR = Pattern.compile("https://cdn\\.discordapp\\.com/[A-Za-z0-9/_.?=-]{1,200}");
+    private static final Pattern DISCORD_PERSON = Pattern.compile("discord:(\\d{1,25})");
 
     enum State { IDLE, PLAYING, FINISHED }
 
@@ -335,6 +340,7 @@ public final class MatchHost {
         List<RegisteredPlayer> players = new ArrayList<>();
         Set<String> names = new HashSet<>();
         Set<String> preconsTaken = new HashSet<>();
+        Map<String, String[]> faces = new HashMap<>();
         int humans = 0;
         for (int i = 0; i < seatSpecs.size(); i++) {
             JsonObject s = seatSpecs.get(i).getAsJsonObject();
@@ -369,6 +375,10 @@ public final class MatchHost {
             players.add(rp);
             String deckName = gameState != null ? stateName : curated != null ? curated.precon() : Decks.shortName(deck);
             newSeats.add(new Seat(i, human, name, str(s, "person", null), deckName));
+            String avatar = str(s, "avatar", null);
+            Matcher discord = DISCORD_PERSON.matcher(str(s, "person", ""));
+            faces.put(name, new String[] {avatar != null && AVATAR.matcher(avatar).matches() ? avatar : null,
+                    discord.matches() ? discord.group(1) : null});
         }
         if (humans == 0) {
             throw new Refused(400, "A game needs at least one human seat");
@@ -380,6 +390,7 @@ public final class MatchHost {
             Seat seat = newSeats.get(i);
             if (seat.human) {
                 seat.session = new WebGuiGame(match);
+                seat.session.faces(faces);
                 guis.put(players.get(i), seat.session.gui());
             }
         }

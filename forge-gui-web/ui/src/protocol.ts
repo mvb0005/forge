@@ -37,6 +37,7 @@ export type PlayerDto = {
   libraryCount: number
   zones: { hand: number[]; battlefield: number[]; graveyard: number[]; exile: number[]; command: number[] }
   avatarImg: string | null
+  discordId?: string // the Discord user at this seat (a Discord Activity game); avatarImg is then their picture
   hasLost: boolean
   colorIdentity?: string[]
   commanders?: { cardId: number; casts: number; tax: number }[]

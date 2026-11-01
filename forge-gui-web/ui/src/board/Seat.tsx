@@ -4,6 +4,7 @@ import { CardFrame, RING } from '../look/CardFrame'
 import type { CommanderHit } from '../look/LifeShield'
 import { foldLands, type RibbonSource } from '../look/ManaRibbon'
 import { ManaSymbol } from '../look/ManaSymbol'
+import { Face } from './Face'
 import { LandTray } from './LandTray'
 import { stepWords } from '../look/phase'
 import { isRock, rockSym, trayGroups } from './lands'
@@ -197,7 +198,8 @@ export function PlayerBorder({ player: p, isMe, region, cmdW, turn }: { player: 
             Turn {turn}{stepWords(phase) ? ` · ${stepWords(phase)}` : ''}
           </div>
         )}
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <Face player={p} colors={colors} size={tall ? 34 : 28} />
           <button
             type="button"
             data-entity={`player:${p.id}`}
@@ -210,10 +212,10 @@ export function PlayerBorder({ player: p, isMe, region, cmdW, turn }: { player: 
             {preview ?? p.life}
           </button>
           {preview != null && <span style={{ fontSize: 11, color: 'var(--lk-parchment-mute)', textDecoration: 'line-through' }}>{p.life}</span>}
-          <span className="lk-title" style={{ fontWeight: 700, fontSize: 15.5, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--lk-parchment)' }}>
-            {isMe ? 'You' : p.name}
-          </span>
           {priority && <span title="Holds priority" style={{ width: 7, height: 7, borderRadius: 99, flex: 'none', background: 'var(--lk-gold)', boxShadow: '0 0 8px var(--lk-gold-soft)', alignSelf: 'center' }} />}
+        </div>
+        <div className="lk-title" title={p.name} style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--lk-parchment)' }}>
+          {isMe ? 'You' : p.name}
         </div>
         <div style={{ display: 'flex', gap: 8, fontSize: 11.5, color: 'var(--lk-parchment-dim)', whiteSpace: 'nowrap' }}>
           <span>Hand <b className="lk-title" style={{ color: 'var(--lk-parchment)' }}>{p.handCount}</b></span>

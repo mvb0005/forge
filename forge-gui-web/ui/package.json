@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@discord/embedded-app-sdk": "2.5.0",
     "@fontsource/faustina": "^5.3.0",
     "@fontsource/libre-baskerville": "^5.3.0",
     "@fontsource/spectral": "^5.3.0",
