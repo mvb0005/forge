@@ -46,5 +46,5 @@ if (res.status !== 201) {
 }
 console.log(`Match ${body.matchId}`);
 for (const s of body.seats) {
-  console.log(s.ticket ? `  ${s.name}: ${ui}?ticket=${s.ticket}` : `  ${s.name} (AI)`);
+  console.log(s.ticket ? `  ${s.name}: ${ui}${body.matchId}/?ticket=${s.ticket}` : `  ${s.name} (AI)`);
 }

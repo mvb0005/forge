@@ -8,25 +8,25 @@ import './landing.css'
 
 type Link = 'connecting' | 'open' | 'retrying' | 'noSeat' | 'replaced'
 
-const TICKET_KEY = 'forge.ticket'
 const SEAT_REPLACED = 4001
 const NO_SEAT = 4004
 
 /**
- * The seat ticket the tracker put on the link (?ticket=). Kept for this tab so a refresh keeps the seat, and
- * taken off the address bar so it isn't shared by accident.
+ * The seat ticket the tracker put on the link (?ticket=). Kept for this tab and this table's path
+ * (/play/table/<match id>/) so a refresh keeps the seat, and taken off the address bar so it isn't shared by accident.
  */
 function seatTicket() {
   const url = new URL(location.href)
   const fromUrl = url.searchParams.get('ticket')
+  const key = `forge.ticket:${url.pathname.replace(/[^/]*$/, '')}`
   try {
     if (fromUrl) {
-      sessionStorage.setItem(TICKET_KEY, fromUrl)
+      sessionStorage.setItem(key, fromUrl)
       url.searchParams.delete('ticket')
       history.replaceState(null, '', url.pathname + url.search + url.hash)
       return fromUrl
     }
-    return sessionStorage.getItem(TICKET_KEY)
+    return sessionStorage.getItem(key)
   } catch {
     return fromUrl
   }
@@ -52,7 +52,7 @@ function useConnection() {
         return
       }
       setLink('connecting')
-      // The socket sits beside the page, wherever the table is mounted (/play/table/ws, or /ws in development).
+      // The socket sits beside the page, wherever the table is mounted (/play/table/<id>/ws, or /ws in development).
       const dir = location.pathname.replace(/[^/]*$/, '')
       ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${dir}ws?ticket=${encodeURIComponent(ticket)}`)
       ws.onopen = () => {

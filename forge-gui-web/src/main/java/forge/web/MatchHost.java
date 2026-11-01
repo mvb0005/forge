@@ -93,13 +93,18 @@ public final class MatchHost {
 
     // ---------------------------------------------------------------- players' sockets
 
-    void onConnect(ClientChannel ch, String ticket) {
+    /** A seat's socket. {@code table} is the match id from the page's path (/play/table/&lt;id&gt;/), or null at the bare path. */
+    void onConnect(ClientChannel ch, String ticket, String table) {
         Seat seat;
         ClientChannel previous;
         State st;
         String back;
         synchronized (lock) {
             seat = ticket == null ? null : seats.stream().filter(s -> ticket.equals(s.ticket)).findFirst().orElse(null);
+            if (table != null && !table.equals(matchId)) {
+                ch.close(NO_SEAT, "That game isn't running here any more. Start or rejoin one from the tracker.");
+                return;
+            }
             if (seat == null) {
                 ch.close(NO_SEAT, "There's no seat here for this link. Start a game from the tracker.");
                 return;
