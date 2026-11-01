@@ -11,7 +11,8 @@ import { BlockSlots } from './CombatArena'
 import { Scoreboard } from './Scoreboard'
 import { StackView } from './Center'
 import { SidePanel } from './Preview'
-import { CommandSlots, Piles, Ribbon, SeatPlate, StripSeat, useSeatColors } from './Seat'
+import { Callouts } from './Callouts'
+import { CommandSlots, Piles, PlayerBorder, Ribbon, SeatPlate, StripSeat, useSeatColors } from './Seat'
 import { useBoardUi } from './uiStore'
 import { useSize } from './useSize'
 import './board.css'
@@ -34,16 +35,14 @@ function ColumnMat({ playerId, region, turn, extend }: { playerId: number; regio
   )
 }
 
-function ColumnSeat({ playerId, seat, ribbon, turn, isMe }: { playerId: number; seat: Region; ribbon: Region; turn: number; isMe: boolean }) {
+function ColumnSeat({ playerId, seat, ribbon, turn, isMe, regions }: { playerId: number; seat: Region; ribbon: Region; turn: number; isMe: boolean; regions: Record<string, Region> }) {
   const player = useForge((s) => s.players[playerId])
-  const setFocus = useBoardUi((s) => s.setFocus)
-  const viewing = useBoardUi((s) => s.zoneView?.playerId === playerId)
   if (!player) return null
+  const slot = player.commanders?.length ? regions[`command:${player.commanders[0].cardId}`] : undefined
+  const cmdW = slot ? seat.x + seat.w - slot.x : 0
   return (
     <>
-      <div onClick={() => setFocus(playerId, turn)} style={{ ...at(seat), zIndex: viewing ? RAISED : 8, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-start', padding: '6px 10px 8px', boxSizing: 'border-box', cursor: 'pointer' }}>
-        <SeatPlate player={player} isMe={isMe} compact />
-      </div>
+      <PlayerBorder player={player} isMe={isMe} region={seat} cmdW={cmdW} turn={turn} />
       <Ribbon player={player} isMe={isMe} compact style={{ ...at(ribbon), display: 'flex', justifyContent: 'center', alignItems: isMe ? 'flex-end' : 'flex-start', zIndex: 4, overflow: 'visible' }} />
     </>
   )
@@ -107,15 +106,15 @@ export function MatchTable({ centerSlot }: { centerSlot: ReactNode }) {
             </div>
           )}
           {columns.length === 0 && opp && <Ribbon player={opp} isMe={false} style={{ ...at(r.oppRibbon), display: 'flex', justifyContent: 'center', alignItems: 'flex-start', zIndex: 4, overflow: 'visible' }} />}
-          {columns.map((c) => c.seat && c.ribbon && <ColumnSeat key={c.id} playerId={c.id} seat={c.seat} ribbon={c.ribbon} turn={turn} isMe={c.id === meId} />)}
+          {columns.map((c) => c.seat && c.ribbon && <ColumnSeat key={c.id} playerId={c.id} seat={c.seat} ribbon={c.ribbon} turn={turn} isMe={c.id === meId} regions={r} />)}
           {me && !meIsBand && <Ribbon player={me} isMe style={{ ...at(r.meRibbon), display: 'flex', alignItems: 'flex-end', zIndex: 4, overflow: 'visible' }} />}
           <Arena layout={layout} />
-          {game && <ScoreSpot meId={meId} multi={Object.keys(players).length > 2} x={r.oppSeat.x + 16} seam={r.line.y} lineH={r.line.h} band={columns.length && activeId != null ? r[`seat:${activeId}`] : undefined} />}
+          {game && !columns.length && <ScoreSpot meId={meId} multi={Object.keys(players).length > 2} x={r.oppSeat.x + 16} seam={r.line.y} lineH={r.line.h} />}
           <div style={{ ...at(r.stack), zIndex: 9 }}>
             <StackView h={r.stack.h} />
           </div>
           <div style={{ ...at(r.act), zIndex: 22, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 10 }}>
-            <PromptHeadline />
+            {!columns.length && <PromptHeadline />}
             <div style={{ height: ACT_BUTTONS_H, flex: 'none' }}>{centerSlot}</div>
           </div>
           {me && !meIsBand && (
@@ -131,6 +130,7 @@ export function MatchTable({ centerSlot }: { centerSlot: ReactNode }) {
           <BlockSlots layout={layout} />
           <CommandSlots regions={r} />
           <CardLayer layout={layout} />
+          {columns.length > 0 && <Callouts regions={r} />}
         </TableMat>
       )}
       {W > 0 && (

@@ -36,6 +36,20 @@ export const PILE_X = [0, 78, 156] // library, graveyard, exile/command inside t
  * there or not. The battlefield lays out in what's left, so the slots line up down the table.
  */
 export const COMMAND = { gap: 6, pad: 8, chipH: 34, maxW: 132 }
+/** Room a defender's band leaves at its left in combat (3-4 players) for the callout beside the player's border. */
+export const CALLOUT_W = 300
+/** The command zone inside a player border (3-4 players): commander cards stacked at the border's right edge. */
+export const BORDER = { pad: 8, cardMaxW: 92, share: 0.42 }
+export function borderCommandSlots(border: Region, n: number, bandH = border.h): Region[] {
+  if (!n) return []
+  const h0 = bandH - 2 * BORDER.pad // sized for the shortest band, so every border's slots line up
+  const w = Math.max(30, Math.min(BORDER.cardMaxW, border.w * BORDER.share, h0 / CARD_RATIO))
+  const h = w * CARD_RATIO
+  const step = n > 1 ? Math.min(h * 0.32, (h0 - h) / (n - 1)) : 0
+  const x = border.x + border.w - BORDER.pad - w
+  const y = border.y + (border.h - (h + (n - 1) * step)) / 2
+  return Array.from({ length: n }, (_, i) => ({ x, y: y + i * step, w, h }))
+}
 /** Card width for a slot in a field this tall. */
 const commandCardW = (fieldH: number) => Math.max(36, Math.min(COMMAND.maxW, (fieldH - 2 * COMMAND.pad - COMMAND.chipH) / CARD_RATIO))
 /** How much of the field's left edge the slots take: the widest player's, so every field starts at the same x. */
@@ -131,47 +145,77 @@ function placeBands(
   const order = [...ids, meId]
   const gap = COL_GAP
   const active = input.game.activePlayerId
-  const weight = (id: number) => (active != null && id === active ? 2 : 1)
+  // In combat the attackers go to the player they attack (or whose planeswalker they attack): they line up
+  // over that player's own creatures in the defender's band, which takes the extra height.
+  const incoming = new Map<number, CardDto[]>()
+  const moved = new Set<number>()
+  if (combat && input.combat) {
+    for (const b of input.combat.bands) {
+      const d = b.defender
+      const owner = !d ? null : d.kind === 'player' ? d.id : cards[d.id]?.controllerId ?? null
+      if (owner == null || owner === active || !players[owner]) continue
+      for (const a of b.attackerIds) {
+        const c = cards[a]
+        if (!c || moved.has(a)) continue
+        moved.add(a)
+        incoming.set(owner, [...(incoming.get(owner) ?? []), c])
+      }
+    }
+  }
+  const weight = (id: number) => (incoming.size ? (incoming.has(id) ? 2 : 1) : active != null && id === active ? 2 : 1)
   const inner = frame.top.h - gap * (order.length - 1)
   const sum = order.reduce((n, id) => n + weight(id), 0)
   const gutter = frame.oppSeat
-  const carve = commandCarve(order.map((id) => players[id]), inner / sum) // sized for the shortest band, as the slots are
   let y = frame.top.y
-  let seatTop = frame.top.y
-  const SEAT_MIN = 44
-  const bands = order.map((id, i) => {
+  const shortest = inner / sum
+  const bands = order.map((id) => {
     const h = inner * weight(id) / sum
     const field: Region = { x: frame.top.x, y, w: frame.top.w, h }
-    // An opponent's chip sits in the dark column beside its band, below the previous chip, and leaves
-    // room above the control panel for the chips still to come. Yours sits beside your hand, as in a
-    // two-player game.
-    let seat = frame.meSeat
-    if (id !== meId) {
-      const after = order.length - 2 - i // opponents' chips still to place below this one
-      const floor = frame.act.y - 4 - after * (SEAT_MIN + 2)
-      const top = Math.min(Math.max(y, seatTop), floor - SEAT_MIN)
-      const bottom = Math.max(top + SEAT_MIN, Math.min(y + h, floor))
-      seat = { x: frame.act.x, y: top, w: frame.act.w, h: bottom - top }
-      seatTop = bottom + 2
-    }
-    const ribbonH = Math.min(56, h)
-    const ribbon: Region = { x: gutter.x, y: y + h - ribbonH, w: gutter.w, h: ribbonH }
+    // Each band's left gutter is the player's border: life, name and counters, with the command zone
+    // at its right edge. The battlefield keeps the whole felt.
+    const seat: Region = { x: gutter.x, y, w: gutter.w, h }
+    const cmdIds = players[id]?.commanders?.map((c) => c.cardId) ?? []
+    const slots = borderCommandSlots(seat, cmdIds.length, shortest)
+    const cmdW = slots.length ? seat.x + seat.w - slots[0].x : 0
+    const ribbonH = Math.min(56, h / 2)
+    const ribbon: Region = { x: gutter.x, y: y + h - ribbonH, w: gutter.w - cmdW, h: ribbonH }
     regions[`half:${id}`] = { x: gutter.x, y, w: field.x + field.w - gutter.x, h }
     regions[`seat:${id}`] = seat
+    regions[`border:${id}`] = seat
     regions[`ribbon:${id}`] = ribbon
     regions[`field:${id}`] = field
+    slots.forEach((r, i) => {
+      const cid = cmdIds[i]
+      regions[`command:${cid}`] = r
+      if (cards[cid] && players[id]?.zones.command.includes(cid)) put(cid, { kind: 'command', x: r.x, y: r.y, w: r.w, rot: 0, z: 5900 + i })
+    })
     y += h + gap
-    return { id, field, cardsField: shrink(field, carve), ribbon, seat }
+    return { id, field, cardsField: field, ribbon, seat }
   })
 
   for (const band of bands) {
     const mine = band.id === meId
-    const row = unfolded(players[band.id], band.ribbon)
+    const row = unfolded(players[band.id], band.ribbon).filter((c) => !moved.has(c.id))
+    const attackers = incoming.get(band.id)
+    const lane = combat ? { y: band.field.y, h: band.field.h } : null
+    if (attackers?.length) {
+      // Attackers in the top half, the defender's own permanents below, lined up attacker over blocker; the
+      // left of the band stays clear for the defender's callout ("attacked by ...").
+      const f = shrink(band.cardsField, Math.min(CALLOUT_W, band.cardsField.w * 0.3))
+      const top: Region = { x: f.x, y: f.y, w: f.w, h: f.h / 2 }
+      const bottom: Region = { x: f.x, y: f.y + f.h / 2, w: f.w, h: f.h / 2 }
+      const size = { W: f.w - 2, H: f.h / 2 - 2 }
+      const maxW = Math.min(220, Math.max(56, Math.min(size.W / 8, size.H / CARD_RATIO)))
+      const shown = new Set([...row, ...attackers].map((c) => c.id))
+      const lay = layoutTable(attackers, row, input.combat, input.highlighted, (id) => shown.has(id), size, maxW, combat)
+      paintSide(lay.top, top, 'bottom', size, regions, cards, put, null, lane)
+      paintSide(lay.bottom, bottom, 'top', size, regions, cards, put, mine ? 'bottom:back' : null, lane)
+      continue
+    }
     const size = { W: band.cardsField.w - 2, H: band.cardsField.h - 2 }
     const maxW = Math.min(220, Math.max(64, Math.min(size.W / 8, size.H / CARD_RATIO)))
     const shown = new Set(row.map((c) => c.id))
     const lay = layoutTable(mine ? [] : row, mine ? row : [], combat ? input.combat : null, input.highlighted, (id) => shown.has(id), size, maxW, combat)
-    const lane = combat ? { y: band.field.y, h: band.field.h } : null
     paintSide(mine ? lay.bottom : lay.top, band.cardsField, mine ? 'top' : 'bottom', size, regions, cards, put, mine ? 'bottom:back' : null, lane)
   }
 
@@ -232,11 +276,10 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
     paintSide(sides.bottom, bottom, 'top', size, regions, cards, put, 'bottom:back', { y: frame.top.y, h: frame.bottom.y + frame.bottom.h - frame.top.y })
   }
 
-  // Every player's commanders: a slot each at the left of their battlefield, the card face up in it while it's in the command zone.
+  // Every player's commanders: a slot each at the left of their battlefield, the card face up in it while it's in
+  // the command zone. With bands (3-4 players) they are in each player's border instead (placeBands).
   const handRow = frame.hand
-  const seated: [PlayerDto | undefined, Region | undefined][] = fanout
-    ? [...ids, meId].map((id) => [players[id], regions[`field:${id}`]])
-    : [[opp, frame.top], [me, frame.bottom]]
+  const seated: [PlayerDto | undefined, Region | undefined][] = fanout ? [] : [[opp, frame.top], [me, frame.bottom]]
   const slotH = fanout ? Math.min(...[...ids, meId].map((id) => regions[`field:${id}`]?.h ?? Infinity)) : Math.min(frame.top.h, frame.bottom.h)
   for (const [p, field] of seated) {
     const cmdIds = p?.commanders?.map((c) => c.cardId) ?? []

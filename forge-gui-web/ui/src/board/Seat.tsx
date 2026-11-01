@@ -5,6 +5,7 @@ import type { CommanderHit } from '../look/LifeShield'
 import { foldLands, type RibbonSource } from '../look/ManaRibbon'
 import { ManaSymbol } from '../look/ManaSymbol'
 import { LandTray } from './LandTray'
+import { stepWords } from '../look/phase'
 import { isRock, rockSym, trayGroups } from './lands'
 import { boardIdentity, identity } from '../look/tones'
 import { send } from '../net'
@@ -154,6 +155,86 @@ export function SeatPlate({ player: p, isMe, compact = false }: { player: Player
 
 const NO_HITS: CommanderHit[] = []
 
+/**
+ * A player's border (3-4 players): the framed left end of their band. Life (with the combat preview) and name,
+ * hand and library, then whatever the game has changed; the command zone sits at its right edge (the card
+ * layer draws the commanders there). Its edge is their colour identity; the active player's is lit, and an
+ * attacked player's turns ember.
+ */
+export function PlayerBorder({ player: p, isMe, region, cmdW, turn }: { player: PlayerDto; isMe: boolean; region: Region; cmdW: number; turn: number }) {
+  const mark = usePlayerMark(p.id)
+  const active = useForge((s) => s.game?.activePlayerId === p.id)
+  const priority = useForge((s) => s.game?.priorityPlayerId === p.id)
+  const phase = useForge((s) => s.game?.phase ?? null)
+  const attacked = useForge((s) => !!s.combat?.bands.some((b) => b.defender?.kind === 'player' && b.defender.id === p.id))
+  const after = useForge((s) => s.combatAssist?.players.find((x) => x.id === p.id)?.lifeAfter ?? null)
+  const viewing = useBoardUi((s) => s.zoneView?.playerId === p.id)
+  const setFocus = useBoardUi((s) => s.setFocus)
+  const colors = useSeatColors(p)
+  const ribbon = useRibbonCards(isMe ? undefined : p)
+  const sources = useMemo(() => ribbonSources(ribbon), [ribbon])
+  const open = useOpenMana(isMe ? undefined : p, sources)
+  const hits = useCommanderHits(p)
+  const facts = playerFacts(p, hits, isMe ? null : open)
+  const preview = after != null && after !== p.life ? after : null
+  const edge = attacked ? 'var(--lk-ember)' : active ? 'var(--lk-parchment)' : 'var(--lk-metal-line)'
+  const tall = region.h >= 150
+  const tones = (colors || 'C').split('').map((c) => EDGE_TONE[c] ?? EDGE_TONE.C)
+  return (
+    <div onClick={() => setFocus(p.id, turn)}
+      style={{
+        position: 'absolute', left: region.x + 4, top: region.y + 3, width: region.w - 8, height: region.h - 6, zIndex: viewing ? 40 : 8, boxSizing: 'border-box',
+        borderRadius: 6, background: 'linear-gradient(180deg, rgb(28 22 16 / .94), rgb(14 11 8 / .94))',
+        boxShadow: `inset 0 0 0 1.5px ${edge}, 0 2px 10px rgb(0 0 0 / .45)${active ? ', 0 0 18px rgb(242 234 214 / .12)' : ''}`,
+        opacity: p.hasLost ? 0.5 : 1, cursor: 'pointer', overflow: 'visible',
+      }}>
+      <div aria-hidden style={{ position: 'absolute', left: 0, top: 6, bottom: 6, width: 4, borderRadius: 2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {tones.map((t, i) => <span key={i} style={{ flex: 1, background: t }} />)}
+      </div>
+      <div style={{ position: 'absolute', left: 12, top: 6, right: cmdW + 6, bottom: 6, display: 'flex', flexDirection: 'column', gap: tall ? 4 : 2, minWidth: 0 }}>
+        {active && (
+          <div className="lk-title" style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--lk-gold)', lineHeight: 1.25, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+            Turn {turn}{stepWords(phase) ? ` · ${stepWords(phase)}` : ''}
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+          <button
+            type="button"
+            data-entity={`player:${p.id}`}
+            title={mark === 'choose' ? `Choose ${isMe ? 'yourself' : p.name}` : `${p.name}: ${p.life} life`}
+            onClick={(e) => clickPlayer(e, p.id)}
+            onContextMenu={(e) => clickPlayer(e, p.id)}
+            className="lk-title"
+            style={{ border: 0, padding: 0, background: 'none', cursor: 'pointer', filter: mark ? MARK_SHADOW[mark] : undefined, flex: 'none', fontWeight: 700, fontSize: tall ? 34 : 28, lineHeight: 0.95, fontVariantNumeric: 'tabular-nums', color: preview != null && preview < p.life ? 'var(--lk-ember-light)' : 'var(--lk-parchment)' }}
+          >
+            {preview ?? p.life}
+          </button>
+          {preview != null && <span style={{ fontSize: 11, color: 'var(--lk-parchment-mute)', textDecoration: 'line-through' }}>{p.life}</span>}
+          <span className="lk-title" style={{ fontWeight: 700, fontSize: 15.5, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--lk-parchment)' }}>
+            {isMe ? 'You' : p.name}
+          </span>
+          {priority && <span title="Holds priority" style={{ width: 7, height: 7, borderRadius: 99, flex: 'none', background: 'var(--lk-gold)', boxShadow: '0 0 8px var(--lk-gold-soft)', alignSelf: 'center' }} />}
+        </div>
+        <div style={{ display: 'flex', gap: 8, fontSize: 11.5, color: 'var(--lk-parchment-dim)', whiteSpace: 'nowrap' }}>
+          <span>Hand <b className="lk-title" style={{ color: 'var(--lk-parchment)' }}>{p.handCount}</b></span>
+          <span>Library <b className="lk-title" style={{ color: 'var(--lk-parchment)' }}>{p.libraryCount}</b></span>
+        </div>
+        {facts.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, overflow: 'hidden', maxHeight: tall ? undefined : 22 }}>
+            {facts.map((f) => (
+              <span key={f.key} style={{ ...chip, fontSize: 11.5, lineHeight: '19px', padding: '0 6px', color: f.danger ? 'var(--lk-ember-light)' : undefined }}>{f.text}</span>
+            ))}
+          </div>
+        )}
+        <Pool player={p} isMe={isMe} />
+      </div>
+    </div>
+  )
+}
+
+// The colour-identity edge of a border: brighter than the table's felt tones, which it sits beside.
+const EDGE_TONE: Record<string, string> = { W: '#e8dcb5', U: '#4f86c6', B: '#6b5a7c', R: '#c4532f', G: '#4e8a52', C: '#8e8a82' }
+
 
 /** A small crown, the command zone's mark. */
 function CommandGlyph({ size }: { size: number }) {
@@ -177,13 +258,13 @@ export function CommandSlots({ regions }: { regions: Record<string, Region> }) {
       {seats.map((k) => {
         const [pid, id, tax, casts] = k.split(':').map(Number)
         const r = regions[`command:${id}`]
-        return r ? <CommandSlot key={id} id={id} tax={tax} casts={casts} mine={pid === meId} r={r} /> : null
+        return r ? <CommandSlot key={id} id={id} tax={tax} casts={casts} mine={pid === meId} r={r} inBorder={!!regions[`border:${pid}`]} /> : null
       })}
     </>
   )
 }
 
-function CommandSlot({ id, tax, casts, mine, r }: { id: number; tax: number; casts: number; mine: boolean; r: Region }) {
+function CommandSlot({ id, tax, casts, mine, r, inBorder }: { id: number; tax: number; casts: number; mine: boolean; r: Region; inBorder: boolean }) {
   const card = useForge((s) => s.cards[id])
   const castable = useForge((s) => mine && card?.zone === 'command' && !s.selectable.cardIds.size && s.playable.has(id))
   const peek = usePeek({ kind: 'card', id })
@@ -191,7 +272,7 @@ function CommandSlot({ id, tax, casts, mine, r }: { id: number; tax: number; cas
   const home = card.zone === 'command'
   const status = home ? (casts === 0 ? 'Not cast' : 'Command zone') : ZONE_SHORT[card.zone] ?? card.zone
   return (
-    <div style={{ position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h + COMMAND.chipH, zIndex: 8, pointerEvents: 'none' }}>
+    <div style={{ position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h + (inBorder ? 0 : COMMAND.chipH), zIndex: 8, pointerEvents: 'none' }}>
       <div style={{ position: 'absolute', left: 0, top: 0, width: r.w, height: r.h, borderRadius: 7, background: 'rgb(10 8 6 / .45)', boxShadow: 'inset 0 0 0 1.5px var(--lk-metal-line)' }} />
       {!home && (
         // The commander is elsewhere: a faded copy holds its place. Hover peeks the real card, click finds it.
@@ -204,14 +285,20 @@ function CommandSlot({ id, tax, casts, mine, r }: { id: number; tax: number; cas
         className="lk-title"
         title={`${status}. Commander tax: {2} more for each earlier cast from the command zone`}
         style={{
-          position: 'absolute', left: '50%', top: r.h + 3, transform: 'translateX(-50%)', ...chip, display: 'flex', flexDirection: 'column', alignItems: 'center',
-          padding: '1px 8px', whiteSpace: 'nowrap', fontSize: 11, lineHeight: '14px', zIndex: 1,
+          position: 'absolute', left: '50%', top: inBorder ? r.h - 10 : r.h + 3, transform: 'translateX(-50%)', ...chip, display: 'flex', flexDirection: inBorder ? 'row' : 'column', alignItems: 'center',
+          gap: inBorder ? 5 : undefined, padding: inBorder ? '0 6px' : '1px 8px', whiteSpace: 'nowrap', fontSize: inBorder ? 10 : 11, lineHeight: '14px', zIndex: inBorder ? 6000 : 1,
           color: castable ? 'var(--lk-frost)' : home ? 'var(--lk-parchment)' : 'var(--lk-parchment-dim)',
           boxShadow: castable ? '0 0 0 1.5px var(--lk-frost), 0 0 10px var(--lk-frost-soft)' : home ? '0 0 0 1.5px var(--lk-brass)' : chip.boxShadow,
         }}
       >
-        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 700 }}>{home && <CommandGlyph size={11} />}{status}</span>
-        <span style={{ fontSize: 10, opacity: 0.85 }}>Tax {tax}</span>
+        {inBorder ? (
+          <>{home && <CommandGlyph size={10} />}<span style={{ fontWeight: 700 }}>{home ? `Tax ${tax}` : status}</span></>
+        ) : (
+          <>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 700 }}>{home && <CommandGlyph size={11} />}{status}</span>
+            <span style={{ fontSize: 10, opacity: 0.85 }}>Tax {tax}</span>
+          </>
+        )}
       </span>
     </div>
   )
