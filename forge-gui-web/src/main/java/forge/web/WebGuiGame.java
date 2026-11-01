@@ -270,6 +270,17 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         }
     }
 
+    /** Seat name -> {Discord avatar URL, Discord user id} (either may be null), from the match spec. */
+    private Map<String, String[]> faces = Map.of();
+
+    void faces(Map<String, String[]> byName) {
+        faces = Map.copyOf(byName);
+    }
+
+    String[] face(String name) {
+        return name == null ? null : faces.get(name);
+    }
+
     void record(Recorder r) {
         synchronized (io) {
             recorder = r;

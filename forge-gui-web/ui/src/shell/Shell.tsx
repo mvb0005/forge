@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { backUrl, listenForVoice } from '../discord'
 import { setSocket } from '../net'
 import type { ServerMessage } from '../protocol'
 import { useForge } from '../store'
@@ -117,6 +118,9 @@ function useConnection() {
 
 export function Shell({ match }: { match: ReactNode }) {
   const { link, retryIn, note } = useConnection()
+  useEffect(() => {
+    void listenForVoice()
+  }, [])
   const inMatch = useForge((s) => s.inMatch)
   const ended = useForge((s) => s.ended)
   const closed = link === 'noSeat' || link === 'replaced'
@@ -135,7 +139,7 @@ export function Shell({ match }: { match: ReactNode }) {
 
 /** Back to wherever the game was started from: the tracker's play page, or this server's root in development. */
 function BackLink() {
-  const back = useForge((s) => s.returnUrl)
+  const back = backUrl(useForge((s) => s.returnUrl))
   return back ? <p style={{ marginTop: 16 }}><a href={back}>Back to the tracker</a></p> : null
 }
 

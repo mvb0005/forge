@@ -7,3 +7,8 @@
 .bf-pop { animation: bf-in 150ms ease-out; }
 
 .bf-scroll { scrollbar-width: thin; scrollbar-color: var(--lk-metal-line) transparent; }
+
+/* A player talking in the Discord Activity's voice channel: their face's ring breathes green. */
+@keyframes face-talk { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.25); } }
+.face-talking { animation: face-talk 0.9s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .face-talking { animation: none; } }
