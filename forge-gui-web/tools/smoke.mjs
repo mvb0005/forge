@@ -6,6 +6,8 @@
 //                             [--concede-on-ai]  with --turns: concede during an AI's turn instead of at our priority
 //                             [--tracker-deck FILE] [--curated neyali,jeleva]  Commander with an mtg-tracker decklist export
 //                             (tools/decks/) and/or curated opponents from the control API's `opponents` roster
+//                             [--let-timer]  leave every timed priority prompt (`timer`) unanswered: the server must pass
+//                             for us; reports how often it did and how long it took
 //                             [--join MATCHID:TICKET]  play a match someone else started (the tracker), through the
 //                             router at /play/table/<id>/ on --port; no control API calls
 // Policy: answer asks with a valid default; in our main phases with OK enabled, first try each playable
@@ -42,6 +44,9 @@ const seconds = Number(opt("seconds", stateFile ? 900 : 600));
 const maxTurns = Number(opt("turns", 0));
 const verbose = flag("verbose");
 const passive = flag("passive");
+const letTimer = flag("let-timer");
+let timedAt = null; // when the server last said it is timing our priority
+const timerStats = { armed: 0, passedForUs: 0, waits: [] };
 const concedeOnAi = flag("concede-on-ai");
 const trackerDeck = opt("tracker-deck", null);
 const trackerText = trackerDeck ? readFileSync(new URL(`./decks/${trackerDeck}`, import.meta.url), "utf8") : null;
@@ -379,6 +384,7 @@ function isLand(id) {
 
 function act() {
   if (!inputDirty || gameOver || Date.now() - lastMsgAt < 40) return;
+  if (letTimer && timedAt != null) return; // the server passes for us when the timer runs out
   inputDirty = false;
   if (!buttons) return;
   const text = prompt ? prompt.message : "";
@@ -484,7 +490,7 @@ ws.onmessage = (ev) => {
         if (!(m.caps || []).includes(cap)) { errors++; console.log("hello.caps lacks", cap); }
       }
       if (!m.inMatch) { errors++; console.log("hello: not in the match we just started"); }
-      if (m.returnUrl !== "/") { errors++; console.log("hello.returnUrl is", m.returnUrl); }
+      if (!join && m.returnUrl !== "/") { errors++; console.log("hello.returnUrl is", m.returnUrl); }
       break;
     case "state": {
       states++;
@@ -548,7 +554,21 @@ ws.onmessage = (ev) => {
       }
       break;
     }
+    case "timer":
+      if (m.seconds != null) {
+        timerStats.armed++;
+        timedAt = Date.now();
+      } else if (timedAt != null) {
+        timedAt = null;
+      }
+      break;
     case "prompt":
+      if (letTimer && timedAt != null) {
+        // a new prompt while we sat on a timed one: the server passed for us
+        timerStats.passedForUs++;
+        timerStats.waits.push(Date.now() - timedAt);
+        timedAt = null;
+      }
       prompt = m;
       checkCommanderStart(); // the first decision (mulligan): the game is set up, before anyone has cast anything
       if (m.cardId != null) checkIds("prompt", [m.cardId]);
@@ -677,6 +697,11 @@ function finish(code) {
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
   console.log(`--- ${secs}s, turn ${game ? game.turn : "?"}, ${actions} actions, ${flashes} flashes`);
   console.log("messages:", JSON.stringify(counts));
+  if (letTimer || timerStats.armed) {
+    const w = timerStats.waits;
+    console.log(`respond timer: armed ${timerStats.armed}, passed for us ${timerStats.passedForUs}` +
+      (w.length ? `, waits ${Math.min(...w)}-${Math.max(...w)} ms` : ""));
+  }
   console.log("asks:", JSON.stringify(askKinds));
   console.log(`state: ${states} messages, avg ${states ? Math.round(stateBytes / states) : 0} B, max ${maxState} B; cards known ${cards.size}`);
   console.log(`one-card states: ${oneCardCount}, max ${oneCardMax} B, over 2 KB: ${oneCardOver}; card-only (no players/game) max ${cardOnlyMax} B (v1 would have sent up to ~${oneCardV1Max} B)`);

@@ -11,7 +11,7 @@ AIs in the seats no human takes. A game server hosts exactly one table (D-M1), a
 its own game server pod (D-M9), so up to 4 games run at once and a deploy never cuts one short.
 Waiting on other people is cut down later (M12), not first.
 
-Far future: the same table as a Discord game (a Discord Activity: the web client in Discord's
+Discord (the table as a Discord Activity) is planned in DISCORD.md (M13). Far future: the same table as a Discord game (a Discord Activity: the web client in Discord's
 iframe, people known by their Discord id), and perhaps a hosted cluster instead of minikube. Nothing
 here builds either, but people are tracker person ids (D-M3), so another sign-in can map to them.
 
@@ -120,7 +120,7 @@ keep theirs until they end.
 | M11.4 | **Disconnects pause the game** | When a human's socket drops, every player sees "Paused: waiting for X to reconnect". The game stops: the AIs don't act, and no one can act on the stack meanwhile. Reconnecting resumes with the full state (`onConnect` already re-sends prompt, buttons and ask). The host can end the game for everyone. After 10 minutes with no human connected the game ends with no winner and the server frees (D-M6). Spike first: where to hold the game thread so the AIs stop too (the engine only parks when it asks a human something) | todo |
 | M11.5 | **Capacity** | Measure one pod's CPU and RAM (the bench stack can) and tune the pod's requests and limits | todo |
 | M11.6 | **A pod per game** (D-M9) | The tracker runs each game on its own game server pod with a warm spare and a cap of 4; a router sends each table's players to its pod; a deploy leaves running games alone; finished and abandoned tables close and are cleared away. Later, the same manifests could move to a hosted cluster | done 2026-10-31: tracker tests against a fake Kubernetes API; on the cluster, two games at once through the router, a socket idle 75 s, refresh, a deploy with games running, the fifth game refused, end and abandonment |
-| M12 | **Less waiting** (later) | Ordered by leverage: 1) no priority prompt when you can't do anything (the engine already sends `playable`; trade-off: an instant pass shows you have no tricks); 2) phase stops and auto-yield; 3) a per-decision timer with a time bank: on expiry, pass priority, and mandatory choices take a defined default; 4) AI think time, already capped at 5 s. Needs M11.3 | later |
+| M12 | **Less waiting** | 1) No priority prompt when you can't do anything: Forge's own "auto-pass when no actions" (`YIELD_AUTO_PASS_NO_ACTIONS`), on for every seat; the engine decides what counts. 2) A 10 s respond timer: holding priority on someone else's turn or with something on the stack, the server passes for you after 10 s (`timer` message, a countdown on the action bar); your own turn and every choice stay untimed (Matt, 2026-11-01: solo games too). Later: phase stops and auto-yield, a time bank | 1-2 done 2026-11-01 |
 
 ## Risks
 

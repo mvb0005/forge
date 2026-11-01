@@ -37,9 +37,23 @@ function usePrompt() {
  * The current action, in large type above OK and Cancel: what the engine wants from you, or who it is
  * waiting on. Gold while the decision is yours; it fades in again whenever the question changes.
  */
+/** Whole seconds until the server passes priority for you, ticking; null when it isn't timing you. */
+function useRespondCountdown() {
+  const respondBy = useForge((s) => s.respondBy)
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (respondBy == null) return
+    setNow(Date.now())
+    const id = setInterval(() => setNow(Date.now()), 250)
+    return () => clearInterval(id)
+  }, [respondBy])
+  return respondBy == null ? null : Math.max(0, Math.ceil((respondBy - now) / 1000))
+}
+
 export function PromptHeadline() {
   const { text, waiting } = usePrompt()
   const phase = useForge((s) => s.game?.phase ?? null)
+  const left = useRespondCountdown()
   if (!text) return null
   const step = stepWords(phase)
   return (
@@ -56,6 +70,11 @@ export function PromptHeadline() {
       <div className="lk-label" style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 11.5, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: waiting ? 'var(--lk-parchment-dim)' : 'var(--lk-gold)' }}>
         <span style={{ whiteSpace: 'nowrap' }}>{waiting ? 'Waiting' : 'Your move'}</span>
         {step && <span style={{ fontWeight: 500, letterSpacing: '0.04em', color: 'var(--lk-parchment-mute)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{step}</span>}
+        {left != null && !waiting && (
+          <span title="The server passes priority for you when this runs out" style={{ marginLeft: 'auto', whiteSpace: 'nowrap', color: left <= 3 ? 'var(--lk-danger, #e0695c)' : 'var(--lk-parchment-dim)', fontVariantNumeric: 'tabular-nums' }}>
+            Passing in {left}s
+          </span>
+        )}
       </div>
       <div
         className="lk-title"

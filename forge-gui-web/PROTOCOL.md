@@ -135,6 +135,7 @@ A client ignores caps it doesn't know and must not rely on a feature whose cap i
 | `player.colorIdentity` | `PlayerDto.colorIdentity` |
 | `player.commander` | `PlayerDto.commanders` / `commanderDamage` |
 | `game.turnOrder` | `GameDto.turnOrder` |
+| `timer.respond` | the `timer` message: the server passes priority for you when you don't respond in time |
 | `match.commander` | the server plays Commander (`MatchSpec.format: "commander"`) |
 
 Changes from v1: `caps`; `GameDto.log` replaced by `state.logAppend`/`logReset`;
@@ -354,6 +355,14 @@ Notes:
 
 ### `gameOver`
 `{ t:"gameOver", winner:string|null, summary:string }`. The table stays up with the final board; `hello.returnUrl` is the way back.
+
+### `timer`
+`{ t:"timer", seconds:number|null }`: you hold priority while responding (someone else's turn, or anything on the
+stack), and the server passes it for you in `seconds` unless you act first (`--respond-seconds`, default 10; 0 turns
+it off). `null`: no timer now. Every prompt ends the last timer, and only a priority prompt while responding starts
+one; your own turn's priority with an empty stack, and every other decision (targets, attackers, blockers, choices),
+is never timed. When you have nothing you could do, the engine passes priority without asking at all (Forge's
+"auto-pass when no actions", on for every seat).
 
 ### `assist`
 Help computed by the engine; the UI only displays it and never computes rules itself.

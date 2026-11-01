@@ -157,6 +157,8 @@ export type ServerMessage =
   | { t: 'reveal'; title: string; cardIds: number[] }
   | Ask
   | { t: 'gameOver'; winner: string | null; summary: string }
+  // The server passes priority for you in `seconds` unless you act (null: no timer). Cap timer.respond.
+  | { t: 'timer'; seconds: number | null }
   | AssistMessage
   | { t: 'error'; message: string }
 

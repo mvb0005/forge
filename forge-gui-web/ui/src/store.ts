@@ -26,6 +26,7 @@ export type ForgeState = {
   reveal: { title: string; cardIds: number[] } | null
   notices: { id: number; level: 'info' | 'error' | 'flash'; title: string; message: string }[]
   gameOver: { winner: string | null; summary: string } | null
+  respondBy: number | null // Date.now() ms when the server passes priority for you, if it's timing you
   setConnected: (c: boolean) => void
   dismissNotice: (id: number) => void
   clearReveal: () => void
@@ -96,6 +97,7 @@ export const useForge = create<ForgeState>()((set) => ({
   reveal: null,
   notices: [],
   gameOver: null,
+  respondBy: null,
   setConnected: (connected) => set({ connected }),
   dismissNotice: (id) => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })),
   clearReveal: () => set({ reveal: null }),
@@ -105,7 +107,7 @@ export const useForge = create<ForgeState>()((set) => ({
     set((s): Partial<ForgeState> => {
       switch (m.t) {
         case 'hello':
-          return { inMatch: m.inMatch, caps: m.caps ?? [], who: m.who ?? null, returnUrl: m.returnUrl ?? null, ended: null }
+          return { inMatch: m.inMatch, caps: m.caps ?? [], who: m.who ?? null, returnUrl: m.returnUrl ?? null, ended: null, respondBy: null }
         case 'ended':
           return { inMatch: false, ended: { summary: m.summary ?? null } }
         case 'state': {
@@ -155,7 +157,9 @@ export const useForge = create<ForgeState>()((set) => ({
         case 'assist':
           return applyAssist(m)
         case 'gameOver':
-          return { gameOver: { winner: m.winner, summary: m.summary } }
+          return { gameOver: { winner: m.winner, summary: m.summary }, respondBy: null }
+        case 'timer':
+          return { respondBy: m.seconds == null ? null : Date.now() + m.seconds * 1000 }
         case 'error':
           return { notices: [...s.notices, { id: ++noticeSeq, level: 'error', title: 'Error', message: m.message }] }
         default:

@@ -37,6 +37,7 @@ import forge.gamemodes.match.HostedMatch;
 import forge.gamemodes.match.NextGameDecision;
 import forge.gamemodes.match.input.InputAttack;
 import forge.gamemodes.match.input.InputConfirm;
+import forge.gamemodes.match.input.InputPassPriority;
 import forge.gamemodes.match.input.InputPayMana;
 import forge.gamemodes.match.input.InputSelectEntitiesFromList;
 import forge.gamemodes.match.input.InputSelectTargets;
@@ -70,6 +71,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
@@ -80,6 +82,20 @@ import java.util.function.Predicate;
  */
 public final class WebGuiGame extends AbstractGuiGame implements WebGameSession {
     private static final long FLUSH_INTERVAL_NANOS = TimeUnit.MILLISECONDS.toNanos(33);
+    /**
+     * Seconds a player has to respond when they hold priority on someone else's turn or with something on the
+     * stack; then the server passes for them (0: no timer). Their own turn's priority stays untimed, and no
+     * choice (targets, attackers, blockers) is ever made for them. Set from {@code --respond-seconds}.
+     */
+    static volatile int respondSeconds = 10;
+    private static final ScheduledExecutorService RESPOND = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "Respond timer");
+        t.setDaemon(true);
+        return t;
+    });
+    // guarded by io
+    private ScheduledFuture<?> respondTimer;
+
     private static final ScheduledExecutorService FLUSHER = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "Web state flush");
         t.setDaemon(true);
@@ -215,6 +231,12 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
 
     void dispose() {
         disposed = true;
+        synchronized (io) {
+            if (respondTimer != null) {
+                respondTimer.cancel(false);
+                respondTimer = null;
+            }
+        }
         OpenAsk a = open;
         if (a != null) {
             a.answer.complete(null);
@@ -1470,6 +1492,52 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         }
         // inputs re-prompt after every click that changes them (e.g. a blocker assigned)
         decisionPoint();
+        armRespondTimer();
+    }
+
+    /**
+     * Every prompt ends the last timer; one that is priority while responding starts a new one. When it runs
+     * out and that same prompt is still open, priority passes as if OK were clicked (on WebEdt, where clicks run).
+     */
+    private void armRespondTimer() {
+        int seconds = respondSeconds;
+        PlayerControllerHuman human = null;
+        InputPassPriority priority = null;
+        Game game = match.getGame();
+        Player seat = seconds > 0 && !disposed ? seat(game) : null;
+        if (seat != null && seat.getController() instanceof PlayerControllerHuman h
+                && h.getInputQueue().getInput() instanceof InputPassPriority pp) {
+            boolean responding = !game.getStack().isEmpty() || game.getPhaseHandler().getPlayerTurn() != seat;
+            if (responding) {
+                human = h;
+                priority = pp;
+            }
+        }
+        synchronized (io) {
+            boolean wasArmed = respondTimer != null;
+            if (respondTimer != null) {
+                respondTimer.cancel(false);
+                respondTimer = null;
+            }
+            if (priority == null) {
+                if (wasArmed) {
+                    JsonObject t = msg("timer");
+                    t.add("seconds", JsonNull.INSTANCE);
+                    sendLocked(t);
+                }
+                return;
+            }
+            PlayerControllerHuman h = human;
+            InputPassPriority pp = priority;
+            respondTimer = RESPOND.schedule(() -> WebEdt.invokeLater(() -> {
+                if (!disposed && h.getInputQueue().getInput() == pp) {
+                    pp.passPriority();
+                }
+            }), seconds, TimeUnit.SECONDS);
+            JsonObject t = msg("timer");
+            t.addProperty("seconds", seconds);
+            sendLocked(t);
+        }
     }
 
     @Override

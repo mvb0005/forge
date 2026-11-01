@@ -49,6 +49,7 @@ public final class WebMain {
         boolean oneMatch = List.of(args).contains("--one-match");
         int linger = 600;
         int abandon = 600;
+        int respond = 10;
         for (int i = 0; i < args.length - 1; i++) {
             switch (args[i]) {
                 case "--port" -> port = Integer.parseInt(args[++i]);
@@ -60,6 +61,7 @@ public final class WebMain {
                 case "--control-host" -> controlBind = args[++i];
                 case "--linger" -> linger = Integer.parseInt(args[++i]);
                 case "--abandon" -> abandon = Integer.parseInt(args[++i]);
+                case "--respond-seconds" -> respond = Integer.parseInt(args[++i]);
                 default -> { }
             }
         }
@@ -90,6 +92,9 @@ public final class WebMain {
             prefs.setPref(FPref.UI_ENABLE_MUSIC, false);
             prefs.setPref(FPref.UI_MATCHES_PER_GAME, "1");
             prefs.setPref(FPref.UI_SHOW_ACTIONABLE_HIGHLIGHTS, true);
+            // The engine passes priority for a player who has nothing they could do (its own check of
+            // available actions), so nobody waits on a click that can only be OK.
+            prefs.setPref(FPref.YIELD_AUTO_PASS_NO_ACTIONS, true);
             return null;
         });
 
@@ -104,6 +109,7 @@ public final class WebMain {
         }
 
         Path uiDir = ui != null ? Path.of(ui) : repoRoot.resolve("forge-gui-web").resolve("ui").resolve("dist");
+        WebGuiGame.respondSeconds = respond;
         MatchHost host = new MatchHost(repoRoot, new ResultsSender(secret));
         if (oneMatch) {
             host.oneMatch(Duration.ofSeconds(linger), Duration.ofSeconds(abandon));
