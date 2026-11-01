@@ -65,7 +65,7 @@ node forge-gui-web/tools/start.mjs --format constructed --deck random:RG
 node forge-gui-web/tools/start.mjs --state token-pod-turn12.txt
 ```
 
-The table is at http://127.0.0.1:7777/play/table/?ticket=... (the server also answers at `/`). For UI
+The table is at http://127.0.0.1:7777/play/table/<match id>/?ticket=... (the server also answers at `/`). For UI
 development, run `npm run dev` in `ui/` (port 5173, proxies `/ws` and `/img` to the server;
 `FORGE=host:port` overrides it) and pass `--ui http://127.0.0.1:5173/` to `start.mjs`.
 
@@ -84,7 +84,8 @@ uniquely and builds with Windows' `docker.exe` when the checkout is on the Windo
 
 ```
 deploy/minikube.sh secret             # once: the control API's shared secret (mtg-tracker gets the same value)
-deploy/minikube.sh up                 # build the image, load it into minikube, roll out (ends a running game)
+deploy/minikube.sh up                 # build the image, load it into minikube, roll out once a running game ends
+deploy/minikube.sh up --now           # the same, ending a running game
 deploy/minikube.sh load-pics          # refresh the card images from the desktop cache
 deploy/minikube.sh forward            # http://127.0.0.1:7781/play/table/
 deploy/minikube.sh logs

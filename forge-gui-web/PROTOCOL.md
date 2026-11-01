@@ -1,6 +1,6 @@
 # Forge Web protocol (v2)
 
-The browser UI talks to the Java server over a single WebSocket at `ws://<host>/play/table/ws?ticket=…`.
+The browser UI talks to the Java server over a single WebSocket at `ws://<host>/play/table/<matchId>/ws?ticket=…`.
 Every frame is a UTF-8 JSON text frame holding one object with a string field `t` (the type).
 Unknown `t` values must be logged and ignored by both sides, never crash.
 
@@ -32,6 +32,7 @@ The game server only runs games (docs/MULTIPLAYER.md D-M8). It listens on two po
 | `GET /` and static files | the built UI (`forge-gui-web/ui/dist`) when present |
 | `GET /img/card/{imageKey}` | card image for a Forge image key (URL-encoded). 200 with the file from the read-only pics dir, otherwise 302 to a Scryfall image URL, otherwise 404. `Cache-Control: max-age=86400`. |
 | `GET /ws?ticket=<ticket>` | the WebSocket. The ticket (32 lowercase hex characters) is the seat; see `hello` |
+| `GET /<matchId>/...` | the same, for one match: players open `/play/table/<matchId>/?ticket=`. Its socket only admits that match's seats (4004 otherwise); `/<matchId>` redirects to `/<matchId>/` |
 
 The UI only uses `CardDto.img` and never builds image URLs itself.
 
@@ -90,7 +91,7 @@ type Result = {
 `{ t:"hello", version:2, caps:string[], inMatch:boolean, seat:number, who:string, returnUrl?:string }`, sent on
 every accepted connect. `seat` is this ticket's seat index and `who` its name. One socket per seat: the same
 ticket connecting again replaces the previous socket (closed with 4001). A connect with no ticket, or one that
-isn't a seat at the match here, is closed with 4004. If `inMatch`, a full `state` follows, then the current
+isn't a seat at the match here, or at a `<matchId>/` path for a match that isn't running here, is closed with 4004. If `inMatch`, a full `state` follows, then the current
 prompt/buttons/selectables/ask and every current `assist`. When the seat's match has already ended, `ended`
 follows instead.
 
