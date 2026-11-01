@@ -29,7 +29,7 @@ export function backUrl(url: string | null): string | null {
   return `${url}?${q}`
 }
 
-/** Signs in to Discord again (silently: the lobby already asked) and follows who is speaking. */
+/** Signs in to Discord again, asking for voice too, and follows who is speaking. */
 export async function listenForVoice() {
   if (!inDiscord) return
   const clientId = new URLSearchParams(location.search).get('app')
@@ -38,11 +38,12 @@ export async function listenForVoice() {
     const { DiscordSDK, Events } = await import('@discord/embedded-app-sdk')
     const sdk = new DiscordSDK(clientId)
     await sdk.ready()
+    // Voice is asked for here, not in the lobby: Discord shows its consent prompt the first time (it won't
+    // grant this scope silently), and a refusal only means no rings.
     const { code } = await sdk.commands.authorize({
       client_id: clientId,
       response_type: 'code',
       state: '',
-      prompt: 'none',
       scope: ['identify', 'guilds.members.read', 'rpc.voice.read'],
     })
     const res = await fetch('/.proxy/api/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) })
