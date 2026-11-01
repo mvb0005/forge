@@ -98,10 +98,30 @@ export const plateButton = (primary: boolean): CSSProperties => ({
   boxShadow: 'none',
 })
 
+// A click or key aimed at the buttons a moment ago must not answer the question that just replaced them: after
+// the buttons or the prompt change, they wait this long before they take input (a bar fills meanwhile).
+const SETTLE_MS = 450
+let settledAt = 0
+const settled = () => Date.now() >= settledAt
+
 /** The control panel: the engine's OK and Cancel, held in two fixed slots. Space/Enter, Esc, Z. */
 export function PromptBar() {
   const buttons = useForge((s) => s.buttons)
   const notices = useForge((s) => s.notices)
+  const prompt = useForge((s) => s.prompt?.message ?? '')
+  const change = `${prompt}|${buttons?.ok.label}|${buttons?.ok.enabled}|${buttons?.cancel.label}|${buttons?.cancel.enabled}`
+  const [settling, setSettling] = useState(false)
+  const first = useRef(true)
+  useEffect(() => {
+    if (first.current) {
+      first.current = false
+      return
+    }
+    settledAt = Date.now() + SETTLE_MS
+    setSettling(true)
+    const t = setTimeout(() => setSettling(false), SETTLE_MS)
+    return () => clearTimeout(t)
+  }, [change])
 
   // Shake when a new flash notice arrives (the player clicked something invalid).
   const [shake, setShake] = useState(0)
@@ -123,6 +143,10 @@ export function PromptBar() {
       const s = useForge.getState()
       if (s.ask || s.gameOver || isTyping(e.target) || e.altKey || e.metaKey) return
       const b = s.buttons
+      if ((e.key === ' ' || e.key === 'Enter' || e.key === 'Escape') && !settled()) {
+        e.preventDefault() // the buttons just changed: this key was meant for the old ones
+        return
+      }
       if ((e.key === ' ' || e.key === 'Enter') && !e.ctrlKey) {
         if (e.target instanceof Node && root.current?.contains(e.target)) return // the plate's own focused button handles it
         if (b?.ok.enabled) {
@@ -148,15 +172,16 @@ export function PromptBar() {
 
   // Both slots stay, so OK does not jump when End Turn appears or combat opens.
   return (
-    <div ref={root} key={shake} className={`lk-text ${shake ? 'shell-shake' : ''}`} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 8, width: '100%', height: '100%' }}>
+    <div ref={root} key={shake} className={`lk-text ${shake ? 'shell-shake' : ''}`} style={{ position: 'relative', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 8, width: '100%', height: '100%' }}>
+      {settling && <span key={change} aria-hidden className="settle-bar" style={{ position: 'absolute', left: 0, right: 0, top: -6, height: 2, borderRadius: 1, background: 'var(--lk-gold)', transformOrigin: 'left', animation: `settle ${SETTLE_MS}ms linear forwards` }} />}
       {showCancel ? (
-        <button type="button" disabled={!cancel.enabled} onClick={() => send({ t: 'cancel' })} style={{ ...plateButton(false), opacity: cancel.enabled ? 1 : 0.4, cursor: cancel.enabled ? 'pointer' : 'default' }}>
+        <button type="button" disabled={!cancel.enabled} onClick={() => settled() && send({ t: 'cancel' })} style={{ ...plateButton(false), opacity: cancel.enabled ? (settling ? 0.6 : 1) : 0.4, cursor: cancel.enabled ? 'pointer' : 'default' }}>
           {cancel.label || 'Cancel'}
           {cancel.enabled && <span style={{ fontWeight: 500, opacity: 0.55 }}>Esc</span>}
         </button>
       ) : <div style={{ minHeight: 34 }} />}
       {showOk ? (
-        <button type="button" disabled={!ok.enabled} onClick={() => send({ t: 'ok' })} style={{ ...plateButton(true), opacity: ok.enabled ? 1 : 0.4, cursor: ok.enabled ? 'pointer' : 'default' }}>
+        <button type="button" disabled={!ok.enabled} onClick={() => settled() && send({ t: 'ok' })} style={{ ...plateButton(true), opacity: ok.enabled ? (settling ? 0.6 : 1) : 0.4, cursor: ok.enabled ? 'pointer' : 'default' }}>
           {ok.label || 'OK'}
           {ok.enabled && <span style={{ fontWeight: 500, opacity: 0.5 }}>Space</span>}
         </button>

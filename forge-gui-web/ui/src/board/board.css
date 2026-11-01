@@ -12,3 +12,7 @@
 @keyframes face-talk { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.25); } }
 .face-talking { animation: face-talk 0.9s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .face-talking { animation: none; } }
+
+/* The control panel's buttons just changed: they take input once this bar has filled (PromptBar SETTLE_MS). */
+@keyframes settle { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media (prefers-reduced-motion: reduce) { .settle-bar { animation: none !important; } }
