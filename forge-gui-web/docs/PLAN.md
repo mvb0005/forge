@@ -149,14 +149,16 @@ During your turn the table draws every opponent battlefield in columns, and on o
 M1 is done except M1.2: a zone move or a phase change still sends a whole `PlayerDto`.
 
 M2 is on the live table: colour-identity halves, type line and phase gems, life shield (combat
-preview and commander damage), land tray, keyword rail, card frame and seat strips. The land tray
-(the ribbon region) shows each player's lands as small tiles stacked by the mana they make, untapped
-ones upright and tapped ones turned sideways beside them. Lands with a non-mana activated ability
-(fetches, manlands) and mana rocks keep their name; enters-tapped and shock duals stack by colour.
-It is presentation, read from lands and rocks on the board. While you hold priority the open-mana
-total comes from the `mana` assist; otherwise it comes from the tray, so the two don't disagree.
-Clicking a stack selects a land in it. Opening the tray into the cards themselves is still the
-design (DESIGN.md) and is not built.
+preview and commander damage), land shelf, keyword rail, card frame and seat strips. The land shelf
+(the `ribbon:<id>` / `oppRibbon` / `meRibbon` regions) is carved off the right end of each
+battlefield, the same width for every player so the fields end at one x (at most a quarter of the
+field). It shows the open-mana count, then a row per stack: lands that make the same mana, a tapped-out
+stack lying sideways. Lands with a non-mana activated ability (fetches, manlands) and mana rocks keep
+their name; enters-tapped and shock duals stack by colour. It is presentation, read from lands and
+rocks on the board. While you hold priority the open-mana total comes from the `mana` assist;
+otherwise it comes from the shelf, so the two don't disagree. Clicking a stack selects a land in it.
+"Show" opens a player's lands onto their battlefield (`openLands` in the board UI store); the shelf
+stays put.
 
 The control panel leads with the current action in large type above OK and Cancel: gold "Your
 move" when something is yours to press or pick, a dimmer "Waiting" otherwise. Every player's

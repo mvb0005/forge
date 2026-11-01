@@ -37,15 +37,16 @@ const reducedMotion = () => !!window.matchMedia?.('(prefers-reduced-motion: redu
 export function useTableLayout(viewport: View) {
   const userFocus = useBoardUi((s) => s.focus)
   const handOrder = useBoardUi((s) => s.handOrder)
+  const openLands = useBoardUi((s) => s.openLands)
   const { meId, focusId } = useForge(useShallow((s) => seatIds(s, userFocus)))
   const sig = useForge((s) => tableSignature(s, meId, focusId))
   const layout = useMemo((): LayoutResult => {
     const s = useForge.getState()
     if (!s.game || meId == null) return { placements: new Map(), regions: { ...tableFrame(viewport, false, 0) } as LayoutResult['regions'] }
     const mode = tableMode(s.combat, s.game.phase)
-    return LAYOUTS[mode]({ mode, viewport, meId, focusId, game: s.game, players: s.players, cards: s.cards, combat: s.combat, highlighted: s.highlighted, stack: s.stack, selectable: s.selectable.cardIds, handOrder })
+    return LAYOUTS[mode]({ mode, viewport, meId, focusId, game: s.game, players: s.players, cards: s.cards, combat: s.combat, highlighted: s.highlighted, stack: s.stack, selectable: s.selectable.cardIds, handOrder, openLands })
     // sig stands for everything structural in the store, so the rest is read through getState.
-  }, [sig, viewport.w, viewport.h, meId, focusId, handOrder])
+  }, [sig, viewport.w, viewport.h, meId, focusId, handOrder, openLands])
   return { layout, meId, focusId }
 }
 

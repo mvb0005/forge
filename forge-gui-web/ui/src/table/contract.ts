@@ -43,7 +43,8 @@ export type LayoutInput = {
   combat: CombatDto | null
   highlighted: Set<string>
   stack: StackItemDto[]
-  selectable?: Set<number> // card ids you may choose now (lands unfold from the ribbon when one is)
+  selectable?: Set<number> // card ids you may choose now (lands unfold from the shelf when one is)
+  openLands?: number[] // players whose land shelf you opened: their lands are drawn on the battlefield
   handOrder?: number[] | null // your arranged hand; absent means mana-value order
 }
 

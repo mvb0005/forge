@@ -18,8 +18,10 @@ Magic's own vocabulary, built from card-frame materials.
 - **Phase track.** Five gems (Beginning, Main, Combat, Main, End) styled as rarity symbols; past
   steps common black, upcoming uncommon silver, the current step mythic orange.
 - **Life.** Engraved on a loyalty-shield shape. During combat it previews the result ("→ 14").
-- **Lands.** Folded into a mana ribbon of mana symbols with counts; untapped mana you can use now
-  glows. Expands to the real cards on demand.
+- **Lands.** Folded onto a land shelf at the right end of each battlefield (at the back of the table:
+  high for opponents, low for you): the open-mana count, then one row per kind of mana (or named
+  land or rock) with untapped/total. Untapped mana you can use now glows frost. "Show" opens the
+  real cards onto the battlefield; they also open by themselves when one can be chosen.
 - **Type.** Faustina for names, numbers, banners and buttons, in mixed case; Libre Baskerville for
   rules and body text (D-07).
 - **Colour meanings** (one meaning each): frost = you can play or activate it; gold (breathing) =

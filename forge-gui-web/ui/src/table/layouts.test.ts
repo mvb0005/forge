@@ -5,6 +5,7 @@ import { CARD_RATIO } from '../board/layout'
 import type { CombatDto } from '../protocol'
 import type { ForgeState } from '../store'
 import type { LayoutInput, Placement, Region, TableMode } from './contract'
+import { isShelfCard, SHELF, shelfRows, shelfWidth, trayGroups, type TrayGroup } from '../board/lands'
 import { LAYOUTS, tableMode } from './layouts'
 import { tableSignature } from './signature'
 
@@ -133,7 +134,7 @@ describe('table layouts', () => {
     expect(placements.get(gy[gy.length - 1])).toMatchObject({ kind: 'zone', opacity: 0 })
   })
 
-  it('folds lands into the ribbon, and unfolds a player’s lands when one can be chosen', () => {
+  it('folds lands into the shelf, and unfolds a player’s lands when one can be chosen', () => {
     const s = fixture('pod')
     const i = input(s, { combat: null })
     const land = i.players[i.meId].zones.battlefield.find((id) => i.cards[id].types.includes('Land') && !i.cards[id].types.includes('Creature'))!
@@ -144,6 +145,63 @@ describe('table layouts', () => {
     expect(open.placements.get(land)?.kind ?? 'member').not.toBe('zone')
     expect(open.regions['bottom:back'].h).toBeGreaterThan(0)
   })
+
+  it('sizes a land shelf in columns of as many rows as fit, wider for a named stack', () => {
+    const g = (key: string, name: string | null = null): TrayGroup => ({ key, sym: 'G', name, open: [1], tapped: [] })
+    expect(shelfRows(110)).toBe(3)
+    expect(shelfRows(230)).toBe(7)
+    expect(shelfWidth([], 110)).toBe(0)
+    const three = [g('a'), g('b'), g('c')]
+    expect(shelfWidth([...three, g('d')], 110) - shelfWidth(three, 110)).toBe(SHELF.cellW + SHELF.colGap)
+    expect(shelfWidth([...three, g('d')], 230)).toBe(shelfWidth(three, 230))
+    expect(shelfWidth([...three, g('r', 'Sol Ring')], 110) - shelfWidth(three, 110)).toBe(SHELF.cellW + 52 + SHELF.colGap)
+    expect(shelfWidth([...three, g('r', 'Sol Ring')], 110, true) - shelfWidth(three, 110)).toBe(SHELF.cellW + SHELF.colGap)
+  })
+
+  it('opens a player’s lands onto their battlefield when they ask, and keeps the shelf where it was', () => {
+    const s = fixture('pod')
+    const i = input(s, { combat: null })
+    const lands = i.players[i.meId].zones.battlefield.filter((id) => i.cards[id].types.includes('Land') && !i.cards[id].types.includes('Creature'))
+    const folded = run(i)
+    const open = run({ ...i, openLands: [i.meId] })
+    for (const id of lands) expect(open.placements.get(id)?.kind ?? 'member', `land ${id}`).not.toBe('zone')
+    expect(open.regions.meRibbon).toEqual(folded.regions.meRibbon)
+    const theirs = i.players[i.focusId!].zones.battlefield.find((id) => i.cards[id].types.includes('Land'))!
+    expect(open.placements.get(theirs)).toMatchObject({ kind: 'zone' })
+  })
+
+  for (const [id, view] of [['quiet', VIEW], ['pod', VIEW], ['four', VIEW], ['commander', VIEW], ['four', { w: 1568, h: 778 }], ['commander', { w: 1568, h: 778 }], ['four', { w: 1280, h: 720 }], ['commander', { w: 1280, h: 720 }]] as const) {
+    it(`carves each land shelf off the right end of its battlefield, clear of the cards (${id}, ${view.w}x${view.h})`, () => {
+      const s = fixture(id)
+      const i = input(s, { viewport: view })
+      const { placements, regions } = run(i)
+      const shelves: [number, Region, Region][] = Object.keys(regions).some((k) => k.startsWith('ribbon:'))
+        ? Object.keys(i.players).map(Number).map((pid) => [pid, regions[`ribbon:${pid}`], regions[`field:${pid}`]])
+        : [[i.focusId!, regions.oppRibbon, regions.top], [i.meId, regions.meRibbon, regions.bottom]]
+      const rights = new Set<number>()
+      const lefts = new Set<number>()
+      for (const [pid, shelf, field] of shelves) {
+        expect(shelf.w, `shelf ${pid}`).toBeGreaterThan(0)
+        expect(shelf.y).toBeCloseTo(field.y)
+        expect(shelf.h).toBeCloseTo(field.h)
+        rights.add(Math.round(shelf.x + shelf.w))
+        lefts.add(Math.round(shelf.x))
+        expect(Math.round(shelf.x + shelf.w)).toBe(Math.round(field.x + field.w))
+        for (const cid of i.players[pid].zones.battlefield) {
+          const p = placements.get(cid)
+          if (!p) continue
+          if (p.kind === 'field') expect(p.x + p.w / 2 + (p.rot ? p.w * CARD_RATIO : p.w) / 2, `card ${cid}`).toBeLessThanOrEqual(shelf.x + 0.5)
+          if (p.kind === 'zone') expect(p.x >= shelf.x - 0.5 && p.x + p.w <= shelf.x + shelf.w + 0.5 && p.y >= shelf.y && p.y <= shelf.y + shelf.h, `anchor ${cid}`).toBe(true)
+        }
+      }
+      for (const [pid, shelf, field] of shelves) {
+        const groups = trayGroups(i.players[pid].zones.battlefield.map((cid) => i.cards[cid]).filter(isShelfCard))
+        expect(shelfWidth(groups, field.h, true), `shelf ${pid} fits`).toBeLessThanOrEqual(shelf.w + 0.5)
+      }
+      expect(lefts.size, 'every shelf starts at the same x').toBe(1)
+      expect(rights.size).toBe(1)
+    })
+  }
 
   it('keeps the seam and the control panel in place when combat starts', () => {
     const s = fixture('pod')
