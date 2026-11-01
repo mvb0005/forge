@@ -5,7 +5,7 @@ import type { CommanderHit } from '../look/LifeShield'
 import { foldLands, type RibbonSource } from '../look/ManaRibbon'
 import { ManaSymbol } from '../look/ManaSymbol'
 import { LandTray } from './LandTray'
-import { isRock, rockSym, trayGroups } from './lands'
+import { SHELF_INSET, isRock, isShelfCard, rockSym, trayGroups, type TrayGroup } from './lands'
 import { boardIdentity, identity } from '../look/tones'
 import { send } from '../net'
 import { usePeek } from '../popover/usePeek'
@@ -18,8 +18,8 @@ import { pickFromGroup } from './layout'
 import { clickCards, useCardLook } from './Tile'
 import { useBoardUi } from './uiStore'
 
-// Seat chrome in the look: the life shield and name (clickable as a player), floating mana, the mana
-// ribbon, your piles, and multiplayer seat strips. Everything here only displays the store.
+// Seat chrome in the look: the life shield and name (clickable as a player), floating mana, the land
+// shelf, your piles, and multiplayer seat strips. Everything here only displays the store.
 
 const MANA: ManaColor[] = ['W', 'U', 'B', 'R', 'G', 'C']
 
@@ -54,9 +54,9 @@ export function ribbonSources(cards: CardDto[]): RibbonSource[] {
   return [...foldLands(cards), ...rocks]
 }
 
-/** The cards a ribbon is made of: lands and mana rocks only, so a creature's P/T change doesn't touch it. */
+/** The cards a land shelf is made of: lands and mana rocks only, so a creature's P/T change doesn't touch it. */
 export function useRibbonCards(p: PlayerDto | undefined) {
-  return useForge(useShallow((s: ForgeState) => (p ? p.zones.battlefield.map((id) => s.cards[id]).filter((c) => c && (c.types.includes('Land') || isRock(c))) : [])))
+  return useForge(useShallow((s: ForgeState) => (p ? p.zones.battlefield.map((id) => s.cards[id]).filter((c) => c && isShelfCard(c)) : [])))
 }
 
 /**
@@ -75,13 +75,25 @@ export function useSeatColors(p: PlayerDto | undefined) {
   return sent != null ? identity(sent).join('') : board.join('')
 }
 
-export function Ribbon({ player, isMe, compact, style }: { player: PlayerDto; isMe: boolean; compact?: boolean; style?: CSSProperties }) {
+/**
+ * A player's land shelf, in the region the layout carved off the right of their battlefield. Your usable stacks
+ * glow frost while you hold priority or the engine lists one of their lands as playable. Yours sits low and an
+ * opponent's high: the back of the table, where lands go.
+ */
+export function Ribbon({ player, isMe, style }: { player: PlayerDto; isMe: boolean; compact?: boolean; style?: CSSProperties }) {
   const cards = useRibbonCards(player)
   const groups = useMemo(() => trayGroups(cards), [cards])
+  const sources = useMemo(() => ribbonSources(cards), [cards])
+  const open = useOpenMana(player, sources)
   const usable = useForge((s) => isMe && s.game?.priorityPlayerId != null && s.game.localPlayerIds.includes(s.game.priorityPlayerId))
+  const playable = useForge((s) => s.playable)
+  const opened = useBoardUi((s) => s.openLands.includes(player.id))
+  const toggle = useBoardUi((s) => s.toggleLands)
+  const glow = useMemo(() => (isMe ? (g: TrayGroup) => usable || g.open.some((id) => playable.has(id)) : undefined), [isMe, usable, playable])
+  const h = typeof style?.height === 'number' ? style.height : 110
   return (
-    <div style={{ ...style, overflow: 'visible', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
-      <LandTray groups={groups} usable={usable} compact={compact} align={isMe ? 'start' : 'center'} onPick={isMe ? pickIds : undefined} />
+    <div style={{ ...style, display: 'flex', alignItems: isMe ? 'flex-end' : 'flex-start', justifyContent: 'flex-end', paddingRight: SHELF_INSET, boxSizing: 'border-box', overflow: 'visible' }}>
+      <LandTray groups={groups} h={h} open={open} glow={glow} opened={opened} onToggle={() => toggle(player.id)} onPick={isMe ? pickIds : undefined} />
     </div>
   )
 }
