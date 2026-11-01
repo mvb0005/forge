@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { backUrl, listenForVoice } from '../discord'
+import { goBack, inLobby, listenForVoice } from '../discord'
 import { setSocket } from '../net'
 import type { ServerMessage } from '../protocol'
 import { useForge } from '../store'
@@ -139,8 +139,10 @@ export function Shell({ match }: { match: ReactNode }) {
 
 /** Back to wherever the game was started from: the tracker's play page, or this server's root in development. */
 function BackLink() {
-  const back = backUrl(useForge((s) => s.returnUrl))
-  return back ? <p style={{ marginTop: 16 }}><a href={back}>Back to the tracker</a></p> : null
+  const back = useForge((s) => s.returnUrl)
+  return back || inLobby
+    ? <p style={{ marginTop: 16 }}><a href={back ?? undefined} onClick={(e) => { if (inLobby) { e.preventDefault(); goBack(back) } }}>{inLobby ? 'Back to the lobby' : 'Back to the tracker'}</a></p>
+    : null
 }
 
 function SeatClosed({ link, note }: { link: 'noSeat' | 'replaced'; note: string }) {

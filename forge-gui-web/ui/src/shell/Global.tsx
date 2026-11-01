@@ -1,4 +1,4 @@
-import { backUrl, inDiscord } from '../discord'
+import { goBack, inLobby } from '../discord'
 import { useEffect, useState } from 'react'
 import { useForge } from '../store'
 import { Btn, IconBtn } from './ui'
@@ -41,7 +41,7 @@ export function GameOverModal() {
   const local = useForge((s) => s.game?.localPlayerIds ?? NONE)
   const players = useForge((s) => s.players)
   const close = useForge((s) => s.clearGameOver)
-  const back = backUrl(useForge((s) => s.returnUrl))
+  const back = useForge((s) => s.returnUrl)
   useEffect(() => {
     if (!over) return
     const h = (e: KeyboardEvent) => {
@@ -54,13 +54,13 @@ export function GameOverModal() {
   // board" stays to look first. The wait gives the result time to reach the tracker, so the lobby is picking again.
   const [left, setLeft] = useState(LOBBY_SECONDS)
   useEffect(() => {
-    if (!over || !inDiscord || !back) return
+    if (!over || !inLobby) return
     setLeft(LOBBY_SECONDS)
     const t = setInterval(() => setLeft((n) => Math.max(0, n - 1)), 1000)
     return () => clearInterval(t)
   }, [over, back])
   useEffect(() => {
-    if (over && inDiscord && back && left === 0) location.href = back
+    if (over && inLobby && left === 0) goBack(back)
   }, [over, back, left])
   if (!over) return null
   const won = over.winner != null && local.some((id) => players[id]?.name === over.winner)
@@ -72,7 +72,7 @@ export function GameOverModal() {
         <div className="mt-2 text-sm text-ink-dim">{won ? 'You won the game' : over.winner ? `${over.winner} wins the game` : 'Nobody won'}</div>
         {over.summary && <p className="mt-5 whitespace-pre-line rounded-lg bg-felt px-4 py-3 text-left text-sm text-ink-dim">{over.summary}</p>}
         {back
-          ? <a href={back} className="mt-6 block w-full"><Btn variant="primary" className="w-full py-2.5" autoFocus>{inDiscord ? `Back to the lobby (${left}s)` : 'Back to the tracker'}</Btn></a>
+          ? <a href={back} onClick={(e) => { if (inLobby) { e.preventDefault(); goBack(back) } }} className="mt-6 block w-full"><Btn variant="primary" className="w-full py-2.5" autoFocus>{inLobby ? `Back to the lobby (${left}s)` : 'Back to the tracker'}</Btn></a>
           : <Btn variant="primary" className="mt-6 w-full py-2.5" autoFocus onClick={close}>See the board</Btn>}
         {back && <button type="button" className="mt-3 text-sm text-ink-dim hover:text-ink" onClick={close}>See the board</button>}
       </div>
