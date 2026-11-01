@@ -45,6 +45,7 @@ const maxTurns = Number(opt("turns", 0));
 const verbose = flag("verbose");
 const passive = flag("passive");
 const letTimer = flag("let-timer");
+const moreTime = flag("more-time"); // with --let-timer: ask for more time ("In response") once per timed prompt
 let timedAt = null; // when the server last said it is timing our priority
 const timerStats = { armed: 0, passedForUs: 0, waits: [] };
 const concedeOnAi = flag("concede-on-ai");
@@ -556,8 +557,14 @@ ws.onmessage = (ev) => {
     }
     case "timer":
       if (m.seconds != null) {
+        if (timedAt != null && moreTime) {
+          timerStats.extended = (timerStats.extended ?? 0) + 1; // the server's answer to our moreTime
+          timerStats.extendedTo = m.seconds;
+          break;
+        }
         timerStats.armed++;
         timedAt = Date.now();
+        if (moreTime) send({ t: "moreTime" });
       } else if (timedAt != null) {
         timedAt = null;
       }
@@ -700,6 +707,7 @@ function finish(code) {
   if (letTimer || timerStats.armed) {
     const w = timerStats.waits;
     console.log(`respond timer: armed ${timerStats.armed}, passed for us ${timerStats.passedForUs}` +
+      (timerStats.extended ? `, extended ${timerStats.extended}x (last to ${timerStats.extendedTo}s)` : "") +
       (w.length ? `, waits ${Math.min(...w)}-${Math.max(...w)} ms` : ""));
   }
   console.log("asks:", JSON.stringify(askKinds));

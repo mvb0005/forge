@@ -361,7 +361,8 @@ Notes:
 stack), and the server passes it for you in `seconds` unless you act first (`--respond-seconds`, default 10; 0 turns
 it off). `null`: no timer now. Every prompt ends the last timer, and only a priority prompt while responding starts
 one; your own turn's priority with an empty stack, and every other decision (targets, attackers, blockers, choices),
-is never timed. When you have nothing you could do, the engine passes priority without asking at all (Forge's
+is never timed. `{ t:"moreTime" }` from the client ("In response") adds 20 seconds to a running timer and the server
+sends the new `timer`; with no timer running it does nothing. When you have nothing you could do, the engine passes priority without asking at all (Forge's
 "auto-pass when no actions", on for every seat).
 
 ### `assist`

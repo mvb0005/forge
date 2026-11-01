@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { send } from '../net'
 import { useBoardUi } from '../board/uiStore'
 import { stepWords } from '../look/phase'
+import { MoreTime } from '../board/Callouts'
 import { useForge } from '../store'
 
 function isTyping(t: EventTarget | null) {
@@ -75,6 +76,7 @@ export function PromptHeadline() {
             Passing in {left}s
           </span>
         )}
+        {left != null && !waiting && <MoreTime />}
       </div>
       <div
         className="lk-title"
