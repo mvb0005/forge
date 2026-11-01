@@ -42,11 +42,15 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Netty HTTP server for players: the table page, its /ws WebSocket and card images. */
 public final class WebServer {
     private static final String IMG_PREFIX = "/img/card/";
     private static final AttributeKey<String> TICKET_ATTR = AttributeKey.valueOf("forgeTicket");
+    private static final AttributeKey<String> TABLE_ATTR = AttributeKey.valueOf("forgeTable");
+    private static final Pattern TABLE_PATH = Pattern.compile("/([0-9a-f]{16})(/.*)?");
 
     private final int port;
     private final Path uiDir;
@@ -111,27 +115,41 @@ public final class WebServer {
             String path = q >= 0 ? uri.substring(0, q) : uri;
             String query = q >= 0 ? uri.substring(q) : "";
             if (!prefix.isEmpty() && prefix.equals(path)) {
-                FullHttpResponse res = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.FOUND);
-                res.headers().set(HttpHeaderNames.LOCATION, prefix + "/" + query);
-                HttpUtil.setContentLength(res, 0);
-                ctx.writeAndFlush(res).addListener(ChannelFutureListener.CLOSE);
-                req.release();
+                redirect(ctx, req, prefix + "/" + query);
                 return;
             }
+            String original = path;
             if (!prefix.isEmpty() && path.startsWith(prefix + "/")) {
                 path = path.substring(prefix.length());
-                if (path.isEmpty()) {
-                    path = "/";
+            }
+            // The table's match id (/play/table/<id>/): the same app, but the socket only admits that match's seats.
+            String table = null;
+            Matcher m = TABLE_PATH.matcher(path);
+            if (m.matches()) {
+                if (m.group(2) == null) {
+                    redirect(ctx, req, original + "/" + query);
+                    return;
                 }
+                table = m.group(1);
+                path = m.group(2);
             }
             if ("/ws".equals(path)) {
                 // Netty matches the handshake path exactly, so the ticket cannot stay on the URI.
                 ctx.channel().attr(TICKET_ATTR).set(ticketQuery(uri));
+                ctx.channel().attr(TABLE_ATTR).set(table);
                 req.setUri("/ws");
-            } else if (!path.equals(q >= 0 ? uri.substring(0, q) : uri)) {
+            } else if (!path.equals(original)) {
                 req.setUri(path + query);
             }
             ctx.fireChannelRead(msg);
+        }
+
+        private void redirect(ChannelHandlerContext ctx, FullHttpRequest req, String location) {
+            FullHttpResponse res = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.FOUND);
+            res.headers().set(HttpHeaderNames.LOCATION, location);
+            HttpUtil.setContentLength(res, 0);
+            ctx.writeAndFlush(res).addListener(ChannelFutureListener.CLOSE);
+            req.release();
         }
     }
 
@@ -180,7 +198,7 @@ public final class WebServer {
         public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
             if (evt instanceof WebSocketServerProtocolHandler.HandshakeComplete hs) {
                 client = new NettyClient(ctx.channel());
-                host.onConnect(client, ctx.channel().attr(TICKET_ATTR).get());
+                host.onConnect(client, ctx.channel().attr(TICKET_ATTR).get(), ctx.channel().attr(TABLE_ATTR).get());
             } else {
                 super.userEventTriggered(ctx, evt);
             }
