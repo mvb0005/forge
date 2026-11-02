@@ -37,22 +37,8 @@ export const PILE_X = [0, 78, 156] // library, graveyard, exile/command inside t
  * there or not. The battlefield lays out in what's left, so the slots line up down the table.
  */
 export const COMMAND = { gap: 6, pad: 8, chipH: 34, maxW: 132 }
-/** Room a defender's band leaves at its left in combat (3-4 players) for the callout beside the player's border. */
-export const CALLOUT_W = 300
 const ENGAGE_MIN_H = 72 // shortest card in a fight row before the attackers wrap into another column
 const ENGAGE_MAX_W = 220 // as large as the rest of the board: the fight is what matters now
-/** The command zone inside a player border (3-4 players): commander cards stacked at the border's right edge. */
-export const BORDER = { pad: 8, cardMaxW: 92, share: 0.42 }
-export function borderCommandSlots(border: Region, n: number, bandH = border.h): Region[] {
-  if (!n) return []
-  const h0 = bandH - 2 * BORDER.pad // sized for the shortest band, so every border's slots line up
-  const w = Math.max(30, Math.min(BORDER.cardMaxW, border.w * BORDER.share, h0 / CARD_RATIO))
-  const h = w * CARD_RATIO
-  const step = n > 1 ? Math.min(h * 0.32, (h0 - h) / (n - 1)) : 0
-  const x = border.x + border.w - BORDER.pad - w
-  const y = border.y + (border.h - (h + (n - 1) * step)) / 2
-  return Array.from({ length: n }, (_, i) => ({ x, y: y + i * step, w, h }))
-}
 /** Card width for a slot in a field this tall. */
 const commandCardW = (fieldH: number) => Math.max(36, Math.min(COMMAND.maxW, (fieldH - 2 * COMMAND.pad - COMMAND.chipH) / CARD_RATIO))
 /** How much of the field's left edge the slots take: the widest player's, so every field starts at the same x. */
@@ -157,6 +143,7 @@ function paintSide(
  * attacker has nothing in its way. The rows sit at the left of the band, against the border; more attackers
  * than rows wrap into another column. Publishes `engage:<player>` (the fight, for its ring and the callout
  * beside it), `lane:col:<attacker>` and `slot:<attacker>` (where a blocker would stand, for the block slots).
+ * Each attacker is tagged with who it is attacking. The row faces the seat, which is the right edge of the band.
  * Returns the defender's cards it placed as blockers.
  */
 function engage(
@@ -188,28 +175,46 @@ function engage(
   const w = cardH / CARD_RATIO
   const cellW = (spots + 1) * (w + gap)
   const used = new Set<number>()
+  const who = input.game.localPlayerIds.includes(defender) ? 'You' : (input.players[defender]?.name ?? 'them')
   fights.forEach(({ g, blockers }, i) => {
     const c = Math.floor(i / perCol)
     const r = i % perCol
-    const x0 = field.x + pad + c * (cellW + gap * 2)
     const y = field.y + pad + r * (cardH + gap)
-    const ax = x0 + spots * (w + gap)
+    const cellRight = field.x + field.w - pad - c * (cellW + gap * 2)
+    const ax = cellRight - w - spots * (w + gap)
     const head = g.ids[0]
     put(head, {
       kind: 'field', x: ax, y, w, rot: 0, z: 2000 + i * 10, edge: 'bottom',
       count: g.ids.length > 1 ? g.ids.length : undefined,
       memberIds: g.ids.length > 1 ? g.ids.slice(1) : undefined,
+      tag: `Attacking ${who}`,
     })
     blockers.forEach((id, k) => {
       used.add(id)
-      put(id, { kind: 'field', x: ax - (k + 1) * (w + gap), y, w, rot: 0, z: 2000 + i * 10 + 1 + k, edge: 'top' })
+      put(id, { kind: 'field', x: ax + (k + 1) * (w + gap), y, w, rot: 0, z: 2000 + i * 10 + 1 + k, edge: 'top' })
     })
-    regions[`lane:col:${head}`] = { x: x0, y, w: cellW - gap, h: cardH }
-    regions[`slot:${head}`] = { x: ax - (blockers.length + 1) * (w + gap), y, w, h: cardH }
+    regions[`lane:col:${head}`] = { x: cellRight - cellW + gap, y, w: cellW - gap, h: cardH }
+    regions[`slot:${head}`] = { x: ax + (blockers.length + 1) * (w + gap), y, w, h: cardH }
   })
   const rows = Math.min(n, perCol)
-  regions[`engage:${defender}`] = { x: field.x, y: field.y, w: pad + cols * (cellW + gap * 2) - gap, h: 2 * pad + rows * cardH + (rows - 1) * gap }
+  const fightW = pad + cols * (cellW + gap * 2) - gap
+  regions[`engage:${defender}`] = { x: field.x + field.w - fightW, y: field.y, w: fightW, h: 2 * pad + rows * cardH + (rows - 1) * gap }
   return used
+}
+
+/** Commander cards inside a seat: stacked at its outer edge. `bandH` is the shortest seat, so every card is the same size and lines up. */
+function seatCommandSlots(seat: Region, n: number, bandH = seat.h): Region[] {
+  if (!n) return []
+  const pad = 6
+  const innerH = Math.max(32, bandH - 2 * pad)
+  const w = Math.max(26, Math.min(96, seat.w * 0.46, innerH / CARD_RATIO))
+  const h = w * CARD_RATIO
+  const step = n > 1 ? Math.min(h * 0.34, Math.max(0, (innerH - h) / (n - 1))) : 0
+  const stackH = h + (n - 1) * step
+  const x = seat.x + seat.w - pad - w
+  // A tall seat keeps the card up top, clear of the zone piles along the bottom.
+  const y0 = seat.h > stackH + 72 ? seat.y + pad : seat.y + Math.max(pad, (seat.h - stackH) / 2)
+  return Array.from({ length: n }, (_, i) => ({ x, y: y0 + i * step, w, h }))
 }
 
 function placeBands(
@@ -245,26 +250,25 @@ function placeBands(
   const weight = (id: number) => (incoming.size ? (incoming.has(id) ? 2 : 1) : active != null && id === active ? 2 : 1)
   const inner = frame.top.h - gap * (order.length - 1)
   const sum = order.reduce((n, id) => n + weight(id), 0)
-  const gutter = frame.oppSeat
-  // The lands' shelf at the right end of every band, as wide as the widest player's (the commanders are in the border).
+  const rail = frame.act
+  const shortest = inner / sum
+  // The lands' shelf at the right end of every band. Each seat is the right end of its band, and that
+  // player's commanders sit inside the seat.
   const shelf = landCarve(order.map((id) => ({ player: players[id], h: inner * weight(id) / sum })), cards, frame.top.w)
   let y = frame.top.y
-  const shortest = inner / sum
   const bands = order.map((id) => {
     const h = inner * weight(id) / sum
     const field: Region = { x: frame.top.x, y, w: frame.top.w, h }
-    // Each band's left gutter is the player's border: life, name and counters, with the command zone
-    // at its right edge. The lands' shelf is at the right end of the battlefield.
-    const seat: Region = { x: gutter.x, y, w: gutter.w, h }
-    const cmdIds = players[id]?.commanders?.map((c) => c.cardId) ?? []
-    const slots = borderCommandSlots(seat, cmdIds.length, shortest)
+    // Your seat continues through the hand row to the bottom edge, so the buttons sit inside it.
+    const seat: Region = { x: rail.x, y, w: rail.w, h: id === meId ? frame.side.h - y : h }
     const ribbon = shelfOf(field, shelf)
-    regions[`half:${id}`] = { x: gutter.x, y, w: field.x + field.w - gutter.x, h }
+    regions[`half:${id}`] = { x: field.x, y, w: seat.x + seat.w - field.x, h }
     regions[`seat:${id}`] = seat
     regions[`border:${id}`] = seat
     regions[`ribbon:${id}`] = ribbon
     regions[`field:${id}`] = field
-    slots.forEach((r, i) => {
+    const cmdIds = players[id]?.commanders?.map((c) => c.cardId) ?? []
+    seatCommandSlots(seat, cmdIds.length, shortest).forEach((r, i) => {
       const cid = cmdIds[i]
       regions[`command:${cid}`] = r
       if (cards[cid] && players[id]?.zones.command.includes(cid)) put(cid, { kind: 'command', x: r.x, y: r.y, w: r.w, rot: 0, z: 5900 + i })
@@ -284,11 +288,8 @@ function placeBands(
       // the rest of the board can spare it.
       const zone = regions[`engage:${band.id}`]
       const rest = row.filter((c) => !used.has(c.id))
-      const right = band.cardsField.x + band.cardsField.w
-      const free = right - (zone.x + zone.w + COL_GAP)
-      const need = Math.min(free, 24 + rest.length * 90)
-      const restX = zone.x + zone.w + COL_GAP + Math.max(0, Math.min(CALLOUT_W, free - need))
-      const restF: Region = { x: restX, y: band.cardsField.y, w: Math.max(40, right - restX), h: band.cardsField.h }
+      const restRight = zone.x - COL_GAP
+      const restF: Region = { x: band.cardsField.x, y: band.cardsField.y, w: Math.max(40, restRight - band.cardsField.x), h: band.cardsField.h }
       const size = { W: restF.w - 2, H: restF.h - 2 }
       const maxW = Math.min(220, Math.max(56, Math.min(size.W / 6, size.H / CARD_RATIO)))
       const shown = new Set(rest.map((c) => c.id))
@@ -345,6 +346,11 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
   }
 
   const cols = fanout ? placeBands(input, combat, frame, ids, regions, put, unfolded) : null
+  if (fanout && input.game.phase === 'COMBAT_DECLARE_ATTACKERS') {
+    for (const [id, p] of placements) {
+      if (p.kind === 'field' && !p.tag && input.highlighted.has(`card:${id}`)) placements.set(id, { ...p, tag: 'Choose a player' })
+    }
+  }
   if (!fanout) {
     // One opponent full size on top, you at the bottom. Other opponents are strips.
     const carve = commandCarve([opp, me], Math.min(frame.top.h, frame.bottom.h))
@@ -363,8 +369,8 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
     paintSide(sides.bottom, bottom, 'top', size, regions, cards, put, 'bottom:back', { y: frame.top.y, h: frame.bottom.y + frame.bottom.h - frame.top.y })
   }
 
-  // Every player's commanders: a slot each at the left of their battlefield, the card face up in it while it's in
-  // the command zone. With bands (3-4 players) they are in each player's border instead (placeBands).
+  // A duel keeps every commander's slot at the left of their battlefield. With bands the slot is inside
+  // that player's seat. The card is face up in the slot while it is in the command zone.
   const handRow = frame.hand
   const seated: [PlayerDto | undefined, Region | undefined][] = fanout ? [] : [[opp, frame.top], [me, frame.bottom]]
   const slotH = fanout ? Math.min(...[...ids, meId].map((id) => regions[`field:${id}`]?.h ?? Infinity)) : Math.min(frame.top.h, frame.bottom.h)
@@ -379,7 +385,8 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
   }
 
   // Your hand: fanned along the bottom, in mana-value order unless you have arranged it.
-  const hand = me ? orderedHand(me.zones.hand, cards, input.handOrder ?? null) : []
+  const local = input.game.localPlayerIds.includes(meId)
+  const hand = me && local ? orderedHand(me.zones.hand, cards, input.handOrder ?? null) : []
   if (hand.length) {
     const { w: W, h: H } = handRow
     const n = hand.length
@@ -406,7 +413,7 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
   const anchor = (id: number, x: number, y: number) => put(id, { kind: 'zone', x, y, w: ZONE_W, rot: 0, z: 1, opacity: 0 })
   for (const [id, r] of folded) anchor(id, r.x + Math.max(0, (r.w - ZONE_W) / 2), r.y + 4)
   const pile = (ids: number[], x: number, y: number, n = PILE_SHOWN) => ids.slice(-n).forEach((id) => anchor(id, x, y))
-  if (me) {
+  if (me && !fanout) {
     const { x, y } = frame.piles
     pile(me.zones.graveyard, x + PILE_X[1], y + 8)
     pile(me.zones.exile, x + PILE_X[2], y + 8)

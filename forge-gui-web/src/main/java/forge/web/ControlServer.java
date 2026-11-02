@@ -103,6 +103,8 @@ final class ControlServer {
                         o.addProperty("error", problem);
                     }
                     res = json(HttpResponseStatus.OK, o);
+                } else if (path.equals("/decks/import-url") && m == HttpMethod.POST) {
+                    res = json(HttpResponseStatus.OK, MatchHost.importUrl(body(req)));
                 } else if (path.equals("/match") && m == HttpMethod.GET) {
                     res = json(HttpResponseStatus.OK, host.status());
                 } else if (path.equals("/match") && m == HttpMethod.POST) {

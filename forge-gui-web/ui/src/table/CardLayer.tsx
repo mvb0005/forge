@@ -269,10 +269,11 @@ const CardView = memo(function CardView({ id, p, ghost, from }: CardViewProps) {
     >
       <div className="absolute inset-0" style={{ opacity: card.phasedOut ? 0.32 : undefined }}>
         {p.kind === 'field' || p.kind === 'attach' || p.kind === 'command' ? (
-          <FieldFace ids={ids} card={card} tapped={p.rot === 90} count={p.count ?? 1} words={p.w >= DESIGN_W * 0.66} label={p.label} />
+          <FieldFace ids={ids} card={card} tapped={p.rot === 90} count={p.count ?? 1} words={p.w >= DESIGN_W * 0.66} label={p.label} tag={p.tag} />
         ) : p.kind === 'hand' ? (
           <div className="absolute inset-0 origin-bottom transition-[translate] duration-150 hover:-translate-y-5" style={{ transform: `rotate(${p.rot}deg)` }}>
             <FieldFace ids={ids} card={card} tapped={false} count={1} words />
+            <HandRibbon id={id} />
           </div>
         ) : (
           <div className="absolute inset-0 overflow-hidden" style={{ borderRadius: 8 }}>
@@ -285,7 +286,29 @@ const CardView = memo(function CardView({ id, p, ghost, from }: CardViewProps) {
   )
 }, sameProps)
 
-function FieldFace({ ids, card, tapped, count, words, label, width = DESIGN_W }: { ids: number[]; card: CardDto; tapped: boolean; count: number; words: boolean; label?: string; width?: number }) {
+function HandRibbon({ id }: { id: number }) {
+  const kind = useForge((s) => {
+    const msg = `${s.prompt?.message ?? ''} ${s.buttons?.ok.label ?? ''}`
+    if (!/discard/i.test(msg)) return null
+    if (s.highlighted.has(`card:${id}`)) return 'discard'
+    if (s.selectable.cardIds.has(id)) return 'pick'
+    return null
+  })
+  if (!kind) return null
+  return (
+    <span className="lk-title" style={{
+      position: 'absolute', left: 10, right: 10, bottom: 36, zIndex: 6, textAlign: 'center', borderRadius: 4, padding: '4px 0',
+      fontWeight: 700, fontSize: 15, letterSpacing: '0.08em', textTransform: 'uppercase',
+      color: kind === 'discard' ? '#2c261c' : 'var(--lk-parchment)',
+      background: kind === 'discard' ? 'var(--lk-ember-light)' : 'rgb(18 14 10 / .92)',
+      boxShadow: kind === 'discard' ? '0 0 0 2px var(--lk-ember), 0 6px 16px rgb(0 0 0 / .55)' : '0 0 0 1.5px var(--lk-gold)',
+    }}>
+      {kind === 'discard' ? 'Discard' : 'Discard?'}
+    </span>
+  )
+}
+
+function FieldFace({ ids, card, tapped, count, words, label, tag, width = DESIGN_W }: { ids: number[]; card: CardDto; tapped: boolean; count: number; words: boolean; label?: string; tag?: string; width?: number }) {
   const look = useCardLook(ids, card)
   const w = tapped ? (width * TAPPED_W) / DESIGN_W : width
   const off = tapped ? { left: (width - w) / 2, top: ((width - w) * DESIGN_H) / DESIGN_W / 2 } : { left: 0, top: 0 }
@@ -293,6 +316,11 @@ function FieldFace({ ids, card, tapped, count, words, label, width = DESIGN_W }:
     <div style={{ position: 'absolute', ...off }}>
       <CardFrame card={card} width={w} rotate={tapped} highlight={look.highlight} dim={look.dim} verdict={look.verdict} choosingTargets={look.choosingTargets} base={look.base} count={count} words={words} mini={!words} />
       {card.heldExileIds.length > 0 && <HeldExile ids={card.heldExileIds} />}
+      {tag && (
+        <span className="lk-title" style={{ position: 'absolute', left: 6, right: 6, top: 8, zIndex: 6, textAlign: 'center', padding: '3px 6px', borderRadius: 4, background: 'var(--lk-ember)', color: '#2c261c', fontWeight: 700, fontSize: 13, lineHeight: '18px', letterSpacing: '0.02em', boxShadow: '0 4px 12px rgb(0 0 0 / .45)' }}>
+          {tag}
+        </span>
+      )}
       {label && (
         <span className="lk-title" style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', whiteSpace: 'nowrap', padding: '0 10px', borderRadius: 999, background: 'var(--lk-chip)', boxShadow: '0 0 0 1px var(--lk-metal-line)', color: 'var(--lk-parchment)', fontWeight: 700, fontSize: 15, lineHeight: '26px' }}>
           {label}

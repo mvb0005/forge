@@ -61,12 +61,14 @@ final class Decks {
     private static volatile List<CommanderPrecon> commanderPrecons;
 
     /** A commander precon; the deck itself is read when a match starts. */
-    private record CommanderPrecon(String file, String name, String detail, String colors) {}
+    private record CommanderPrecon(
+            String file, String name, String detail, String colors,
+            String manaCost, String typeLine, String oracleText, String pt, String img) {}
 
     private Decks() {
     }
 
-    /** The curated opponents the control API offers, each with its precon's name and colours. */
+    /** The curated opponents the control API offers, each with its precon's name, colours and commander card info. */
     static JsonArray curatedOpponents() {
         Map<String, CommanderPrecon> byFile = new LinkedHashMap<>();
         for (CommanderPrecon p : commanderPrecons()) {
@@ -87,6 +89,13 @@ final class Decks {
             j.addProperty("deck", p.name());
             j.addProperty("colors", p.colors());
             j.addProperty("profile", o.profile());
+            j.addProperty("manaCost", p.manaCost());
+            j.addProperty("typeLine", p.typeLine());
+            j.addProperty("oracleText", p.oracleText());
+            j.addProperty("pt", p.pt());
+            if (p.img() != null) {
+                j.addProperty("img", p.img());
+            }
             out.add(j);
         }
         return out;
@@ -99,7 +108,7 @@ final class Decks {
         index.start();
     }
 
-    private static String commanderColors(List<PaperCard> commanders) {
+    static String commanderColors(List<PaperCard> commanders) {
         int mask = 0;
         for (PaperCard c : commanders) {
             mask |= c.getRules().getColorIdentity().getColor();
@@ -131,7 +140,20 @@ final class Decks {
                     String name = m.matches() ? m.group(1) : file;
                     String detail = m.matches() ? m.group(2) + " · " + m.group(3) : "";
                     try {
-                        list.add(new CommanderPrecon(file, name, detail, commanderColors(commandersIn(f.toPath()))));
+                        List<PaperCard> cmds = commandersIn(f.toPath());
+                        PaperCard lead = cmds.isEmpty() ? null : cmds.get(0);
+                        var rules = lead == null ? null : lead.getRules();
+                        String manaCost = rules == null || rules.getManaCost() == null || rules.getManaCost().isNoCost()
+                                ? "" : rules.getManaCost().toString();
+                        String typeLine = rules == null || rules.getType() == null
+                                ? "" : rules.getType().toString().replace(" - ", " — ");
+                        String oracleText = rules == null || rules.getOracleText() == null ? "" : rules.getOracleText();
+                        String pt = rules != null && rules.getType() != null && rules.getType().isCreature()
+                                ? rules.getPower() + "/" + rules.getToughness() : "";
+                        String img = WebServer.scryfallUrl(lead, "");
+                        list.add(new CommanderPrecon(
+                                file, name, detail, commanderColors(cmds),
+                                manaCost, typeLine, oracleText, pt, img));
                     } catch (Exception e) {
                         System.err.println("Skipping commander precon " + f + ": " + e);
                     }

@@ -1,9 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { stepWords } from '../look/phase'
+import { usePopover } from '../popover/store'
+import { usePeek } from '../popover/usePeek'
 import type { CardDto, EntityRef, PlayerDto } from '../protocol'
-import type { Region } from '../table/contract'
 import { send } from '../net'
 import { useForge } from '../store'
+import { CardImage } from './CardImage'
+import { RulesText } from './mana'
+import { useBoardUi } from './uiStore'
 
 // What is happening to whom, beside each player's border (3-4 players): one callout per player with a part in
 // it right now. Attacking and attacked (combat bands), blocking, casting and being targeted (the stack), and
@@ -11,7 +16,7 @@ import { useForge } from '../store'
 // from what the engine sent: who is in combat, what is on the stack, whose priority it is.
 
 type Tone = 'you' | 'ember' | 'steel' | 'frost' | 'plain'
-type Line = { key: string; tone: Tone; text: ReactNode }
+export type Line = { key: string; tone: Tone; text: ReactNode }
 
 const TONE: Record<Tone, string> = {
   you: 'var(--lk-gold)',
@@ -39,14 +44,16 @@ function who(v: View, ref: EntityRef | null): { owner: number | null; label: str
   return { owner: c?.controllerId ?? null, label: shortName(c) }
 }
 
-/** Each player's lines, by player id. */
-function useCallouts(): Map<number, Line[]> {
+/** Each player's lines, by player id: drawn as a popup over the timeline beside that player's seat. */
+export function useCallouts(): Map<number, Line[]> {
   const game = useForge((s) => s.game)
   const players = useForge((s) => s.players)
   const cards = useForge((s) => s.cards)
   const stack = useForge((s) => s.stack)
   const combat = useForge((s) => s.combat)
   const prompt = useForge((s) => s.prompt?.message ?? '')
+  const okLabel = useForge((s) => s.buttons?.ok.label ?? '')
+  const highlighted = useForge((s) => s.highlighted)
   const mine = useForge((s) => !!(s.buttons?.ok.enabled || s.buttons?.cancel.enabled || s.selectable.cardIds.size || s.selectable.playerIds?.size))
   const out = new Map<number, Line[]>()
   if (!game) return out
@@ -61,11 +68,27 @@ function useCallouts(): Map<number, Line[]> {
   const Name = ({ id }: { id: number | null | undefined }) => <B>{v.name(id)}</B>
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
+  // The turn and step live in the priority box: yours when you are answering, otherwise whoever the game is waiting on.
+  const active = game.activePlayerId
+  const step = stepWords(game.phase)
+  const phaseLine: Line = { key: 'phase', tone: 'plain', text: `Turn ${game.turn}${step ? ` · ${step}` : ''}` }
+  const phaseOn = game.priorityPlayerId ?? active
+  if (phaseOn != null) add(phaseOn, phaseLine)
+  for (const id of meIds) if (mine && id !== phaseOn) add(id, phaseLine)
+
   // Yours first: what the engine is asking you, while it is yours to answer.
   for (const id of meIds) if (mine && prompt) add(id, { key: 'prompt', tone: 'you', text: prompt })
+  if (mine && /discard/i.test(`${prompt} ${okLabel}`)) {
+    const names = [...highlighted]
+      .filter((k) => k.startsWith('card:'))
+      .map((k) => shortName(cards[Number(k.slice(5))]))
+      .filter((n) => n && n !== 'a card')
+    for (const id of meIds) {
+      add(id, { key: 'discarding', tone: 'ember', text: names.length ? <>Discarding <B>{names.join(', ')}</B></> : 'Choose what to discard' })
+    }
+  }
 
   // Combat: who is attacking whom, with what, and who is blocking.
-  const active = game.activePlayerId
   const bands = combat?.bands ?? []
   if (active != null && bands.length) {
     const byDefender = new Map<string, { label: string; owner: number | null; attackers: number[] }>()
@@ -101,7 +124,7 @@ function useCallouts(): Map<number, Line[]> {
       add(ctl, { key: 'blk', tone: 'steel', text: <>Blocking {attackers.size === 1 ? <B>{shortName(first)}</B> : plural(attackers.size, 'attacker')} with {plural(blockerCount, 'creature')}</> })
     }
   } else if (active != null && game.phase === 'COMBAT_DECLARE_ATTACKERS') {
-    add(active, { key: 'declaring', tone: 'ember', text: 'Declaring attackers' })
+    add(active, { key: 'declaring', tone: 'ember', text: mine && meIds.includes(active) ? 'Choose a creature, then the player it attacks' : 'Declaring attackers' })
   }
 
   // The stack, top first: who put each item there and what it is aimed at.
@@ -158,40 +181,100 @@ export function MoreTime() {
   )
 }
 
-export function Callouts({ regions }: { regions: Record<string, Region> }) {
-  const lines = useCallouts()
-  const meIds = useForge(useShallow((s) => s.game?.localPlayerIds ?? []))
-  const left = useCountdown()
+/** The card shown at the bottom of the timeline: hovered card, stack top, prompt card, selected card, or lead attacker. */
+function useTimelineCard(): { card: CardDto; text?: string } | null {
+  const hoveredId = usePopover((s) => s.grownCardId ?? (s.peek?.entity.kind === 'card' ? s.peek.entity.id : null))
+  const hoverStackId = useBoardUi((s) => s.hoverStackId)
+  const key = useForge((s) => {
+    if (hoveredId != null && s.cards[hoveredId]) return `${hoveredId}|`
+    if (hoverStackId != null) {
+      const st = s.stack.find((x) => x.id === hoverStackId)
+      if (st?.sourceCardId != null && s.cards[st.sourceCardId]) return `${st.sourceCardId}|${st.text ?? ''}`
+    }
+    const top = s.stack[0]
+    if (top?.sourceCardId != null && s.cards[top.sourceCardId]) {
+      return `${top.sourceCardId}|${top.text ?? ''}`
+    }
+    if (s.prompt?.cardId != null && s.cards[s.prompt.cardId]) {
+      return `${s.prompt.cardId}|`
+    }
+    for (const k of s.highlighted) {
+      if (k.startsWith('card:')) {
+        const cid = Number(k.slice(5))
+        if (s.cards[cid]) return `${cid}|`
+      }
+    }
+    for (const b of s.combat?.bands ?? []) {
+      const a = b.attackerIds[0]
+      if (a != null && s.cards[a]) return `${a}|`
+    }
+    return ''
+  })
+  const cid = key ? Number(key.slice(0, key.indexOf('|'))) : -1
+  const text = key ? key.slice(key.indexOf('|') + 1) : ''
+  const card = useForge((s) => (cid >= 0 ? s.cards[cid] : undefined))
+  return card ? { card, text: text || undefined } : null
+}
+
+function FocusCard() {
+  const focus = useTimelineCard()
+  const peek = usePeek({ kind: 'card', id: focus?.card.id ?? -1 })
+  if (!focus) return null
+  const { card, text } = focus
+  const raw = text && text.startsWith(`${card.name} - `) ? text.slice(card.name.length + 3) : text
+  const ability = raw?.replace(/\s*\(Targeting:[^)]*\)\s*$/, '').trim()
+  const showAbility = !!ability && ability !== card.text?.trim()
   return (
-    <>
-      {[...lines].map(([id, ls]) => {
-        const border = regions[`border:${id}`]
-        if (!border || !ls.length) return null
-        const fight = regions[`engage:${id}`] // an attacked player's callout sits past the fight, not over it
-        const at = fight ? fight.x + fight.w + 14 : border.x + border.w + 6
+    <div {...peek} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, pointerEvents: 'auto', cursor: 'help' }}>
+      <CardImage card={card} width={176} />
+      {showAbility && (
+        <div style={{ width: '100%', padding: '5px 8px', borderRadius: 4, background: 'rgb(10 8 6 / .72)', boxShadow: 'inset 0 0 0 1px var(--lk-metal-faint)', fontSize: 12, lineHeight: 1.35, color: 'var(--lk-parchment-dim)', whiteSpace: 'pre-line' }}>
+          <RulesText text={ability} size={12} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Bottom of the timeline column: the priority/response box and the full card, never overlapping the log or cut off at the bottom. */
+export function TimelineFooter() {
+  const lines = useCallouts()
+  const players = useForge((s) => s.players)
+  const meIds = useForge(useShallow((s) => s.game?.localPlayerIds ?? []))
+  const prioId = useForge((s) => s.game?.priorityPlayerId ?? s.game?.activePlayerId ?? null)
+  const left = useCountdown()
+  const entries = [...lines.entries()].sort(([a], [b]) => {
+    const aMe = meIds.includes(a) ? 0 : a === prioId ? 1 : 2
+    const bMe = meIds.includes(b) ? 0 : b === prioId ? 1 : 2
+    return aMe - bMe
+  })
+  return (
+    <div className="lk-text" style={{ flex: 'none', marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 8, borderTop: '1px solid var(--lk-metal-line)' }}>
+      {entries.map(([id, ls]) => {
+        if (!ls.length) return null
         const yours = meIds.includes(id) && ls.some((l) => l.tone === 'you')
-        const accent = TONE[ls[0].tone]
+        const who = meIds.includes(id) ? 'You' : players[id]?.name ?? 'Player'
+        const accent = TONE[ls.find((l) => l.key !== 'phase')?.tone ?? ls[0].tone]
         return (
-          <div key={id} className="bf-pop lk-text"
+          <div key={id}
             style={{
-              position: 'absolute', left: at, top: border.y + 8, zIndex: 21, maxWidth: 320, minWidth: 180, pointerEvents: 'none',
-              padding: '7px 11px 8px 12px', borderRadius: 5, color: 'var(--lk-parchment-dim)', fontSize: 13, lineHeight: 1.35,
-              background: yours ? 'linear-gradient(rgb(245 213 138 / .14), rgb(245 213 138 / .05)), rgb(18 14 10 / .94)' : 'rgb(18 14 10 / .92)',
-              boxShadow: `0 0 0 1px ${yours ? 'var(--lk-gold-soft)' : 'var(--lk-metal-line)'}, 0 4px 16px rgb(0 0 0 / .5)${yours ? ', 0 0 22px rgb(245 213 138 / .14)' : ''}`,
+              position: 'relative', padding: '7px 10px 8px 12px', borderRadius: 5, color: 'var(--lk-parchment-dim)', fontSize: 12.5, lineHeight: 1.35,
+              background: yours ? 'linear-gradient(rgb(245 213 138 / .14), rgb(245 213 138 / .05)), rgb(18 14 10 / .96)' : 'rgb(18 14 10 / .92)',
+              boxShadow: `0 0 0 1px ${yours ? 'var(--lk-gold-soft)' : 'var(--lk-metal-line)'}`,
             }}>
-            {/* the pointer, toward the border it belongs to */}
-            <span aria-hidden style={{ position: 'absolute', left: -6, top: 12, width: 10, height: 10, transform: 'rotate(45deg)', background: 'rgb(18 14 10 / .94)', boxShadow: `-1px 1px 0 ${yours ? 'var(--lk-gold-soft)' : 'var(--lk-metal-line)'}` }} />
             <span aria-hidden style={{ position: 'absolute', left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, background: accent }} />
-            {yours && (
-              <div className="lk-label" style={{ display: 'flex', gap: 8, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--lk-gold)', marginBottom: 2 }}>
-                <span>Your move</span>
-                {left != null && <span style={{ marginLeft: 'auto', color: left <= 3 ? 'var(--lk-ember-light)' : 'var(--lk-parchment-dim)', fontVariantNumeric: 'tabular-nums' }}>Passing in {left}s</span>}
-                {left != null && <MoreTime />}
+            <div className="lk-label" style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: yours ? 'var(--lk-gold)' : 'var(--lk-parchment-dim)', marginBottom: 2 }}>
+              <span>{yours ? 'Your move' : who}</span>
+              {yours && left != null && <span style={{ marginLeft: 'auto', color: left <= 3 ? 'var(--lk-ember-light)' : 'var(--lk-parchment-dim)', fontVariantNumeric: 'tabular-nums' }}>{left}s</span>}
+              {yours && left != null && <MoreTime />}
+            </div>
+            {ls.map((l, i) => l.key === 'phase' ? (
+              <div key={l.key} className="lk-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--lk-gold)', lineHeight: 1.25, marginBottom: i < ls.length - 1 ? 2 : 0 }}>
+                {l.text}
               </div>
-            )}
-            {ls.map((l, i) => (
+            ) : (
               <div key={l.key} style={l.tone === 'you'
-                ? { fontFamily: 'var(--lk-font-title)', fontWeight: 700, fontSize: 17, lineHeight: 1.22, color: 'var(--lk-parchment)', marginBottom: i < ls.length - 1 ? 4 : 0 }
+                ? { fontFamily: 'var(--lk-font-title)', fontWeight: 700, fontSize: 14.5, lineHeight: 1.22, color: 'var(--lk-parchment)', marginBottom: i < ls.length - 1 ? 3 : 0 }
                 : { display: 'flex', gap: 6 }}>
                 {l.tone !== 'you' && <span aria-hidden style={{ color: TONE[l.tone], flex: 'none' }}>•</span>}
                 <span>{l.text}</span>
@@ -200,6 +283,7 @@ export function Callouts({ regions }: { regions: Record<string, Region> }) {
           </div>
         )
       })}
-    </>
+      <FocusCard />
+    </div>
   )
 }

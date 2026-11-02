@@ -4,14 +4,21 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import forge.deck.Deck;
+import forge.deck.DeckUrlLoader;
+import forge.game.Game;
 import forge.game.GameRules;
 import forge.game.GameState;
 import forge.game.GameType;
+import forge.game.player.Player;
 import forge.game.player.RegisteredPlayer;
 import forge.gamemodes.match.HostedMatch;
+import forge.gui.control.FControlGameEventHandler;
 import forge.gui.interfaces.IGuiGame;
+import forge.item.PaperCard;
 import forge.player.GamePlayerUtil;
 import forge.player.LobbyPlayerHuman;
+import forge.player.PlayerControllerHuman;
+import forge.trackable.TrackableCollection;
 import forge.web.assist.Assists;
 
 import java.io.InputStream;
@@ -58,11 +65,11 @@ public final class MatchHost {
     /** A seat at the current match. Humans have a ticket and their own session; AIs have neither. */
     private static final class Seat {
         final int index;
-        final boolean human;
+        boolean human;
         final String name;
         final String person;
         final String deckName;
-        final String ticket;
+        String ticket;
         WebGuiGame session;
         Recorder recorder;
         volatile ClientChannel channel;
@@ -93,6 +100,10 @@ public final class MatchHost {
     private String returnUrl;
     private String resultsUrl;
     private String replayUrl;
+    private String watchTicket;
+    private WebGuiGame spectator;
+    private HostedMatch currentMatch;
+    private Map<String, String[]> currentFaces = Map.of();
     private Instant startedAt;
     private List<Seat> seats = List.of();
     private JsonObject result;
@@ -168,40 +179,47 @@ public final class MatchHost {
         return caps;
     }
 
-    /** A seat's socket. {@code table} is the match id from the page's path (/play/table/&lt;id&gt;/), or null at the bare path. */
+    /** A seat's socket, or a spectator's. {@code table} is the match id from the page's path (/play/table/&lt;id&gt;/), or null at the bare path. */
     void onConnect(ClientChannel ch, String ticket, String table) {
         Seat seat;
-        ClientChannel previous;
+        WebGuiGame watch = null;
+        ClientChannel previous = null;
         State st;
         String back;
         synchronized (lock) {
             seat = ticket == null ? null : seats.stream().filter(s -> ticket.equals(s.ticket)).findFirst().orElse(null);
+            boolean watching = seat == null && ticket != null && ticket.equals(watchTicket);
             if (table != null && !table.equals(matchId)) {
                 ch.close(NO_SEAT, "That game isn't running here any more. Start or rejoin one from the tracker.");
                 return;
             }
-            if (seat == null) {
+            if (seat == null && !watching) {
                 ch.close(NO_SEAT, "There's no seat here for this link. Start a game from the tracker.");
                 return;
             }
-            previous = seat.channel;
-            seat.channel = ch;
+            if (seat != null) {
+                previous = seat.channel;
+                seat.channel = ch;
+            } else {
+                watch = spectator;
+            }
             st = state;
             back = returnUrl;
         }
         JsonObject hello = new JsonObject();
         hello.addProperty("t", "hello");
         hello.addProperty("version", 2);
-        hello.addProperty("seat", seat.index);
-        hello.addProperty("who", seat.name);
+        hello.addProperty("seat", seat != null ? seat.index : -1);
+        hello.addProperty("who", seat != null ? seat.name : "Spectator");
         if (back != null) {
             hello.addProperty("returnUrl", back);
         }
         hello.add("caps", caps());
         hello.addProperty("inMatch", st == State.PLAYING);
         ch.send(hello);
-        if (st == State.PLAYING && seat.session != null) {
-            seat.session.onConnect(ch);
+        WebGuiGame target = seat != null ? seat.session : watch;
+        if (st == State.PLAYING && target != null) {
+            target.onConnect(ch);
         } else if (st == State.FINISHED) {
             JsonObject over = new JsonObject();
             over.addProperty("t", "ended");
@@ -220,6 +238,13 @@ public final class MatchHost {
     void onDisconnect(ClientChannel ch) {
         Seat seat = seatOf(ch);
         if (seat == null) {
+            WebGuiGame watch;
+            synchronized (lock) {
+                watch = spectator;
+            }
+            if (watch != null) {
+                watch.onDisconnect(ch);
+            }
             return;
         }
         synchronized (lock) {
@@ -238,7 +263,10 @@ public final class MatchHost {
         Seat seat = seatOf(ch);
         WebGuiGame s = seat == null ? null : seat.session;
         String t = msg.has("t") && msg.get("t").isJsonPrimitive() ? msg.get("t").getAsString() : "";
-        if (s == null) {
+        if (s == null && t.equals("takeOver")) {
+            int pid = msg.has("playerId") && msg.get("playerId").isJsonPrimitive() ? msg.get("playerId").getAsInt() : -1;
+            WebEdt.invokeLater(() -> takeOver(ch, pid));
+        } else if (s == null) {
             System.err.println("Ignoring " + t + " outside a match");
         } else if (t.equals("answer")) {
             s.onClientMessage(msg); // completes a blocked ask; never queued behind it on WebEdt
@@ -266,6 +294,98 @@ public final class MatchHost {
             }
         }
         return null;
+    }
+
+    /** A spectator takes over a living AI seat on WebEdt: swaps its controller to human and binds this socket to it. */
+    private void takeOver(ClientChannel ch, int playerId) {
+        HostedMatch match;
+        WebGuiGame watch;
+        Map<String, String[]> faces;
+        String back;
+        synchronized (lock) {
+            if (state != State.PLAYING || ending || spectator == null || !spectator.hasChannel(ch)) {
+                return;
+            }
+            match = currentMatch;
+            watch = spectator;
+            faces = currentFaces;
+            back = returnUrl;
+        }
+        Game game = match == null ? null : match.getGame();
+        if (game == null || game.isGameOver()) {
+            return;
+        }
+        Player target = null;
+        for (Player p : game.getPlayers()) {
+            if (p.getId() == playerId) {
+                target = p;
+                break;
+            }
+        }
+        if (target == null || target.hasLost() || !target.getController().isAI()) {
+            return;
+        }
+        Seat seat = null;
+        WebGuiGame session;
+        synchronized (lock) {
+            if (state != State.PLAYING || !spectator.hasChannel(ch)) {
+                return;
+            }
+            for (Seat s : seats) {
+                if (!s.human && s.name.equals(target.getName())) {
+                    seat = s;
+                    break;
+                }
+            }
+            if (seat == null) {
+                return;
+            }
+            seat.human = true;
+            seat.ticket = HexFormat.of().formatHex(Seat.bytes(16));
+            session = new WebGuiGame(match, watch.facts());
+            session.faces(faces);
+            session.watch(watch);
+            seat.session = session;
+            seat.channel = ch;
+        }
+        watch.onDisconnect(ch);
+        LobbyPlayerHuman lp = new LobbyPlayerHuman(
+                seat.name,
+                target.getLobbyPlayer().getAvatarIndex(),
+                target.getLobbyPlayer().getSleeveIndex());
+        PlayerControllerHuman humanController = new PlayerControllerHuman(game, target, lp);
+        humanController.setGui(session);
+        session.setGameView(match.getGameView());
+        session.setOriginalGameController(target.getView(), humanController);
+        session.openView(new TrackableCollection<>(target.getView()));
+        game.subscribeToEvents(new FControlGameEventHandler(humanController));
+        match.getHumanControllers().add(humanController);
+        target.dangerouslySetController(humanController);
+        JsonObject hello = new JsonObject();
+        hello.addProperty("t", "hello");
+        hello.addProperty("version", 2);
+        hello.addProperty("seat", seat.index);
+        hello.addProperty("who", seat.name);
+        hello.addProperty("ticket", seat.ticket);
+        if (back != null) {
+            hello.addProperty("returnUrl", back);
+        }
+        hello.add("caps", caps());
+        hello.addProperty("inMatch", true);
+        ch.send(hello);
+        session.onConnect(ch);
+        List<WebGuiGame> others = new ArrayList<>();
+        synchronized (lock) {
+            for (Seat s : seats) {
+                if (s.session != null && s.session != session) {
+                    others.add(s.session);
+                }
+            }
+        }
+        for (WebGuiGame o : others) {
+            o.flush();
+        }
+        watch.flush();
     }
 
     // ---------------------------------------------------------------- control API
@@ -356,8 +476,8 @@ public final class MatchHost {
                 throw new Refused(400, "Seat " + (i + 1) + " is neither human nor ai");
             }
             humans += human ? 1 : 0;
-            Opponents.Opponent curated = human ? null : Opponents.byId(str(s, "opponent", ""));
-            if (!human && s.has("opponent") && curated == null) {
+            Opponents.Opponent curated = Opponents.byId(str(s, "opponent", ""));
+            if (s.has("opponent") && curated == null) {
                 throw new Refused(400, "Unknown opponent " + str(s, "opponent", ""));
             }
             Deck deck = gameState != null ? new Deck() : deckFor(s, human, commander, curated, preconsTaken, i);
@@ -393,14 +513,22 @@ public final class MatchHost {
 
         HostedMatch match = new HostedMatch();
         Map<RegisteredPlayer, IGuiGame> guis = new LinkedHashMap<>();
+        WebGuiGame firstSession = null;
         for (int i = 0; i < newSeats.size(); i++) {
             Seat seat = newSeats.get(i);
             if (seat.human) {
                 seat.session = new WebGuiGame(match);
                 seat.session.faces(faces);
                 guis.put(players.get(i), seat.session.gui());
+                if (firstSession == null) {
+                    firstSession = seat.session;
+                }
             }
         }
+        WebGuiGame watchSession = new WebGuiGame(match, firstSession.facts());
+        watchSession.faces(faces);
+        firstSession.watch(watchSession);
+        String watchTok = HexFormat.of().formatHex(Seat.bytes(16));
         String started = id;
         synchronized (lock) {
             matchId = id;
@@ -408,6 +536,10 @@ public final class MatchHost {
             returnUrl = str(spec, "returnUrl", null);
             resultsUrl = str(spec, "resultsUrl", null);
             replayUrl = str(spec, "replayUrl", null);
+            watchTicket = watchTok;
+            spectator = watchSession;
+            currentMatch = match;
+            currentFaces = Map.copyOf(faces);
             startedAt = Instant.now();
             seats = List.copyOf(newSeats);
             result = null;
@@ -456,7 +588,10 @@ public final class MatchHost {
             synchronized (lock) {
                 state = State.IDLE;
                 seats = List.of();
+                spectator = null;
+                currentMatch = null;
             }
+            watchSession.dispose();
             for (Seat s : newSeats) {
                 if (s.session != null) {
                     s.session.dispose();
@@ -467,6 +602,7 @@ public final class MatchHost {
 
         JsonObject o = new JsonObject();
         o.addProperty("matchId", id);
+        o.addProperty("watchTicket", watchTok);
         JsonArray seatsOut = new JsonArray();
         for (Seat s : newSeats) {
             JsonObject j = new JsonObject();
@@ -489,7 +625,7 @@ public final class MatchHost {
         if (curated != null) {
             String id = "cmdr:precon:" + curated.precon();
             preconsTaken.add(id);
-            return Decks.commanderDeck(id, true);
+            return Decks.commanderDeck(id, !human);
         }
         JsonObject d = seat.has("deck") && seat.get("deck").isJsonObject() ? seat.getAsJsonObject("deck") : null;
         if (d == null) {
@@ -536,6 +672,61 @@ public final class MatchHost {
         }
     }
 
+    /** Imports a Commander deck from a Moxfield, Archidekt, TappedOut or MTGGoldfish URL. */
+    static JsonObject importUrl(JsonObject body) {
+        String url = str(body, "url", "").trim();
+        if (url.isEmpty()) {
+            JsonObject err = new JsonObject();
+            err.addProperty("ok", false);
+            err.addProperty("error", "Enter a deck URL");
+            return err;
+        }
+        try {
+            Deck deck = DeckUrlLoader.loadDeck(url);
+            List<PaperCard> cmds = deck.getCommanders();
+            if (cmds == null || cmds.isEmpty()) {
+                JsonObject err = new JsonObject();
+                err.addProperty("ok", false);
+                err.addProperty("error", deck.getName() + " has no commander.");
+                return err;
+            }
+            PaperCard lead = cmds.get(0);
+            var rules = lead.getRules();
+            String manaCost = rules == null || rules.getManaCost() == null || rules.getManaCost().isNoCost()
+                    ? "" : rules.getManaCost().toString();
+            String typeLine = rules == null || rules.getType() == null
+                    ? "" : rules.getType().toString().replace(" - ", " — ");
+            String oracleText = rules == null || rules.getOracleText() == null ? "" : rules.getOracleText();
+            String pt = rules != null && rules.getType() != null && rules.getType().isCreature()
+                    ? rules.getPower() + "/" + rules.getToughness() : "";
+            StringBuilder list = new StringBuilder("Commander\n");
+            for (PaperCard c : cmds) {
+                list.append("1 ").append(c.getName()).append('\n');
+            }
+            list.append("\nDeck\n");
+            for (var e : deck.getMain()) {
+                list.append(e.getValue()).append(' ').append(e.getKey().getName()).append('\n');
+            }
+            JsonObject out = new JsonObject();
+            out.addProperty("ok", true);
+            out.addProperty("name", deck.getName());
+            out.addProperty("commander", lead.getName());
+            out.addProperty("colors", Decks.commanderColors(cmds));
+            out.addProperty("manaCost", manaCost);
+            out.addProperty("typeLine", typeLine);
+            out.addProperty("oracleText", oracleText);
+            out.addProperty("pt", pt);
+            out.addProperty("list", list.toString());
+            out.addProperty("sourceUrl", deck.getSourceUrl() == null ? url : deck.getSourceUrl());
+            return out;
+        } catch (Exception e) {
+            JsonObject err = new JsonObject();
+            err.addProperty("ok", false);
+            err.addProperty("error", e.getMessage() == null ? e.toString() : e.getMessage());
+            return err;
+        }
+    }
+
     /** Ends the match with this id for everyone, at the next moment the game thread is waiting on a player. */
     boolean end(String id) {
         List<WebGuiGame> sessions = new ArrayList<>();
@@ -564,6 +755,9 @@ public final class MatchHost {
                 o.addProperty("matchId", matchId);
                 o.addProperty("format", format);
                 o.addProperty("startedAt", startedAt.toString());
+                if (watchTicket != null) {
+                    o.addProperty("watchTicket", watchTicket);
+                }
                 JsonArray arr = new JsonArray();
                 for (Seat s : seats) {
                     JsonObject j = new JsonObject();
@@ -576,6 +770,9 @@ public final class MatchHost {
                     j.addProperty("deck", s.deckName);
                     if (s.human) {
                         j.addProperty("connected", s.channel != null);
+                        if (state == State.PLAYING && s.ticket != null) {
+                            j.addProperty("ticket", s.ticket);
+                        }
                     }
                     arr.add(j);
                 }
@@ -592,6 +789,7 @@ public final class MatchHost {
      * replayUrl, and free the sessions. */
     private void finished(String id) {
         List<Seat> done;
+        WebGuiGame watch;
         String url;
         String replays;
         JsonObject r;
@@ -600,6 +798,7 @@ public final class MatchHost {
                 return;
             }
             done = seats;
+            watch = spectator;
             WebGuiGame any = done.stream().filter(s -> s.session != null).map(s -> s.session).findFirst().orElse(null);
             r = any == null ? new JsonObject() : any.outcome().deepCopy();
             r.addProperty("matchId", id);
@@ -609,6 +808,7 @@ public final class MatchHost {
             r.addProperty("endedAt", Instant.now().toString());
             result = r;
             state = State.FINISHED;
+            currentMatch = null;
             finishedAt = Instant.now();
             url = resultsUrl;
             replays = replayUrl;
@@ -622,6 +822,9 @@ public final class MatchHost {
             if (s.session != null) {
                 s.session.dispose();
             }
+        }
+        if (watch != null) {
+            watch.dispose();
         }
         if (url != null) {
             JsonObject body = r.deepCopy();

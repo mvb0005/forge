@@ -387,20 +387,24 @@ public final class WebServer {
         return ImageKeys.getImageFile(key);
     }
 
+    static String scryfallUrl(PaperCard pc, String face) {
+        if (pc == null || pc.getRules().isCustom()) {
+            return null;
+        }
+        CardEdition ed = StaticData.instance().getEditions().get(pc.getEdition());
+        if (ed == null) {
+            return null;
+        }
+        return ForgeConstants.URL_PIC_SCRYFALL_DOWNLOAD
+                + ImageUtil.getScryfallDownloadUrl(pc, face, ed.getScryfallCode(), "en", false);
+    }
+
     static synchronized String scryfallUrl(String key) {
         try {
             FaceKey fk = FaceKey.of(key);
             if (fk.key().startsWith(ImageKeys.CARD_PREFIX)) {
                 PaperCard pc = ImageUtil.getPaperCardFromImageKey(fk.key());
-                if (pc == null || pc.getRules().isCustom()) {
-                    return null;
-                }
-                CardEdition ed = StaticData.instance().getEditions().get(pc.getEdition());
-                if (ed == null) {
-                    return null;
-                }
-                return ForgeConstants.URL_PIC_SCRYFALL_DOWNLOAD
-                        + ImageUtil.getScryfallDownloadUrl(pc, fk.face(), ed.getScryfallCode(), "en", false);
+                return scryfallUrl(pc, fk.face());
             }
             if (fk.key().startsWith(ImageKeys.TOKEN_PREFIX)) {
                 String[] parts = fk.key().substring(ImageKeys.TOKEN_PREFIX.length()).split("\\|");

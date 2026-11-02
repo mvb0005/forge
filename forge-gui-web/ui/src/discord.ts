@@ -35,13 +35,17 @@ export function goBack(url: string | null) {
   else if (url) location.href = url
 }
 
-/** Who is talking, from the lobby. */
+/** Who is talking and whether the Activity is minimized, from the lobby. */
 export function listenForVoice() {
   if (!inLobby) return
   window.addEventListener('message', (e) => {
-    if (e.origin !== location.origin || e.source !== window.parent || e.data?.type !== 'forge-speaking') return
-    const ids: unknown = e.data.ids
-    if (Array.isArray(ids)) useForge.setState({ speaking: new Set(ids.map(String)) })
+    if (e.origin !== location.origin || e.source !== window.parent) return
+    if (e.data?.type === 'forge-speaking') {
+      const ids: unknown = e.data.ids
+      if (Array.isArray(ids)) useForge.setState({ speaking: new Set(ids.map(String)) })
+    } else if (e.data?.type === 'forge-layout') {
+      useForge.setState({ pip: !!e.data.pip })
+    }
   })
   window.parent.postMessage({ type: 'forge-hello' }, location.origin)
 }
