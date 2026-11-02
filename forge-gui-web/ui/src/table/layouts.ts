@@ -7,16 +7,17 @@ import type { LayoutFn, LayoutInput, LayoutResult, Placement, Region, TableMode 
 import { STACK, tableFrame, type Frame } from './frame'
 
 // Layout functions per table mode. 'main' and 'combat' share one pass; combat lines attackers up
-// against their blockers and folds the back lanes. With two or more opponents every player, you
-// included, keeps a full-width band on every turn, and the active player's band is the tall one.
+// against their blockers and folds the back lanes. With any opponent every player, you included,
+// keeps a full-width band on every turn, and in a pod the active player's band is the tall one.
 // Lands fold into the land shelf at the right end of their battlefield (invisible anchors there, so
 // they fly in and out) unless one of them can be chosen right now or the player opened them.
 
 const COL_GAP = 8
 
-/** Two or more opponents: every player's battlefield stays up, whoever's turn it is. */
+/** Any opponent: every player's battlefield stays up, whoever's turn it is. A duel uses the same
+ *  seat card as a pod. */
 export function showEveryOpponent(opponents: number) {
-  return opponents >= 2
+  return opponents >= 1
 }
 
 /** Opponents in turn order, or by id when the game has no turn order. */
@@ -166,7 +167,7 @@ function engage(
   const pad = 6
   const gap = 6
   const n = fights.length
-  const spots = Math.max(1, ...fights.map((f) => f.blockers.length)) // room for a blocker even before one is chosen
+  const spots = Math.max(1, ...fights.map((f) => Math.max(f.blockers.length, f.g.ids.some((id) => input.cards[id]?.keywords.includes('menace')) ? 2 : 1)))
   const H = field.h - 2 * pad
   let cols = 1
   while (cols < n && H / Math.ceil(n / cols) < ENGAGE_MIN_H) cols++
@@ -247,7 +248,8 @@ function placeBands(
       }
     }
   }
-  const weight = (id: number) => (incoming.size ? (incoming.has(id) ? 2 : 1) : active != null && id === active ? 2 : 1)
+  const duel = order.length <= 2
+  const weight = (id: number) => (incoming.size ? (incoming.has(id) ? 2 : 1) : duel ? 1 : active != null && id === active ? 2 : 1)
   const inner = frame.top.h - gap * (order.length - 1)
   const sum = order.reduce((n, id) => n + weight(id), 0)
   const rail = frame.act
@@ -401,8 +403,7 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
     })
   }
 
-  // Spells on the stack are drawn by the stack panel under the timeline (right-hand column): on the table
-  // they head off that way and fade.
+  // Spells on the stack are drawn in the dock (right-hand column): on the table they head off that way and fade.
   stack.forEach((item, i) => {
     const id = item.sourceCardId
     if (id == null || cards[id]?.zone !== 'stack') return

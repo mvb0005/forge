@@ -10,12 +10,14 @@ const EDGE: Record<string, string> = { W: '#e8dcb5', U: '#4f86c6', B: '#6b5a7c',
 export function Face({ player: p, colors, size }: { player: PlayerDto; colors: string; size: number }) {
   const talking = useForge((s) => !!p.discordId && s.speaking.has(p.discordId))
   const src = faceUrl(p.discordId ? p.avatarImg : null)
-  const ring = talking ? '0 0 0 2px #3ba55d, 0 0 10px 2px rgb(59 165 93 / .75)' : '0 0 0 1.5px var(--lk-metal-line)'
+  const ring = talking
+    ? 'inset 0 0 0 2.5px #3ba55d, 0 0 0 2px #3ba55d, 0 0 10px 2px rgb(59 165 93 / .75)'
+    : '0 0 0 1.5px var(--lk-metal-line)'
   return (
     <span aria-hidden title={talking ? `${p.name} is talking` : undefined}
       className={talking ? 'face-talking' : undefined}
-      style={{ width: size, height: size, borderRadius: 99, flex: 'none', overflow: 'hidden', boxShadow: ring, background: '#14100c', display: 'inline-flex', transition: 'box-shadow 120ms' }}>
-      {src ? <img src={src} alt="" width={size} height={size} style={{ width: size, height: size, objectFit: 'cover' }} draggable={false} /> : <Sigil colors={colors} size={size} ai={p.isAI} />}
+      style={{ width: size, height: size, borderRadius: 99, flex: 'none', overflow: 'visible', boxShadow: ring, background: '#14100c', display: 'inline-flex', transition: 'box-shadow 120ms' }}>
+      {src ? <img src={src} alt="" width={size} height={size} style={{ width: size, height: size, objectFit: 'cover', borderRadius: 99 }} draggable={false} /> : <Sigil colors={colors} size={size} ai={p.isAI} />}
     </span>
   )
 }

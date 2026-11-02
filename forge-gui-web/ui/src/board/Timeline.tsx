@@ -59,7 +59,7 @@ function CardRef({ id, name }: { id: number; name: string }) {
   const peek = usePeek({ kind: 'card', id })
   if (!known) return <>{name}</>
   return (
-    <span {...peek} data-entity={`card:${id}`} style={{ color: 'var(--lk-parchment)', textDecoration: 'underline', textDecorationColor: 'var(--lk-metal-line)', textUnderlineOffset: 2, cursor: 'help' }}>
+    <span {...peek} style={{ color: 'var(--lk-parchment)', textDecoration: 'underline', textDecorationColor: 'var(--lk-metal-line)', textUnderlineOffset: 2, cursor: 'help' }}>
       {name}
     </span>
   )
