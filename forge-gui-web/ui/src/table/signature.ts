@@ -37,7 +37,7 @@ function compute(s: ForgeState, meId: number | null, focusId: number | null) {
   const active = every ? s.game?.activePlayerId ?? null : null
   // Every band is drawn. The active player is named so their taller band rebuilds the table.
   const mark = every ? `all:${opps.join(',')}:${active ?? '-'}` : String(focusId)
-  const out: string[] = [tableMode(s.combat, s.game?.phase), String(meId), mark, String(Object.keys(s.players).length)]
+  const out: string[] = [tableMode(s.combat, s.game?.phase), String(meId), mark, String(Object.keys(s.players).length), s.game?.localPlayerIds.join(',') ?? '']
   const field = (p: PlayerDto | undefined) => {
     if (!p) return
     // Group partition: each card names the lowest id sharing its group key (cards are visited in

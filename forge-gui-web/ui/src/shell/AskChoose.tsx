@@ -204,6 +204,8 @@ function ChooseList({ ask }: { ask: AskOf<'choose'> }) {
   const tileW = withCard.length > 8 ? 132 : 158
   const full = !single && sel.length >= max
   const rule = min === max ? `choose ${max}` : max >= ask.items.length && min === 0 ? 'any number' : `${min}–${max}`
+  const discarding = /discard/i.test(`${ask.title} ${ask.message}`)
+  const discardingNames = sel.map((i) => cardOf(ask.items.find((it) => it.i === i)!)?.name).filter((n): n is string => !!n)
 
   return (
     <Frame
@@ -226,6 +228,11 @@ function ChooseList({ ask }: { ask: AskOf<'choose'> }) {
         {!single && <Btn variant="primary" disabled={!ok} onClick={submit}>Confirm</Btn>}
       </>}
     >
+      {discarding && (
+        <div className="mb-3 rounded-lg px-3 py-2 font-title text-lg font-bold" style={{ color: 'var(--lk-parchment)', background: 'rgb(196 83 47 / .18)', boxShadow: 'inset 0 0 0 1.5px var(--lk-ember)' }}>
+          {discardingNames.length ? `Discarding ${discardingNames.join(', ')}` : 'Choose what to discard'}
+        </div>
+      )}
       {withCard.length > 0 && (
         <div className="grid justify-center gap-3 p-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, ${tileW}px)` }}>
           {withCard.map((it) => {

@@ -72,9 +72,14 @@ describe('table layouts', () => {
       const { placements, regions } = run(i)
       const id = i.players[i.meId].commanders![0].cardId
       const p = placements.get(id)!
+      const slot = regions[`command:${id}`]
       expect(p.kind).toBe('command')
-      expect(regions[`command:${id}`]).toMatchObject({ x: p.x, y: p.y, w: p.w })
-      for (const h of i.players[i.meId].zones.hand) expect(placements.get(h)!.x, `hand card ${h}`).toBeGreaterThanOrEqual(p.x + p.w)
+      expect(slot).toMatchObject({ x: p.x, y: p.y, w: p.w })
+      for (const h of i.players[i.meId].zones.hand) {
+        const hand = placements.get(h)!
+        const clear = hand.x >= p.x + p.w || hand.x + hand.w <= slot.x || hand.y >= slot.y + slot.h
+        expect(clear, `hand card ${h} clear of the commander`).toBe(true)
+      }
     })
 
     it(`gives every player's commander a slot at the left of their battlefield, clear of its cards (${players} players)`, () => {
@@ -87,15 +92,25 @@ describe('table layouts', () => {
       }
       const i = input(s, { combat: players === 2 ? null : undefined })
       const { placements, regions } = run(i)
+      const fanout = Object.keys(i.players).length > 2
       const xs = new Set<number>()
       for (const p of Object.values(i.players)) {
         for (const c of p.commanders ?? []) {
           const slot = regions[`command:${c.cardId}`]
           expect(slot, `slot for ${p.name}`).toBeDefined()
           xs.add(Math.round(slot.x))
+          const border = regions[`border:${p.id}`]
+          if (fanout) {
+            expect(slot.x, `${p.name}'s commander`).toBeGreaterThanOrEqual(border.x - 1)
+            expect(slot.x + slot.w).toBeLessThanOrEqual(border.x + border.w + 1)
+            expect(slot.y).toBeGreaterThanOrEqual(border.y - 1)
+            expect(slot.y + slot.h).toBeLessThanOrEqual(border.y + border.h + 1)
+          }
           for (const id of p.zones.battlefield) {
             const at = placements.get(id)
-            if (at?.kind === 'field' && id !== c.cardId) expect(at.x, `${p.name}'s card ${id}`).toBeGreaterThanOrEqual(slot.x + slot.w)
+            if (at?.kind !== 'field' || id === c.cardId) continue
+            if (fanout) expect(at.x + at.w, `${p.name}'s card ${id}`).toBeLessThanOrEqual(border.x + 1)
+            else expect(at.x, `${p.name}'s card ${id}`).toBeGreaterThanOrEqual(slot.x + slot.w)
           }
         }
       }
@@ -249,13 +264,21 @@ describe('table layouts', () => {
     const s = fixture('four')
     for (const h of [600, 680, 768, 900]) {
       for (const active of [1, 2, 3, 4]) {
-        const out = run(input(s, { viewport: { w: 1366, h }, game: { ...s.game!, activePlayerId: active } }))
-        const seats = [1, 2, 3, 4].map((id) => out.regions[`seat:${id}`])
+        const lay = input(s, { viewport: { w: 1366, h }, game: { ...s.game!, activePlayerId: active } })
+        const out = run(lay)
+        const ids = [1, 2, 3, 4]
+        const seats = ids.map((id) => out.regions[`seat:${id}`])
         const act = out.regions.act
-        for (let i = 0; i < seats.length; i++) {
-          for (let j = i + 1; j < seats.length; j++) expect(overlaps(seats[i], seats[j]), `h ${h}, active ${active}: seats ${i + 1} and ${j + 1}`).toBe(false)
-          expect(overlaps(seats[i], act), `h ${h}, active ${active}: seat ${i + 1} and the panel`).toBe(false)
-        }
+        ids.forEach((id, n) => {
+          for (let j = n + 1; j < seats.length; j++) expect(overlaps(seats[n], seats[j]), `h ${h}, active ${active}: seats ${id} and ${ids[j]}`).toBe(false)
+          if (id === lay.meId) {
+            expect(seats[n].y, `your seat starts above the buttons`).toBeLessThanOrEqual(act.y + 1)
+            expect(seats[n].y + seats[n].h, `your seat reaches the bottom`).toBeCloseTo(h)
+            expect(seats[n].y + seats[n].h, `your seat holds the buttons`).toBeGreaterThanOrEqual(act.y + act.h - 1)
+          } else {
+            expect(overlaps(seats[n], act), `h ${h}, active ${active}: seat ${id} and the panel`).toBe(false)
+          }
+        })
       }
     }
   })
@@ -277,12 +300,22 @@ describe('table layouts', () => {
     expect(mine.regions['half:4'].y).toBeLessThan(mine.regions['half:1'].y)
     expect(mine.regions['half:1'].h).toBeGreaterThan(mine.regions['half:2'].h * 1.5)
     expect(mine.regions['half:2'].h).toBeCloseTo(mine.regions['half:4'].h)
-    // Every player's border is the left gutter of their own band, clear of the battlefield.
+    // Every player's border is the right end of their own band, clear of the battlefield.
+    // Yours continues to the bottom of the screen so the buttons sit inside it.
+    const me = input(s, { game: { ...s.game!, activePlayerId: 1, priorityPlayerId: 1 }, focusId: 2 }).meId
     for (const id of [1, 2, 3, 4]) {
       const border = mine.regions[`border:${id}`]
-      expect(border.x + border.w).toBeLessThanOrEqual(mine.regions[`field:${id}`].x)
-      expect(border.y).toBeCloseTo(mine.regions[`half:${id}`].y)
-      expect(border.h).toBeCloseTo(mine.regions[`half:${id}`].h)
+      const field = mine.regions[`field:${id}`]
+      const half = mine.regions[`half:${id}`]
+      expect(border.x).toBeGreaterThanOrEqual(field.x + field.w - 1)
+      expect(border.y).toBeCloseTo(half.y)
+      if (id === me) {
+        expect(border.h).toBeGreaterThan(half.h)
+        expect(border.y + border.h).toBeGreaterThanOrEqual(mine.regions.act.y + mine.regions.act.h - 1)
+      } else {
+        expect(border.h).toBeCloseTo(half.h)
+        expect(border.y + border.h).toBeLessThanOrEqual(mine.regions.act.y + 1)
+      }
     }
     const seen = covered(mine.placements)
     for (const pid of [1, 2, 3, 4]) for (const id of s.players![pid].zones.battlefield) expect(seen.get(id), `card ${id}`).toBe(1)
@@ -330,11 +363,11 @@ describe('table layouts', () => {
     expect(sx(at(atraxa.id), lay.regions['field:2'])).toBe(true)
     // The blocker stands between the attacker and the player it attacks: same row, nearer the border.
     expect(at(atraxa.id).y).toBeCloseTo(at(spirit.id).y)
-    expect(at(atraxa.id).x).toBeLessThan(at(spirit.id).x)
-    expect(at(atraxa.id).x).toBeGreaterThanOrEqual(lay.regions['border:2'].x + lay.regions['border:2'].w)
+    expect(at(atraxa.id).x).toBeGreaterThan(at(spirit.id).x)
+    expect(at(atraxa.id).x + at(atraxa.id).w).toBeLessThanOrEqual(lay.regions['border:2'].x + 1)
     expect(lay.regions['engage:2']).toBeTruthy()
     // An unblocked attacker leaves a blocker's spot free between it and the player.
-    expect(at(knight.id).x).toBeGreaterThan(lay.regions['field:4'].x + at(knight.id).w)
+    expect(at(knight.id).x + at(knight.id).w * 2).toBeLessThanOrEqual(lay.regions['field:4'].x + lay.regions['field:4'].w + 1)
     expect(lay.regions['half:2'].h).toBeGreaterThan(lay.regions['half:1'].h * 1.5)
     expect(lay.placements.get(urza.id)?.kind).toBe('field')
     const home = Object.values(base.cards).filter((c) => c.name === 'Knight Ally' && c.id !== knight.id)

@@ -28,6 +28,7 @@ export type ForgeState = {
   gameOver: { winner: string | null; summary: string } | null
   respondBy: number | null // Date.now() ms when the server passes priority for you, if it's timing you
   speaking: Set<string> // Discord user ids talking in the Activity's voice channel now (discord.ts)
+  pip: boolean // Discord Activity is minimized into Picture-in-Picture
   setConnected: (c: boolean) => void
   dismissNotice: (id: number) => void
   clearReveal: () => void
@@ -100,6 +101,7 @@ export const useForge = create<ForgeState>()((set) => ({
   gameOver: null,
   respondBy: null,
   speaking: new Set(),
+  pip: false,
   setConnected: (connected) => set({ connected }),
   dismissNotice: (id) => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })),
   clearReveal: () => set({ reveal: null }),

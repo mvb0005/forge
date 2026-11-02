@@ -64,7 +64,7 @@ export function GameOverModal() {
   }, [over, back, left])
   if (!over) return null
   const won = over.winner != null && local.some((id) => players[id]?.name === over.winner)
-  const headline = over.winner == null ? 'Draw' : won ? 'Victory' : 'Defeat'
+  const headline = over.winner == null ? 'Draw' : local.length === 0 ? 'Game over' : won ? 'Victory' : 'Defeat'
   return (
     <div className="shell-fade fixed inset-0 z-50 grid place-items-center bg-table/70 p-6 backdrop-blur-sm">
       <div className="shell-in w-full max-w-md lk-plate rounded-2xl p-8 text-center">

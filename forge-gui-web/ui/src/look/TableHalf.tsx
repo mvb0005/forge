@@ -34,7 +34,6 @@ export function TableMat({ mat = 'identity', metal = 'gold', halves, style, chil
       {halves}
       <div style={{ ...fill, background: 'var(--lk-mat-vignette)' }} />
       {children}
-      <div style={{ ...fill, borderRadius: 18, boxShadow: 'inset 0 0 0 10px var(--lk-ink), inset 0 0 0 11px var(--lk-mat-rim)' }} />
     </div>
   )
 }

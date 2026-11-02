@@ -141,7 +141,7 @@ export type Ask = { t: 'ask'; id: number } & (
 )
 
 export type ServerMessage =
-  | { t: 'hello'; version: number; caps?: string[]; inMatch: boolean; seat?: number; who?: string; returnUrl?: string }
+  | { t: 'hello'; version: number; caps?: string[]; inMatch: boolean; seat?: number; who?: string; ticket?: string; returnUrl?: string }
   // The match this seat belonged to is over (connected after it ended).
   | { t: 'ended'; summary?: string }
   | {
@@ -177,3 +177,4 @@ export type ClientMessage =
   | { t: 'concede' }
   | { t: 'alphaStrike' }
   | { t: 'reorderHand'; cardId: number; index: number }
+  | { t: 'takeOver'; playerId: number }

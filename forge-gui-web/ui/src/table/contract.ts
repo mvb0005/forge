@@ -25,6 +25,7 @@ export type Placement = {
   edge?: 'top' | 'bottom' // battlefield side: which edge faces the centre line
   faceId?: number // card drawn on the element when it isn't the keyed card (mixed land piles)
   label?: string // small centred caption ("2 tapped")
+  tag?: string // a banner on the card: who it is attacking, or that it still needs a player
   more?: number // attachments not drawn (+N on the last one shown)
   pile?: boolean // land pile with several kinds of copies: hovering opens it
 }

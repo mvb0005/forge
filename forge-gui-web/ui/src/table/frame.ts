@@ -49,8 +49,8 @@ export type Frame = {
 export function tableFrame(view: { w: number; h: number }, strips: boolean, stackLen: number, _combat = false, fanout = false): Frame {
   const sideW = clamp(view.w * 0.15, 220, 300)
   const leftW = Math.max(400, view.w - sideW)
-  // With every player in a band, the left gutter is each band's player border: plaque and command zone.
-  const seatW = fanout ? clamp(view.w * 0.15, 210, 260) : clamp(view.w * 0.1, 150, 210)
+  // A duel keeps a seat gutter on the left. With every player in a band, that gutter is gone: the seat, its commander and the buttons are the right column.
+  const seatW = fanout ? 0 : clamp(view.w * 0.1, 150, 210)
   const actW = clamp(view.w * 0.14, 220, 300)
   const handH = clamp(view.h * 0.15, 100, 168)
   const x0 = EDGE
@@ -75,12 +75,12 @@ export function tableFrame(view: { w: number; h: number }, strips: boolean, stac
   const sh = stackHeight(stackLen)
   if (fanout) {
     // Every player, including you, is a full-width band from the top rim down to the hand.
-    // placeBands divides this board and makes the active player's band taller.
+    // Seat profiles share the column on the right. Your seat keeps going to the bottom edge, and the buttons sit inside it.
     const hand = { x: feltX, y: view.h - EDGE - handH, w: feltW, h: handH }
     const boardTop = EDGE
     const boardH = Math.max(160, hand.y - GAP - boardTop)
     const board = { x: feltX, y: boardTop, w: feltW, h: boardH }
-    const act = { x: actX, y: hand.y - GAP - ACT_H, w: actW, h: ACT_H }
+    const act = { x: actX, y: hand.y, w: actW, h: handH }
     return {
       side: { x: leftW, y: 0, w: view.w - leftW, h: view.h },
       strips: null,

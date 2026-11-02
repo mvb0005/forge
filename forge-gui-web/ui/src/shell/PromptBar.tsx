@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { goBack, inLobby } from '../discord'
 import { send } from '../net'
 import { useBoardUi } from '../board/uiStore'
 import { stepWords } from '../look/phase'
@@ -137,6 +138,8 @@ export function PromptBar() {
   const root = useRef<HTMLDivElement>(null)
   const ok = buttons?.ok
   const cancel = buttons?.cancel
+  const spectating = useForge((s) => !!s.game && s.game.localPlayerIds.length === 0)
+  const backUrl = useForge((s) => s.returnUrl)
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -169,6 +172,21 @@ export function PromptBar() {
 
   const showOk = ok && (ok.enabled || ok.label)
   const showCancel = cancel && (cancel.enabled || cancel.label)
+
+  if (spectating && (backUrl || inLobby)) {
+    return (
+      <div className="lk-text" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 6, width: '100%', height: '100%' }}>
+        <div className="lk-label" style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--lk-parchment-mute)', textAlign: 'center' }}>Spectating</div>
+        <a
+          href={backUrl ?? undefined}
+          onClick={(e) => { if (inLobby) { e.preventDefault(); goBack(backUrl) } }}
+          style={{ ...plateButton(false), textDecoration: 'none' }}
+        >
+          {inLobby ? 'Back to the lobby' : 'Back to the tracker'}
+        </a>
+      </div>
+    )
+  }
 
   // Both slots stay, so OK does not jump when End Turn appears or combat opens.
   return (

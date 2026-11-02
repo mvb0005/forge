@@ -16,10 +16,22 @@ const NO_SEAT = 4004
  * The seat ticket the tracker put on the link (?ticket=). Kept for this tab and this table's path
  * (/play/table/<match id>/) so a refresh keeps the seat, and taken off the address bar so it isn't shared by accident.
  */
+function ticketKey() {
+  return `forge.ticket:${location.pathname.replace(/[^/]*$/, '')}`
+}
+
+function saveTicket(ticket: string) {
+  try {
+    sessionStorage.setItem(ticketKey(), ticket)
+  } catch {
+    // sessionStorage unavailable
+  }
+}
+
 function seatTicket() {
   const url = new URL(location.href)
   const fromUrl = url.searchParams.get('ticket')
-  const key = `forge.ticket:${url.pathname.replace(/[^/]*$/, '')}`
+  const key = ticketKey()
   try {
     if (fromUrl) {
       sessionStorage.setItem(key, fromUrl)
@@ -46,7 +58,7 @@ function useConnection() {
     // Once the match is over, a closed socket is the table closing (a table pod exits after its game), not a blip.
     let over = false
     const { apply, setConnected, clearAsk } = useForge.getState()
-    const ticket = seatTicket()
+    let ticket = seatTicket()
 
     const connect = () => {
       if (disposed) return
@@ -73,6 +85,10 @@ function useConnection() {
         } catch {
           console.warn('bad frame', e.data)
           return
+        }
+        if (m.t === 'hello' && m.ticket) {
+          ticket = m.ticket
+          saveTicket(m.ticket)
         }
         if (m.t === 'gameOver' || m.t === 'ended') over = true
         try {
