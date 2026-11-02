@@ -1,0 +1,15 @@
+turn=3
+activeplayer=p0
+activephase=MAIN1
+p0life=20
+p0hand=Shock;Shock;Shock;Shock
+p0library=Mountain;Mountain;Mountain
+p0battlefield=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+p1life=20
+p1hand=
+p1library=Island;Island;Island
+p1battlefield=Island
+p2life=20
+p2hand=Shock
+p2library=Mountain;Mountain;Mountain
+p2battlefield=Mountain;Mountain

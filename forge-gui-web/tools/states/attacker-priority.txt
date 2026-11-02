@@ -1,0 +1,11 @@
+turn=3
+activeplayer=p0
+activephase=COMBAT_DECLARE_BLOCKERS
+p0life=20
+p0hand=Giant Growth
+p0library=Forest;Forest;Forest
+p0battlefield=Grizzly Bears|Attacking;Forest;Forest
+p1life=20
+p1hand=
+p1library=Island;Island;Island
+p1battlefield=Hill Giant;Island
