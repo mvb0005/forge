@@ -43,6 +43,13 @@ public final class DeckUrlLoader {
         return new DeckProxy(deck, localizer.getMessage("lblUrlDeck"), GameType.Constructed, storage);
     }
 
+    public static Deck loadDeck(final String deckUrl) throws IOException {
+        final String normalizedUrl = normalizeUrl(deckUrl);
+        final DeckUrlProvider provider = getProvider(normalizedUrl);
+        final DeckUrlProvider.RemoteDeck remoteDeck = provider.load(normalizedUrl, List.of());
+        return importDeck(remoteDeck);
+    }
+
     public static String loadImportText(final String deckUrl) throws IOException {
         final String normalizedUrl = normalizeUrl(deckUrl);
         final DeckUrlProvider provider = getProvider(normalizedUrl);
