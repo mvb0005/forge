@@ -154,12 +154,15 @@ export type ServerMessage =
   | { t: 'selectables'; cardIds: number[]; playerIds?: number[]; min: number; max: number }
   | { t: 'highlight'; entities: EntityRef[]; on: boolean }
   | { t: 'playable'; cardIds: number[] }
-  | { t: 'notice'; level: 'info' | 'error' | 'flash'; title: string; message: string }
+  // stackId: a stack item the notice is about (a pass ahead cancelled by it), to point at.
+  | { t: 'notice'; level: 'info' | 'error' | 'flash'; title: string; message: string; stackId?: number }
   | { t: 'reveal'; title: string; cardIds: number[] }
   | Ask
   | { t: 'gameOver'; winner: string | null; summary: string }
   // The server passes priority for you in `seconds` unless you act (null: no timer). Cap timer.respond.
   | { t: 'timer'; seconds: number | null }
+  // Passing ahead: while someone else has priority, whether you may pass now for `round` (open) and have (passed).
+  | { t: 'ahead'; round: number; open: boolean; passed: boolean }
   | AssistMessage
   | { t: 'error'; message: string }
 
@@ -170,6 +173,8 @@ export type ClientMessage =
   | { t: 'selectPlayer'; playerId: number; shift: boolean; button: number }
   | { t: 'ok' }
   | { t: 'moreTime' } // "In response": 20 more seconds on the respond timer
+  | { t: 'passAhead'; round: number } // pass now for the round you were shown; refused once it's over
+  | { t: 'unpassAhead' }
   | { t: 'cancel' }
   | { t: 'answer'; id: number; value: unknown }
   | { t: 'useMana'; color: ManaColor }

@@ -4,6 +4,7 @@ import { send } from '../net'
 import { useBoardUi } from '../board/uiStore'
 import { stepWords } from '../look/phase'
 import { MoreTime } from '../board/Callouts'
+import { PassAhead } from './PassAhead'
 import { usePrompt, useRespondCountdown } from '../board/situation'
 import { useForge } from '../store'
 
@@ -152,6 +153,7 @@ export function PromptBar() {
   return (
     <div ref={root} key={shake} className={`lk-text ${shake ? 'shell-shake' : ''}`} style={{ position: 'relative', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 8, width: '100%', height: '100%' }}>
       {settling && <span key={change} aria-hidden className="settle-bar" style={{ position: 'absolute', left: 0, right: 0, top: -6, height: 2, borderRadius: 1, background: 'var(--lk-gold)', transformOrigin: 'left', animation: `settle ${SETTLE_MS}ms linear forwards` }} />}
+      <PassAhead />
       {showCancel ? (
         <button type="button" disabled={!cancel.enabled} onClick={() => settled() && send({ t: 'cancel' })} style={{ ...plateButton(false), opacity: cancel.enabled ? (settling ? 0.6 : 1) : 0.4, cursor: cancel.enabled ? 'pointer' : 'default' }}>
           {cancel.label || 'Cancel'}

@@ -317,8 +317,10 @@ the engine wants emphasised. `on:false` removes those entities from the highligh
 (Forge's "weakly selectable"). Empty clears.
 
 ### `notice`
-`{ t:"notice", level:"info"|"error"|"flash", title:string, message:string }`: non-blocking.
-`flash` = the player clicked something invalid.
+`{ t:"notice", level:"info"|"error"|"flash", title:string, message:string, stackId?:number }`: non-blocking.
+`flash` = the player clicked something invalid. `stackId`: the stack item the notice is about; the client points
+at it (as hovering it would). A cancelled pass ahead is `title:"Pass cancelled"`, `message:"Your pass was cancelled:
+Ann cast Shock. Respond again?"` with the new item's `stackId` (or "Ann played Mountain", no `stackId`).
 
 ### `reveal`
 `{ t:"reveal", title:string, cardIds:number[] }`: non-blocking. Show these cards (revealed
@@ -361,10 +363,21 @@ Notes:
 `{ t:"timer", seconds:number|null }`: you hold priority while responding (someone else's turn, or anything on the
 stack), and the server passes it for you in `seconds` unless you act first (`--respond-seconds`, default 10; 0 turns
 it off). `null`: no timer now. Every prompt ends the last timer, and only a priority prompt while responding starts
-one; your own turn's priority with an empty stack, and every other decision (targets, attackers, blockers, choices),
-is never timed. `{ t:"moreTime" }` from the client ("In response") adds 20 seconds to a running timer and the server
+one; your own turn's priority with an empty stack, priority in the declare attackers, declare blockers and first
+strike damage steps, and every other decision (targets, attackers, blockers, choices), is never timed. `{ t:"moreTime" }` from the client ("In response") adds 20 seconds to a running timer and the server
 sends the new `timer`; with no timer running it does nothing. When you have nothing you could do, the engine passes priority without asking at all (Forge's
 "auto-pass when no actions", on for every seat).
+
+### `ahead`
+`{ t:"ahead", round:number, open:boolean, passed:boolean }`: passing ahead (M12.1). Priority goes around one player at
+a time; while someone else has it, `open` says you are still to be asked this round, so you may pass now with
+`{ t:"passAhead", round }` (the `round` you were sent). Your pass is used the moment priority reaches you: you aren't
+prompted or timed. It counts only while the game is as it was: any action (a cast, an ability, a land), something new
+on the stack, a resolve or a new step starts a new `round`, and a pass for an old round is refused (a `flash` notice).
+If someone acted, you get a "Pass cancelled" `notice` naming what they did. `passed`: you have passed ahead this
+round; `{ t:"unpassAhead" }` takes it back. Offered only where priority would ask you (the stack isn't empty, or the
+step is one of your stops); waiting never runs your clock, the `timer` starts when priority reaches you. Sent only to
+your own seat, when it changes; nothing about other seats' passes is ever sent.
 
 ### `assist`
 Help computed by the engine; the UI only displays it and never computes rules itself.
@@ -441,6 +454,7 @@ permanents changed), so during most of an AI turn it shows the board at your las
 | `{t:"selectCard", cardId:number, others?:number[], shift:boolean, button:number}` | click on a card (button 1 left, 3 right). `others`: more cards picked with it, e.g. the rest of a group of identical tokens (IGameController.selectCard otherCardViewsToSelect) |
 | `{t:"selectPlayer", playerId:number, shift:boolean, button:number}` | click on a player |
 | `{t:"ok"}` / `{t:"cancel"}` | the two prompt buttons |
+| `{t:"passAhead", round:number}` / `{t:"unpassAhead"}` | pass now for the `ahead` round you were sent, or take it back |
 | `{t:"answer", id:number, value:any}` | reply to `ask` |
 | `{t:"useMana", color:"W"\|"U"\|"B"\|"R"\|"G"\|"C"}` | spend floating mana |
 | `{t:"undo"}` / `{t:"concede"}` / `{t:"alphaStrike"}` | |

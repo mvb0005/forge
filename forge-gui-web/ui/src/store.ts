@@ -24,9 +24,10 @@ export type ForgeState = {
   playable: Set<number>
   ask: Ask | null
   reveal: { title: string; cardIds: number[] } | null
-  notices: { id: number; level: 'info' | 'error' | 'flash'; title: string; message: string }[]
+  notices: { id: number; level: 'info' | 'error' | 'flash'; title: string; message: string; stackId?: number }[]
   gameOver: { winner: string | null; summary: string } | null
   respondBy: number | null // Date.now() ms when the server passes priority for you, if it's timing you
+  ahead: { round: number; open: boolean; passed: boolean } | null // passing ahead while you wait (PassAhead)
   speaking: Set<string> // Discord user ids talking in the Activity's voice channel now (discord.ts)
   pip: boolean // Discord Activity is minimized into Picture-in-Picture
   setConnected: (c: boolean) => void
@@ -100,6 +101,7 @@ export const useForge = create<ForgeState>()((set) => ({
   notices: [],
   gameOver: null,
   respondBy: null,
+  ahead: null,
   speaking: new Set(),
   pip: false,
   setConnected: (connected) => set({ connected }),
@@ -111,7 +113,7 @@ export const useForge = create<ForgeState>()((set) => ({
     set((s): Partial<ForgeState> => {
       switch (m.t) {
         case 'hello':
-          return { inMatch: m.inMatch, caps: m.caps ?? [], who: m.who ?? null, returnUrl: m.returnUrl ?? null, ended: null, respondBy: null }
+          return { inMatch: m.inMatch, caps: m.caps ?? [], who: m.who ?? null, returnUrl: m.returnUrl ?? null, ended: null, respondBy: null, ahead: null }
         case 'ended':
           return { inMatch: false, ended: { summary: m.summary ?? null } }
         case 'state': {
@@ -153,7 +155,7 @@ export const useForge = create<ForgeState>()((set) => ({
         case 'playable':
           return { playable: new Set(m.cardIds) }
         case 'notice':
-          return { notices: [...s.notices, { id: ++noticeSeq, level: m.level, title: m.title, message: m.message }] }
+          return { notices: [...s.notices, { id: ++noticeSeq, level: m.level, title: m.title, message: m.message, stackId: m.stackId }] }
         case 'reveal':
           return { reveal: { title: m.title, cardIds: m.cardIds } }
         case 'ask':
@@ -161,9 +163,11 @@ export const useForge = create<ForgeState>()((set) => ({
         case 'assist':
           return applyAssist(m)
         case 'gameOver':
-          return { gameOver: { winner: m.winner, summary: m.summary }, respondBy: null }
+          return { gameOver: { winner: m.winner, summary: m.summary }, respondBy: null, ahead: null }
         case 'timer':
           return { respondBy: m.seconds == null ? null : Date.now() + m.seconds * 1000 }
+        case 'ahead':
+          return { ahead: { round: m.round, open: m.open, passed: m.passed } }
         case 'error':
           return { notices: [...s.notices, { id: ++noticeSeq, level: 'error', title: 'Error', message: m.message }] }
         default:
