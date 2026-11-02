@@ -45,8 +45,9 @@ JSON in and out. Errors are `{ error: string }`, written for the people at the t
 | `GET /healthz` | `{ok:true}`, no secret needed |
 | `GET /opponents` | `{opponents: CuratedOpponent[]}`: the curated Commander roster, `{id, commander, archetype, plan, deck, colors, profile}`. `deck` is the precon's name, `profile` the Forge AI profile it plays with |
 | `POST /decks/check` | body `{name, list}` (a decklist export). `{ok:true}`, or `{ok:false, error}` naming unknown cards or a missing commander. Starts nothing |
-| `POST /match` | starts a match from a spec (below). 201 `{matchId, seats:[{index, kind, name, person?, ticket?}]}`; every human seat has a ticket, valid as soon as this returns. 409 while a match is playing (one table per server), or with `--one-match` once this server's match is over. 400 for a bad spec or deck |
-| `GET /match` | `{state:"idle"\|"playing"\|"finished", matchId?, format?, startedAt?, seats?:[{index, kind, name, person?, deck, connected?}], result?}`. `result` is the last match's, kept until the next `POST /match` |
+| `POST /decks/import-url` | body `{url}` (Moxfield, Archidekt, TappedOut or MTGGoldfish). `{ok:true, name, commander, colors, manaCost, typeLine, oracleText, pt, list, sourceUrl}`, or `{ok:false, error}` |
+| `POST /match` | starts a match from a spec (below). 201 `{matchId, watchTicket, seats:[{index, kind, name, person?, ticket?}]}`; every human seat has a ticket and `watchTicket` admits spectators, valid as soon as this returns. 409 while a match is playing (one table per server), or with `--one-match` once this server's match is over. 400 for a bad spec or deck |
+| `GET /match` | `{state:"idle"\|"playing"\|"finished", matchId?, format?, startedAt?, watchTicket?, seats?:[{index, kind, name, person?, deck, connected?}], result?}`. `result` is the last match's, kept until the next `POST /match` |
 | `DELETE /match/{matchId}` | ends that match for everyone: every human concedes and the game is over. 202, or 404 when that id isn't playing. The result's `status` is `"ended"` |
 
 ```ts
@@ -111,9 +112,9 @@ players' hands stay hidden. A server that dies before the match ends sends no re
 
 ### `hello`
 `{ t:"hello", version:2, caps:string[], inMatch:boolean, seat:number, who:string, returnUrl?:string }`, sent on
-every accepted connect. `seat` is this ticket's seat index and `who` its name. One socket per seat: the same
-ticket connecting again replaces the previous socket (closed with 4001). A connect with no ticket, or one that
-isn't a seat at the match here, or at a `<matchId>/` path for a match that isn't running here, is closed with 4004. If `inMatch`, a full `state` follows, then the current
+every accepted connect. `seat` is this ticket's seat index (`-1` for a spectator connected with `watchTicket`) and `who` its name. One socket per human seat: the same
+seat ticket connecting again replaces the previous socket (closed with 4001), while any number of spectators may connect with `watchTicket`. A connect with no ticket, or one that
+isn't a seat or spectator at the match here, or at a `<matchId>/` path for a match that isn't running here, is closed with 4004. If `inMatch`, a full `state` follows, then for a seat the current
 prompt/buttons/selectables/ask and every current `assist`. When the seat's match has already ended, `ended`
 follows instead.
 
@@ -444,6 +445,7 @@ permanents changed), so during most of an AI turn it shows the board at your las
 | `{t:"useMana", color:"W"\|"U"\|"B"\|"R"\|"G"\|"C"}` | spend floating mana |
 | `{t:"undo"}` / `{t:"concede"}` / `{t:"alphaStrike"}` | |
 | `{t:"reorderHand", cardId:number, index:number}` | |
+| `{t:"takeOver", playerId:number}` | spectator only: takes over a living AI seat (`playerId`), receives a new `hello` (with `seat`, `who`, `ticket`) and full `state` for that seat |
 
 Every message is handled by the seat's `WebGameSession.onClientMessage` on WebEdt (`answer` directly).
 

@@ -111,7 +111,8 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
 
     // everything below that is not volatile is guarded by io, which also orders every outgoing message
     private final Object io = new Object();
-    private ClientChannel channel;
+    private final Set<ClientChannel> channels = ConcurrentHashMap.newKeySet();
+    private WebGuiGame spectator;
     /** This seat's replay, if the match records one: everything sent, connected or not. */
     private Recorder recorder;
     private boolean capturing;
@@ -151,7 +152,7 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     private int askSeq;
 
     private final Assists assists = Assists.standard();
-    private final BoardFacts facts = new BoardFacts();
+    private final BoardFacts facts;
     // latches of the game threads waiting in awaitInput for the human. Usually one; paying mana can nest a second
     // (InputPayMana runs the mana ability on another game-pool thread, which may ask again). WebEdt owns the game
     // while every one of them is waiting.
@@ -183,7 +184,35 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     }
 
     public WebGuiGame(HostedMatch match) {
+        this(match, new BoardFacts());
+    }
+
+    WebGuiGame(HostedMatch match, BoardFacts facts) {
         this.match = match;
+        this.facts = facts;
+    }
+
+    void watch(WebGuiGame s) {
+        spectator = s;
+    }
+
+    @Override
+    public boolean mayView(CardView c) {
+        if (c == null) {
+            return false;
+        }
+        if (!hasLocalPlayers()) {
+            forge.game.zone.ZoneType z = c.getZone();
+            if (z == null) {
+                return true;
+            }
+            return switch (z) {
+                case Ante, Command, Battlefield, Graveyard, Flashback, Stack, Junkyard -> true;
+                case Exile, Merged -> !c.isFaceDown();
+                default -> false;
+            };
+        }
+        return super.mayView(c);
     }
 
     @Override
@@ -196,7 +225,10 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     @Override
     public void onConnect(ClientChannel ch) {
         synchronized (io) {
-            channel = ch;
+            if (hasLocalPlayers()) {
+                channels.clear();
+            }
+            channels.add(ch);
             forceFull = true;
             resendAfterFull = false;
             flushLocked();
@@ -227,10 +259,12 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
 
     void onDisconnect(ClientChannel ch) {
         synchronized (io) {
-            if (channel == ch) {
-                channel = null;
-            }
+            channels.remove(ch);
         }
+    }
+
+    boolean hasChannel(ClientChannel ch) {
+        return channels.contains(ch);
     }
 
     void dispose() {
@@ -268,8 +302,7 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         if (recorder != null) {
             recorder.add(m.toString());
         }
-        ClientChannel ch = channel;
-        if (ch != null) {
+        for (ClientChannel ch : channels) {
             ch.send(m);
         }
     }
@@ -333,6 +366,10 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         if (disposed) {
             return;
         }
+        WebGuiGame spec = spectator;
+        if (spec != null) {
+            spec.dirty();
+        }
         synchronized (schedLock) {
             if (flushScheduled) {
                 return;
@@ -356,7 +393,7 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
 
     private void flushLocked() {
         GameView gv = getGameView();
-        if (gv == null || channel == null && recorder == null && !capturing) {
+        if (gv == null || channels.isEmpty() && recorder == null && !capturing) {
             return;
         }
         long t0 = System.nanoTime();
@@ -1471,6 +1508,10 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     @Override
     public void setGameView(GameView gameView0) {
         super.setGameView(gameView0);
+        WebGuiGame spec = spectator;
+        if (spec != null) {
+            spec.setGameView(gameView0);
+        }
         if (gameView0 == null) {
             synchronized (io) {
                 forceFull = true;
@@ -1788,6 +1829,10 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         g.addProperty("winner", winner);
         g.addProperty("summary", winner == null ? "The game is a draw" : winner + " won on turn " + gv.getTurn());
         sendUi(g);
+        WebGuiGame spec = spectator;
+        if (spec != null) {
+            spec.sendUi(g);
+        }
         WebEdt.invokeLater(() -> {
             for (IGameController c : getOriginalGameControllers()) {
                 c.nextGameDecision(NextGameDecision.QUIT);
