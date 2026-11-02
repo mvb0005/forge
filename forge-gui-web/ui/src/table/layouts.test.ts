@@ -92,7 +92,7 @@ describe('table layouts', () => {
       }
       const i = input(s, { combat: players === 2 ? null : undefined })
       const { placements, regions } = run(i)
-      const fanout = Object.keys(i.players).length > 2
+      const fanout = Object.keys(i.players).length > 1
       const xs = new Set<number>()
       for (const p of Object.values(i.players)) {
         for (const c of p.commanders ?? []) {
@@ -117,6 +117,26 @@ describe('table layouts', () => {
       expect(xs.size, 'slots line up').toBe(1)
     })
   }
+
+  it('gives a duel the same seat bands as a pod', () => {
+    const s = fixture('quiet')
+    const i = input(s, { combat: null })
+    const out = run(i)
+    const ids = Object.keys(i.players).map(Number)
+    expect(ids).toHaveLength(2)
+    for (const id of ids) {
+      expect(out.regions[`seat:${id}`], `seat ${id}`).toBeTruthy()
+      expect(out.regions[`half:${id}`], `half ${id}`).toBeTruthy()
+      expect(out.regions[`border:${id}`], `border ${id}`).toBeTruthy()
+      const border = out.regions[`border:${id}`]
+      const field = out.regions[`field:${id}`]
+      expect(border.x).toBeGreaterThanOrEqual(field.x + field.w - 1)
+    }
+    expect(out.regions.strips).toBeUndefined()
+    const mine = out.regions[`seat:${i.meId}`]
+    expect(mine.y + mine.h).toBeCloseTo(VIEW.h)
+    expect(out.regions[`half:${ids[0]}`].h).toBeCloseTo(out.regions[`half:${ids[1]}`].h)
+  })
 
   it('keys a group by its lowest id with the rest as members', () => {
     const s = fixture('pod')
@@ -180,7 +200,7 @@ describe('table layouts', () => {
     const folded = run(i)
     const open = run({ ...i, openLands: [i.meId] })
     for (const id of lands) expect(open.placements.get(id)?.kind ?? 'member', `land ${id}`).not.toBe('zone')
-    expect(open.regions.meRibbon).toEqual(folded.regions.meRibbon)
+    expect(open.regions[`ribbon:${i.meId}`]).toEqual(folded.regions[`ribbon:${i.meId}`])
     const theirs = i.players[i.focusId!].zones.battlefield.find((id) => i.cards[id].types.includes('Land'))!
     expect(open.placements.get(theirs)).toMatchObject({ kind: 'zone' })
   })
@@ -218,31 +238,28 @@ describe('table layouts', () => {
     })
   }
 
-  it('keeps the seam and the control panel in place when combat starts', () => {
+  it('keeps the control panel in place when combat starts', () => {
     const s = fixture('pod')
     const main = run(input(s, { combat: null }))
     const combat = run(input(s))
-    expect(combat.regions.line).toEqual(main.regions.line)
     expect(combat.regions.act).toEqual(main.regions.act)
-    expect(combat.regions.bottom).toEqual(main.regions.bottom)
     expect(combat.regions.tray.h).toBe(0)
     expect(Object.keys(combat.regions).some((k) => k.startsWith('lane:'))).toBe(true)
   })
 
-  it('combat mode lines attackers up and folds the back lanes', () => {
+  it('combat mode brings attackers into the defending band', () => {
     const s = fixture('pod')
-    const land = s.players![1].zones.battlefield.find((id) => s.cards![id].types.includes('Land') && !s.cards![id].types.includes('Creature'))!
-    const main = run(input(s, { combat: null, selectable: new Set([land]) }))
-    const combat = run(input(s, { selectable: new Set([land]) }))
+    const combat = run(input(s))
     expect(tableMode(s.combat!)).toBe<TableMode>('combat')
-    expect(combat.regions['bottom:back'].h).toBeLessThan(main.regions['bottom:back'].h)
     expect(Object.keys(combat.regions).some((k) => k.startsWith('lane:'))).toBe(true)
-    // A blocker sits in its attacker's column.
+    const me = s.game!.localPlayerIds[0]
+    expect(combat.regions[`engage:${me}`]).toBeTruthy()
     const band = s.combat!.bands.find((b) => b.plannedBlockerIds.length)!
-    const lane = Object.entries(combat.regions).find(([k]) => k === `lane:col:${band.attackerIds[0]}`)![1]
+    const lane = combat.regions[`lane:col:${band.attackerIds[0]}`]
     const blocker = combat.placements.get(band.plannedBlockerIds[0])!
     expect(blocker.x).toBeGreaterThanOrEqual(lane.x - 0.5)
     expect(blocker.x).toBeLessThan(lane.x + lane.w)
+    expect(blocker.y).toBeGreaterThanOrEqual(combat.regions[`field:${me}`].y - 1)
   })
 
   it('splits only the attacking part of a token group into its own ×N element (D-10)', () => {

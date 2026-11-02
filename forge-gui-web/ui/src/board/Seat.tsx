@@ -354,7 +354,8 @@ function CommandSlot({ id, owner, tax, casts, mine, r, inBorder }: { id: number;
       <div style={{ position: 'absolute', left: 0, top: 0, width: r.w, height: r.h, borderRadius: 7, background: 'rgb(10 8 6 / .45)', boxShadow: 'inset 0 0 0 1.5px var(--lk-metal-line)' }} />
       {!home && (
         // The commander is elsewhere: a faded copy holds its place. Hover peeks the real card, click finds it.
-        <div {...peek} data-entity={`card:${id}`} onClick={(e) => clickCards(e, [id])}
+        // data-ghost: arrows must not treat this as the live card (the card layer has that).
+        <div {...peek} data-ghost="" onClick={(e) => clickCards(e, [id])}
           style={{ position: 'absolute', left: 0, top: 0, width: r.w, height: r.h, opacity: 0.38, filter: 'grayscale(.7)', pointerEvents: 'auto', cursor: 'pointer' }}>
           <CardFrame card={card} width={r.w} mini />
         </div>

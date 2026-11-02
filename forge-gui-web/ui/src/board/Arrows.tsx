@@ -7,10 +7,17 @@ type Arrow = { key: string; d: string; kind: 'target' | 'attack' | 'block'; dim:
 
 const COLORS = { target: 'var(--lk-ember-text)', attack: 'var(--lk-ember)', block: 'var(--lk-steel)' }
 
-function find(root: HTMLElement, ref: EntityRef | string): Element | null {
-  if (typeof ref === 'string') return root.querySelector(`[data-entity="${ref}"]`)
-  if (ref.kind === 'player') return root.querySelector(`[data-entity="player:${ref.id}"]`)
-  return root.querySelector(`[data-entity="card:${ref.id}"]`) ?? root.querySelector(`[data-ids~="${ref.id}"]`)
+/** The live table object, never a command-zone ghost, a log mention, or a faded copy. */
+export function findEntity(root: HTMLElement, ref: EntityRef | string): Element | null {
+  if (typeof ref === 'string') return root.querySelector(`[data-entity="${ref}"]:not([data-ghost])`)
+  if (ref.kind === 'player') return root.querySelector(`[data-entity="player:${ref.id}"]:not([data-ghost])`)
+  const live = `[data-entity="card:${ref.id}"]:not([data-ghost])`
+  const onTable = root.querySelectorAll(`[data-card-layer] ${live}`)
+  for (const el of onTable) {
+    if ((el as HTMLElement).style.opacity === '0') continue
+    return el
+  }
+  return root.querySelector(live) ?? root.querySelector(`[data-ids~="${ref.id}"]:not([data-ghost])`)
 }
 
 type R = { x: number; y: number; w: number; h: number }
@@ -71,18 +78,18 @@ export function Arrows({ rootRef }: { rootRef: RefObject<HTMLDivElement | null> 
       out.push({ key, d: curve(rect(from), rect(to), bend), kind, dim, emph })
     }
     for (const item of stack) {
-      const from = find(root, `stack:${item.id}`)
-      for (const t of item.targets) add(from, find(root, t), 'target', hs != null && hs !== item.id, hs === item.id, 0.22)
+      const from = findEntity(root, `stack:${item.id}`)
+      for (const t of item.targets) add(from, findEntity(root, t), 'target', hs != null && hs !== item.id, hs === item.id, 0.22)
     }
     for (const band of combat?.bands ?? []) {
-      const attackers = band.attackerIds.map((id) => find(root, { kind: 'card', id }))
+      const attackers = band.attackerIds.map((id) => findEntity(root, { kind: 'card', id }))
       // An attack on you is told by its lane and block slot; arrows only for attacks elsewhere.
       if (band.defender && !(band.defender.kind === 'player' && band.defender.id === me)) {
-        const def = find(root, band.defender)
+        const def = findEntity(root, band.defender)
         for (const a of attackers) add(a, def, 'attack', hs != null, false, 0.12)
       }
       for (const b of new Set([...band.blockerIds, ...band.plannedBlockerIds])) {
-        for (const a of attackers) add(find(root, { kind: 'card', id: b }), a, 'block', hs != null, false, 0)
+        for (const a of attackers) add(findEntity(root, { kind: 'card', id: b }), a, 'block', hs != null, false, 0)
       }
     }
     setArrows((prev) => (JSON.stringify(prev) === JSON.stringify(out) ? prev : out))
