@@ -58,6 +58,7 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -84,10 +85,14 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     private static final long FLUSH_INTERVAL_NANOS = TimeUnit.MILLISECONDS.toNanos(33);
     /**
      * Seconds a player has to respond when they hold priority on someone else's turn or with something on the
-     * stack; then the server passes for them (0: no timer). Their own turn's priority stays untimed, and no
-     * choice (targets, attackers, blockers) is ever made for them. Set from {@code --respond-seconds}.
+     * stack; then the server passes for them (0: no timer). Their own turn's priority and the combat steps in
+     * {@link #UNTIMED} stay untimed, and no choice (targets, attackers, blockers) is ever made for them. Set from
+     * {@code --respond-seconds}.
      */
     static volatile int respondSeconds = 10;
+    /** The combat steps where people do combat math: attacks seen, blocks seen, first strike dealt. Never timed. */
+    private static final Set<PhaseType> UNTIMED = EnumSet.of(PhaseType.COMBAT_DECLARE_ATTACKERS,
+            PhaseType.COMBAT_DECLARE_BLOCKERS, PhaseType.COMBAT_FIRST_STRIKE_DAMAGE);
     private static final ScheduledExecutorService RESPOND = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "Respond timer");
         t.setDaemon(true);
@@ -97,6 +102,9 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     static final int MORE_SECONDS = 20;
     // guarded by io
     private ScheduledFuture<?> respondTimer;
+    private PassAhead passAhead; // set once this seat has seen its game
+    private String aheadKey; // what the last `ahead` said, so an unchanged one isn't sent again (io held)
+    private JsonObject lastAhead; // resent on reconnect (io held)
     private long respondDeadline; // System.currentTimeMillis() when the timer passes
     private Runnable respondPass;
 
@@ -254,6 +262,9 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
             if (a != null) {
                 ch.send(a.msg);
             }
+            if (lastAhead != null) {
+                ch.send(lastAhead);
+            }
         }
     }
 
@@ -350,6 +361,58 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
             flushLocked();
             sendLocked(m);
         }
+    }
+
+    /** This seat's game's pass-ahead coordinator, with this seat on it; null before the game or for a spectator. */
+    private PassAhead passAhead() {
+        Game g = match.getGame();
+        Player s = seat(g);
+        if (s == null) {
+            return null;
+        }
+        PassAhead p = PassAhead.of(g);
+        p.seat(s, this);
+        passAhead = p;
+        return p;
+    }
+
+    /** Where this seat is in the priority round (PassAhead), when it changes. Never says anything about other seats. */
+    void sendAhead() {
+        PassAhead p = passAhead;
+        Player s = p == null || disposed ? null : seat(match.getGame());
+        if (s == null) {
+            return;
+        }
+        PassAhead.State st = p.state(s);
+        JsonObject a = msg("ahead");
+        a.addProperty("round", st.round());
+        a.addProperty("open", st.open());
+        a.addProperty("passed", st.passed());
+        // A closed offer stays closed across rounds: the round number only matters while you may pass.
+        String key = st.open() || st.passed() ? a.toString() : "closed";
+        synchronized (io) {
+            if (key.equals(aheadKey)) {
+                return;
+            }
+            aheadKey = key;
+            lastAhead = a;
+            // live only: a replay has no one to pass ahead
+            for (ClientChannel ch : channels) {
+                ch.send(a);
+            }
+        }
+    }
+
+    /** Someone acted before priority reached this seat, so its pass ahead no longer counts; say what they did. */
+    void aheadCancelled(String why, Integer stackId) {
+        JsonObject n = msg("notice");
+        n.addProperty("level", "info");
+        n.addProperty("title", "Pass cancelled");
+        n.addProperty("message", "Your pass was cancelled: " + why + ". Respond again?");
+        if (stackId != null) {
+            n.addProperty("stackId", stackId);
+        }
+        sendUi(n);
     }
 
     private void notice(String level, String title, String message) {
@@ -732,6 +795,19 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         }
         switch (t) {
             case "moreTime" -> moreTime();
+            case "passAhead", "unpassAhead" -> {
+                PassAhead p = passAhead();
+                Player s = p == null ? null : seat(match.getGame());
+                if (s == null) {
+                    return;
+                }
+                if (t.equals("unpassAhead")) {
+                    p.unpass(s);
+                } else if (!m.has("round") || !p.pass(s, m.get("round").getAsLong())) {
+                    flashIncorrectAction(); // that round is over: what they passed on has changed
+                }
+                sendAhead();
+            }
             case "selectCard" -> {
                 CardView c = knownCards.get(m.get("cardId").getAsInt());
                 if (c == null) {
@@ -1528,6 +1604,10 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     @Override
     public void afterGameEnd() {
         super.afterGameEnd();
+        Game g = match.getGame();
+        if (g != null) {
+            PassAhead.forget(g);
+        }
         OpenAsk a = open;
         if (a != null) {
             a.answer.complete(null);
@@ -1561,11 +1641,19 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         PlayerControllerHuman human = null;
         InputPassPriority priority = null;
         Game game = match.getGame();
-        Player seat = seconds > 0 && !disposed ? seat(game) : null;
+        PassAhead ahead = disposed ? null : passAhead();
+        Player seat = ahead == null ? null : seat(game);
         if (seat != null && seat.getController() instanceof PlayerControllerHuman h
                 && h.getInputQueue().getInput() instanceof InputPassPriority pp) {
             boolean responding = !game.getStack().isEmpty() || game.getPhaseHandler().getPlayerTurn() != seat;
-            if (responding) {
+            if (ahead.take(seat)) {
+                // They passed ahead and nothing has happened since: priority reached them, so that's their pass.
+                WebEdt.invokeLater(() -> {
+                    if (!disposed && h.getInputQueue().getInput() == pp) {
+                        pp.passPriority();
+                    }
+                });
+            } else if (seconds > 0 && responding && !UNTIMED.contains(game.getPhaseHandler().getPhase())) {
                 human = h;
                 priority = pp;
             }
@@ -1840,13 +1928,27 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         });
     }
 
+    /**
+     * Where an empty stack still asks you (the engine passes for you anyway when you have nothing to do). Every
+     * step where a choice changes combat: on your turn after attacks and after blocks (you have priority first,
+     * rule 509.4); on theirs before attacks (tap or kill a would-be attacker), after attacks (remove one, flash in a
+     * blocker), after blocks, and at their end step. First strike damage on both, for the pump between the two.
+     */
+    private static final Set<PhaseType> MY_STOPS = EnumSet.of(PhaseType.MAIN1, PhaseType.COMBAT_DECLARE_ATTACKERS,
+            PhaseType.COMBAT_DECLARE_BLOCKERS, PhaseType.COMBAT_FIRST_STRIKE_DAMAGE, PhaseType.MAIN2);
+    private static final Set<PhaseType> THEIR_STOPS = EnumSet.of(PhaseType.COMBAT_BEGIN,
+            PhaseType.COMBAT_DECLARE_ATTACKERS, PhaseType.COMBAT_DECLARE_BLOCKERS,
+            PhaseType.COMBAT_FIRST_STRIKE_DAMAGE, PhaseType.END_OF_TURN);
+
     @Override
     public boolean isUiSetToSkipPhase(PlayerView playerTurn, PhaseType phase) {
         boolean mine = playerTurn != null && isLocalPlayer(playerTurn);
-        boolean stop = mine
-                ? phase == PhaseType.MAIN1 || phase == PhaseType.COMBAT_DECLARE_ATTACKERS || phase == PhaseType.MAIN2
-                : phase == PhaseType.COMBAT_DECLARE_BLOCKERS || phase == PhaseType.END_OF_TURN;
-        return !stop;
+        return !stopsAt(mine, phase);
+    }
+
+    /** Whether priority with an empty stack asks a player in this step (their turn or someone else's). */
+    static boolean stopsAt(boolean mine, PhaseType phase) {
+        return (mine ? MY_STOPS : THEIR_STOPS).contains(phase);
     }
 
     @Override
