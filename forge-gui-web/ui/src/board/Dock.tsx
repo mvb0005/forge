@@ -5,7 +5,7 @@ import { Icon, MARK_GLYPH } from '../look/glyphs'
 import { usePeek } from '../popover/usePeek'
 import { useBoardUi } from './uiStore'
 import { MoreTime } from './Callouts'
-import { usePhaseLine, usePrompt, useRespondCountdown } from './situation'
+import { abilityText, usePhaseLine, usePrompt, useRespondCountdown } from './situation'
 import { Face } from './Face'
 import { useSeatColors } from './Seat'
 
@@ -75,8 +75,7 @@ function StackItem({ item, next }: { item: StackItemDto; next: boolean }) {
   const setHoverStack = useBoardUi((s) => s.setHoverStack)
   const kind = item.isTrigger ? 'Trigger' : item.isAbility ? 'Ability' : 'Spell'
   const tone = item.isTrigger ? 'var(--lk-gold)' : item.isAbility ? 'var(--lk-frost)' : 'var(--lk-parchment)'
-  const named = source && item.text.startsWith(`${source.name} - `) ? item.text.slice(source.name.length + 3) : item.text
-  const text = named.replace(/\s*\(Targeting:[^)]*\)\s*$/, '')
+  const { text } = abilityText(item.text, source?.name)
   return (
     <div
       data-entity={`stack:${item.id}`}

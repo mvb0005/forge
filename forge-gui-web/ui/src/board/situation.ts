@@ -69,3 +69,10 @@ export function usePhaseLine() {
   const who = !name ? 'Opening' : me ? 'Your turn' : `${name}'s turn`
   return { who: turn > 0 ? `${who} · ${turn}` : who, step, phase }
 }
+
+/** An ability's text without its "Source - " prefix, and the "(Targeting: …)" Forge appends, split off. */
+export function abilityText(full: string, sourceName?: string): { text: string; targeting: string } {
+  const named = sourceName && full.startsWith(`${sourceName} - `) ? full.slice(sourceName.length + 3) : full
+  const m = named.match(/\s*\(Targeting:\s*([^)]*)\)\s*$/)
+  return m ? { text: named.slice(0, m.index), targeting: m[1].trim() } : { text: named, targeting: '' }
+}
