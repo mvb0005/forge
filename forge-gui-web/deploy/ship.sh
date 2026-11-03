@@ -44,14 +44,18 @@ if [[ ${1:-} == --rollback ]]; then
 fi
 
 [[ -z $(git status --porcelain -uno -- ..) ]] || { echo "Uncommitted changes: commit first, so the build is a commit you can revert." >&2; exit 1; }
-# An IDE can compile into target/classes without the upstream modules on its classpath, leaving classes
-# that only throw "Unresolved compilation problem". Rebuild this module's classes, and refuse a jar that has any.
-rm -rf target/classes
-(cd .. && "$MVN" -q -o -pl forge-gui-web -am package -DskipTests)
-if unzip -p target/forge-gui-web-*-jar-with-dependencies.jar 'forge/web/*' | grep -aq "Unresolved compilation problem"; then
-  echo "The jar has classes an IDE compiled with errors (forge/web): close the IDE's Java build and ship again." >&2
-  exit 1
-fi
+# An IDE (Cursor's Java extension) builds into target/classes without the upstream modules on its classpath,
+# leaving classes that only throw "Unresolved compilation problem", and Maven then takes them as up to date.
+# Rebuild this module's classes until the jar has none of them.
+broken() { unzip -p target/forge-gui-web-*-jar-with-dependencies.jar 'forge/web/*' | grep -ac "Unresolved compilation problem" || true; }
+for try in 1 2 3; do
+  rm -rf target/classes
+  (cd .. && "$MVN" -q -o -pl forge-gui-web -am package -DskipTests)
+  n=$(broken)
+  [[ $n == 0 ]] && break
+  echo "The jar has $n IDE-compiled classes with errors; rebuilding ($try)" >&2
+done
+[[ $n == 0 ]] || { echo "Still IDE-broken classes in the jar: turn off the IDE's Java auto-build and ship again." >&2; exit 1; }
 (cd ui && npx tsc -p tsconfig.app.json --noEmit && npx vitest run && npm run build)
 prev=$(template)
 out=$(in_wsl "bash deploy/minikube.sh up" | tee /dev/stderr)
