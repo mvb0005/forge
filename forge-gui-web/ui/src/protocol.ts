@@ -133,7 +133,7 @@ export type Ask = { t: 'ask'; id: number } & (
   | { kind: 'option'; title: string; message: string; options: string[]; defaultIndex: number }
   | { kind: 'input'; title: string; message: string; initial: string; options: string[] | null; numeric: boolean }
   | { kind: 'choose'; title: string; message: string; min: number; max: number; items: ChoiceItem[]; selected: number[] }
-  | { kind: 'order'; title: string; message: string; min: number; max: number; items: ChoiceItem[]; cardId: number | null }
+  | { kind: 'order'; title: string; message: string; min: number; max: number; items: ChoiceItem[]; cardId: number | null; stack?: boolean }
   | { kind: 'ability'; cardId: number; items: (ChoiceItem & { enabled: boolean })[] }
   | { kind: 'damage'; attackerId: number; blockerIds: number[]; damage: number; defender: EntityRef | null; overrideOrder: boolean; maySkip: boolean }
   | { kind: 'amount'; sourceCardId: number | null; amount: number; atLeastOne: boolean; label: string; items: ChoiceItem[] }

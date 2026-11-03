@@ -337,7 +337,7 @@ type Ask = { t: "ask"; id: number } & (
   | { kind: "option";  title: string; message: string; options: string[]; defaultIndex: number }                        // answer: index
   | { kind: "input";   title: string; message: string; initial: string; options: string[] | null; numeric: boolean }   // answer: string | null
   | { kind: "choose";  title: string; message: string; min: number; max: number; items: ChoiceItem[]; selected: number[] } // answer: number[] (item i values)
-  | { kind: "order";   title: string; message: string; min: number; max: number; items: ChoiceItem[]; cardId: number | null } // answer: number[] (all chosen items in order)
+  | { kind: "order";   title: string; message: string; min: number; max: number; items: ChoiceItem[]; cardId: number | null; stack: boolean } // answer: number[] (all chosen items in order)
   | { kind: "ability"; cardId: number; items: (ChoiceItem & { enabled: boolean })[] }                                    // answer: i | null
   | { kind: "damage";  attackerId: number; blockerIds: number[]; damage: number; defender: EntityRef | null; overrideOrder: boolean; maySkip: boolean } // answer: { [key: string]: number } with keys "card:<id>" / "player:<id>" (defender), or null to skip
   | { kind: "amount";  sourceCardId: number | null; amount: number; atLeastOne: boolean; label: string; items: ChoiceItem[] } // answer: { [i: string]: number }
@@ -348,6 +348,8 @@ Notes:
 - `choose` covers getChoices / one / oneOrNone / many / chooseSingleEntityForEffect /
   chooseEntitiesForEffect. `min:0,max:1` = optional single choice.
 - `order` covers order / insertInList. For a plain reorder, `min == max == items.length`.
+- `order` with `stack:true` orders abilities going on the stack together (simultaneous triggers). Each item's
+  `ref` is its source card, and the label is the ability's text. The first item ends up on top and resolves first.
 - Forge's `getInteger` arrives as `choose` with number labels or as `input` with `numeric:true`.
 - Sideboarding is not in v1. The server keeps the main deck.
 - `choose.selected` holds item `i` values, not card ids.

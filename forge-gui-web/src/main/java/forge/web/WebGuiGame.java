@@ -1259,7 +1259,20 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         body.addProperty("min", min);
         body.addProperty("max", max);
         List<CardView> cards = new ArrayList<>();
-        body.add("items", items(items, null, cards));
+        JsonArray rows = items(items, null, cards);
+        // Abilities to put on the stack: each row names its source card, which may already be in a graveyard.
+        boolean stack = false;
+        for (int i = 0; i < items.size(); i++) {
+            if (items.get(i) instanceof SpellAbilityView sa) {
+                stack = true;
+                if (sa.getHostCard() != null) {
+                    rows.get(i).getAsJsonObject().add("ref", ViewProjector.ref("card", sa.getHostCard().getId()));
+                    cards.add(sa.getHostCard());
+                }
+            }
+        }
+        body.add("items", rows);
+        body.addProperty("stack", stack);
         body.add("cardId", ViewProjector.id(referenceCard));
         if (referenceCard != null) {
             cards.add(referenceCard);
