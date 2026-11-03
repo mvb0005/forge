@@ -70,6 +70,11 @@ const BLOCKER_EXPECT = {
 const PLAYER_TARGET_EXPECT = { "targets-hexproof.txt": ["me", 2] }; // p1 has hexproof (Leyline of Sanctity)
 let playerTargetSeen = false;
 
+// fixture -> source card names a stack-order ask must offer, each row a card ref; the first answered goes on top
+const STACK_ORDER_EXPECT = { "stack-order.txt": ["Phyrexian Arena", "Bitterblossom", "Sulfuric Vortex"] };
+let stackOrderSeen = false, stackOrderTop = null, stackTopChecked = false, stackOrderProblems = 0;
+const stackOrderProblem = (what) => { stackOrderProblems++; console.log("STACK ORDER:", what); };
+
 // fixture -> card name -> fields its CardDto must have, and the first `mana` assist by player ("me" = our seat)
 const FIELD_EXPECT = {
   "fields-badges.txt": {
@@ -334,6 +339,18 @@ function checkIds(what, ids) {
   }
 }
 
+function checkStackOrder(a) {
+  const want = STACK_ORDER_EXPECT[stateFile];
+  const names = a.items.map((it) => (it.ref?.kind === "card" ? nameOf(it.ref.id) : null));
+  console.log(`stack order: ${names.join(", ")}`);
+  if (names.some((n) => !n)) stackOrderProblem(`a row without a source card: ${JSON.stringify(a.items)}`);
+  a.items.forEach((it, i) => { if (!it.label.trim()) stackOrderProblem(`row ${i} has no text`); });
+  if (want && [...names].sort().join() === [...want].sort().join()) {
+    stackOrderSeen = true;
+    stackOrderTop = { id: a.items[0].ref.id, n: a.items.length };
+  }
+}
+
 function answerAsk(a) {
   askKinds[a.kind] = (askKinds[a.kind] || 0) + 1;
   let value;
@@ -348,6 +365,7 @@ function answerAsk(a) {
     case "choose":
     case "order":
       for (const it of a.items) if (!known(it.ref)) { idProblems++; console.log(`unknown ref in ${a.kind}`, it); }
+      if (a.kind === "order" && a.stack) checkStackOrder(a);
       value = a.items.slice(0, a.min).map((it) => it.i);
       break;
     case "ability": {
@@ -506,6 +524,10 @@ ws.onmessage = (ev) => {
       }
       lastSeq = m.seq;
       if (m.game) game = m.game;
+      if (stackOrderTop && !stackTopChecked && m.stack && m.stack.length >= stackOrderTop.n) {
+        stackTopChecked = true;
+        if (m.stack[0].sourceCardId !== stackOrderTop.id) stackOrderProblem(`top of stack is ${nameOf(m.stack[0].sourceCardId)}, answered ${nameOf(stackOrderTop.id)} first`);
+      }
       if (m.game && "log" in m.game) { logProblems++; console.log("LOG: game.log present in v2"); }
       if (m.full && !m.logReset) { logProblems++; console.log("LOG: full state without logReset"); }
       if (!m.full && m.logReset) { logProblems++; console.log("LOG: logReset on a non-full state"); }
@@ -727,6 +749,10 @@ function finish(code) {
   if (stateFile && PLAYER_TARGET_EXPECT[stateFile]) {
     console.log(`fixture ${stateFile}: player targets ${playerTargetSeen ? "as expected" : "NOT SEEN"}`);
     if (!playerTargetSeen) rc = 1;
+  }
+  if (stateFile && STACK_ORDER_EXPECT[stateFile]) {
+    console.log(`fixture ${stateFile}: stack order ${stackOrderSeen ? "seen" : "NOT SEEN"}, top ${stackTopChecked ? "checked" : "NOT CHECKED"}, problems ${stackOrderProblems}`);
+    if (!stackOrderSeen || !stackTopChecked || stackOrderProblems) rc = 1;
   }
   if (stateFile && FIELD_EXPECT[stateFile]) {
     console.log(`fixture ${stateFile}: fields ${fieldsChecked ? "checked" : "NOT CHECKED"}, mana ${manaChecked ? "checked" : "NOT CHECKED"}`);
