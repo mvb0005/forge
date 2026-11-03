@@ -67,6 +67,19 @@ describe('stack order', () => {
     expect(sent).toEqual([{ t: 'answer', id: 7, value: [1, 0] }])
   })
 
+  it("keeps the clicked row's card beside the list after the pointer leaves", () => {
+    mount(ask)
+    const aside = () => host!.querySelector('[role="dialog"] .shrink-0')?.textContent ?? ''
+    act(() => { rows()[1].dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    // jsdom has no PointerEvent; React reads pointerover/pointerout for enter and leave.
+    act(() => { rows()[0].dispatchEvent(new MouseEvent('pointerover', { bubbles: true })) })
+    expect(aside()).not.toContain('Birds of Paradise')
+    act(() => { rows()[0].dispatchEvent(new MouseEvent('pointerout', { bubbles: true, relatedTarget: document.body })) })
+    expect(rows()[1].classList.contains('border-target')).toBe(true)
+    expect(rows()[0].classList.contains('border-target')).toBe(false)
+    expect(aside()).toContain('Birds of Paradise')
+  })
+
   it('keeps the pick-and-order dialog for other orders', () => {
     mount({ ...ask, stack: false })
     expect(rows()).toHaveLength(0)

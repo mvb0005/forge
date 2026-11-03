@@ -287,11 +287,13 @@ function StackOrder({ ask }: { ask: AskOf<'order'> }) {
   const { cardOf } = useItemCards()
   const [chosen, setChosen] = useState<number[]>(() => ask.items.map((it) => it.i))
   const [hot, setHot] = useState<number | null>(null)
+  // The card beside the list: the row under the pointer, else the last row clicked.
+  const [pinned, setPinned] = useState<number>(() => ask.items[0]?.i ?? 0)
   const submit = () => answer(ask.id, chosen)
   useDialogKeys(!minimized, submit)
   const { row, over } = useDragReorder((from, to) => setChosen((c) => move(c, from, to)))
   const byI = new Map(ask.items.map((it) => [it.i, it]))
-  const shown = hot != null && chosen.includes(hot) ? hot : chosen[0]
+  const shown = hot ?? pinned
   const preview = shown != null ? cardOf(byI.get(shown)!) : undefined
   const end = (s: string) => <li className="px-1 text-[11px] uppercase tracking-wider text-ink-dim">{s}</li>
 
@@ -316,9 +318,10 @@ function StackOrder({ ask }: { ask: AskOf<'order'> }) {
               key={i}
               {...row(n)}
               onPointerEnter={() => setHot(i)}
+              onClick={() => setPinned(i)}
               data-testid="stack-row"
               className={`flex cursor-grab items-center gap-3 rounded-lg border bg-panel-2/60 px-3 py-2 text-sm transition active:cursor-grabbing
-                ${over === n ? 'border-accent' : shown === i ? 'border-target' : 'border-line'}`}
+                ${over === n ? 'border-accent' : pinned === i ? 'border-target bg-panel-2' : 'border-line hover:border-target'}`}
             >
               <span className="w-5 shrink-0 text-right font-mono text-xs text-ink-dim">{n + 1}</span>
               <div className="w-10 shrink-0 overflow-hidden rounded">
