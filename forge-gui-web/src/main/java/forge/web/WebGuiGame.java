@@ -1600,7 +1600,10 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     public void setGameView(GameView gameView0) {
         super.setGameView(gameView0);
         WebGuiGame spec = spectator;
-        if (spec != null) {
+        // A seat taken over from the spectator brings the view the spectator already has. Copying a view onto
+        // itself (AbstractGuiGame.setGameView) leaves stale card views behind: cards on the battlefield that
+        // still say they're in a hand.
+        if (spec != null && (gameView0 == null || spec.getGameView() != gameView0)) {
             spec.setGameView(gameView0);
         }
         if (gameView0 == null) {
