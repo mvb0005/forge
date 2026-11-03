@@ -1752,7 +1752,7 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
      * The engine's one call for what the prompt marks (upstream folded selectables, highlights and weak selectables
      * into it). The table still gets the same messages: selectables (cards with min/max), highlight on/off for what
      * changed in the chosen set, and playable for the cards worth acting on. Players to pick come from
-     * selectablePlayers, at decision points.
+     * selectablePlayers, at decision points (a target prompt's selection has no cards), and are cleared after each input.
      */
     @Override
     public void setSelection(Selection next) {
@@ -1788,9 +1788,6 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
                 if (c != null) {
                     selectCards.add(c);
                 }
-            }
-            if (selectCards.isEmpty()) {
-                selectPlayers = List.of();
             }
             if (had || !selectCards.isEmpty()) {
                 selectMin = next.min();
