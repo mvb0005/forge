@@ -100,6 +100,7 @@ export function PromptBar() {
   const ok = buttons?.ok
   const cancel = buttons?.cancel
   const spectating = useForge((s) => !!s.game && s.game.localPlayerIds.length === 0)
+  const over = useForge((s) => !!s.game?.gameOver) // still true after "See the board" closes the result
   const backUrl = useForge((s) => s.returnUrl)
 
   useEffect(() => {
@@ -134,10 +135,10 @@ export function PromptBar() {
   const showOk = ok && (ok.enabled || ok.label)
   const showCancel = cancel && (cancel.enabled || cancel.label)
 
-  if (spectating && (backUrl || inLobby)) {
+  if ((spectating || over) && (backUrl || inLobby)) {
     return (
       <div className="lk-text" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 6, width: '100%', height: '100%' }}>
-        <div className="lk-label" style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--lk-parchment-mute)', textAlign: 'center' }}>Spectating</div>
+        <div className="lk-label" style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--lk-parchment-mute)', textAlign: 'center' }}>{over ? 'Game over' : 'Spectating'}</div>
         <a
           href={backUrl ?? undefined}
           onClick={(e) => { if (inLobby) { e.preventDefault(); goBack(backUrl) } }}
