@@ -16,7 +16,6 @@ import forge.game.GameEntityView;
 import forge.game.GameLog;
 import forge.game.GameLogEntry;
 import forge.game.GameObject;
-import forge.game.GameState;
 import forge.game.GameView;
 import forge.game.card.Card;
 import forge.game.card.CardView;
@@ -33,6 +32,8 @@ import forge.game.player.PlayerView;
 import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityView;
 import forge.gamemodes.match.AbstractGuiGame;
+import forge.gamemodes.match.Selection;
+import forge.trackable.TrackableObject;
 import forge.gamemodes.match.HostedMatch;
 import forge.gamemodes.match.NextGameDecision;
 import forge.gamemodes.match.input.InputAttack;
@@ -140,6 +141,7 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     private final Set<CardView> selectCards = new LinkedHashSet<>();
     private final Map<String, JsonObject> highlighted = new LinkedHashMap<>();
     private final Set<CardView> highlightCards = new HashSet<>();
+    private final Set<GameEntityView> highlightEntities = new LinkedHashSet<>();
     private JsonObject lastPrompt;
     private CardView promptCard;
     private JsonObject lastButtons;
@@ -1746,37 +1748,62 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         sendLocked(s);
     }
 
+    /**
+     * The engine's one call for what the prompt marks (upstream folded selectables, highlights and weak selectables
+     * into it). The table still gets the same messages: selectables (cards with min/max), highlight on/off for what
+     * changed in the chosen set, and playable for the cards worth acting on. Players to pick come from
+     * selectablePlayers, at decision points.
+     */
     @Override
-    public void setSelectables(Iterable<CardView> cards, int min, int max) {
-        super.setSelectables(cards, min, max);
+    public void setSelection(Selection next) {
+        super.setSelection(next);
+        List<GameEntityView> chosen = new ArrayList<>();
+        for (TrackableObject o : next.chosen()) {
+            if (o instanceof GameEntityView e) {
+                chosen.add(e);
+            }
+        }
+        List<GameEntityView> off = new ArrayList<>();
+        List<GameEntityView> on = new ArrayList<>();
         synchronized (io) {
-            for (CardView c : cards) {
+            Set<String> keep = new HashSet<>();
+            for (GameEntityView e : chosen) {
+                JsonElement r = ViewProjector.ref(e);
+                if (r.isJsonObject()) {
+                    String key = r.toString();
+                    keep.add(key);
+                    if (!highlighted.containsKey(key)) {
+                        on.add(e);
+                    }
+                }
+            }
+            for (GameEntityView e : highlightEntities) {
+                if (!keep.contains(ViewProjector.ref(e).toString())) {
+                    off.add(e);
+                }
+            }
+            boolean had = !selectCards.isEmpty() || lastSelectables != null;
+            selectCards.clear();
+            for (CardView c : next.cards()) {
                 if (c != null) {
                     selectCards.add(c);
                 }
             }
-        }
-        sendSelectables(min, max);
-    }
-
-    @Override
-    public void clearSelectables() {
-        super.clearSelectables();
-        synchronized (io) {
-            if (selectCards.isEmpty() && lastSelectables == null) {
-                return;
+            if (selectCards.isEmpty()) {
+                selectPlayers = List.of();
             }
-            selectCards.clear();
-            selectPlayers = List.of();
+            if (had || !selectCards.isEmpty()) {
+                selectMin = next.min();
+                selectMax = next.max();
+                sendSelectablesLocked();
+            }
         }
-        sendSelectables(0, 0);
+        sendHighlight(off, false);
+        sendHighlight(on, true);
+        sendPlayable(next.actionable().isEmpty() ? null : next.actionable());
     }
 
-    @Override
-    public void setHighlighted(Iterable<GameEntityView> entities, boolean b) {
-        List<GameEntityView> list = new ArrayList<>();
-        entities.forEach(list::add);
-        super.setHighlighted(list, b);
+    private void sendHighlight(List<? extends GameEntityView> list, boolean b) {
         JsonObject h = msg("highlight");
         JsonArray a = new JsonArray();
         synchronized (io) {
@@ -1789,11 +1816,13 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
                 String key = r.toString();
                 if (b) {
                     highlighted.put(key, r.getAsJsonObject());
+                    highlightEntities.add(e);
                     if (e instanceof CardView cv) {
                         highlightCards.add(cv);
                     }
                 } else {
                     highlighted.remove(key);
+                    highlightEntities.remove(e);
                     if (e instanceof CardView cv) {
                         highlightCards.remove(cv);
                     }
@@ -1829,20 +1858,6 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
             flushLocked();
             sendLocked(p);
         }
-    }
-
-    @Override
-    public void setWeaklySelectable(Iterable<CardView> cards) {
-        List<CardView> list = new ArrayList<>();
-        cards.forEach(list::add);
-        super.setWeaklySelectable(list);
-        sendPlayable(list);
-    }
-
-    @Override
-    public void clearWeaklySelectable() {
-        super.clearWeaklySelectable();
-        sendPlayable(null);
     }
 
     @Override
@@ -2034,17 +2049,6 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     @Override
     public void updateDependencies() {
         dirty();
-    }
-
-    @Override
-    public void updateRevealedCards(TrackableCollection<CardView> collection) {
-        super.updateRevealedCards(collection);
-        dirty();
-    }
-
-    @Override
-    public GameState getGamestate() {
-        return null;
     }
 
     @Override
