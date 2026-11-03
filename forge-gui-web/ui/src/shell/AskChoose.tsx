@@ -1,4 +1,6 @@
 import { useState, type PointerEvent } from 'react'
+import { CardImage } from '../board/CardImage'
+import { abilityText } from '../board/situation'
 import { ManaCost } from '../look/ManaSymbol'
 import { peekTimer } from '../popover/store'
 import { usePeek } from '../popover/usePeek'
@@ -279,7 +281,73 @@ function ChooseList({ ask }: { ask: AskOf<'choose'> }) {
   )
 }
 
+// Simultaneous abilities: the first one goes on the stack last, on top, and resolves first.
+function StackOrder({ ask }: { ask: AskOf<'order'> }) {
+  const minimized = useMinimized()
+  const { cardOf } = useItemCards()
+  const [chosen, setChosen] = useState<number[]>(() => ask.items.map((it) => it.i))
+  const [hot, setHot] = useState<number | null>(null)
+  const submit = () => answer(ask.id, chosen)
+  useDialogKeys(!minimized, submit)
+  const { row, over } = useDragReorder((from, to) => setChosen((c) => move(c, from, to)))
+  const byI = new Map(ask.items.map((it) => [it.i, it]))
+  const shown = hot != null && chosen.includes(hot) ? hot : chosen[0]
+  const preview = shown != null ? cardOf(byI.get(shown)!) : undefined
+  const end = (s: string) => <li className="px-1 text-[11px] uppercase tracking-wider text-ink-dim">{s}</li>
+
+  return (
+    <Frame
+      title="Order your abilities"
+      message="They go on the stack together. The top one resolves first."
+      size="lg"
+      aside={preview ? <CardTile card={preview} width={200} /> : undefined}
+      hint={<span className="inline-flex gap-3"><span>Drag or use the arrows</span><EnterHint /></span>}
+      footer={<Btn variant="primary" onClick={submit}>Put on the stack</Btn>}
+    >
+      <ol className="flex flex-col gap-1.5" onPointerLeave={() => setHot(null)}>
+        {end('Resolves first')}
+        {chosen.map((i, n) => {
+          const it = byI.get(i)!
+          const card = cardOf(it)
+          // Forge's labels may end in the trigger's context, like " [Phase: Player 1]".
+          const { text, targeting } = abilityText(it.label.replace(/\s*\[[^\]]*\]\s*$/, ''), card?.name)
+          return (
+            <li
+              key={i}
+              {...row(n)}
+              onPointerEnter={() => setHot(i)}
+              data-testid="stack-row"
+              className={`flex cursor-grab items-center gap-3 rounded-lg border bg-panel-2/60 px-3 py-2 text-sm transition active:cursor-grabbing
+                ${over === n ? 'border-accent' : shown === i ? 'border-target' : 'border-line'}`}
+            >
+              <span className="w-5 shrink-0 text-right font-mono text-xs text-ink-dim">{n + 1}</span>
+              <div className="w-10 shrink-0 overflow-hidden rounded">
+                {card ? <CardImage card={card} width={40} bare /> : <div className="h-14 w-10 bg-panel-2" />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-title text-[15px] font-bold">{card?.name ?? 'Ability'}</div>
+                <div className="line-clamp-2 text-xs leading-snug text-ink-dim">{text}</div>
+                {targeting && <div className="truncate text-xs text-target">Targeting {targeting}</div>}
+              </div>
+              <span className="flex shrink-0 gap-0.5">
+                <IconBtn title="Move up" disabled={n === 0} onClick={() => setChosen((c) => move(c, n, n - 1))}>↑</IconBtn>
+                <IconBtn title="Move down" disabled={n === chosen.length - 1} onClick={() => setChosen((c) => move(c, n, n + 1))}>↓</IconBtn>
+              </span>
+            </li>
+          )
+        })}
+        {end('Resolves last')}
+      </ol>
+    </Frame>
+  )
+}
+
 export function OrderAsk({ ask }: { ask: AskOf<'order'> }) {
+  if (ask.stack && ask.min >= ask.items.length) return <StackOrder ask={ask} />
+  return <PickOrder ask={ask} />
+}
+
+function PickOrder({ ask }: { ask: AskOf<'order'> }) {
   const minimized = useMinimized()
   const { cardOf, labelOf } = useItemCards()
   const source = useForge((s) => (ask.cardId == null ? undefined : s.cards[ask.cardId]))
