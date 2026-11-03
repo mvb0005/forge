@@ -81,7 +81,12 @@ export const asks: { name: string; make: () => Ask }[] = [
   { name: 'choose multi (1..2)', make: () => a({ kind: 'choose', title: 'Discard', message: 'Discard up to two cards, at least one', min: 1, max: 2, items: cardItems([31, 32, 33, 20]), selected: [1] }) },
   { name: 'choose many (0..all)', make: () => a({ kind: 'choose', title: 'Choose any number', message: 'Choose creatures to untap', min: 0, max: 99, items: cardItems([10, 11, 12, 13, 30]), selected: [] }) },
   { name: 'choose players', make: () => a({ kind: 'choose', title: 'Choose a player', message: 'Target player draws two cards', min: 1, max: 1, items: [{ i: 0, label: 'You', ref: { kind: 'player', id: 1 } }, { i: 1, label: 'Forge AI', ref: { kind: 'player', id: 2 } }], selected: [] }) },
-  { name: 'order (plain)', make: () => a({ kind: 'order', title: 'Order triggers', message: 'Put your simultaneous triggers on the stack (first resolves last)', min: 3, max: 3, items: items(['Soul Warden: gain 1 life', 'Elvish Visionary: draw a card', 'Wall of Omens: draw a card']), cardId: null }) },
+  { name: 'order (plain)', make: () => a({ kind: 'order', title: 'Order', message: 'Put these in order', min: 3, max: 3, items: items(['First option', 'Second option', 'Third option']), cardId: null }) },
+  { name: 'order (stack)', make: () => a({ kind: 'order', title: 'Select order for simultaneous abilities', message: 'Resolve first', min: 3, max: 3, stack: true, cardId: null, items: [
+    { i: 0, label: 'Whenever another creature enters the battlefield, you gain 1 life. [Phase: Player 1]', ref: { kind: 'card', id: 31 } },
+    { i: 1, label: 'Elvish Visionary - When Elvish Visionary enters the battlefield, draw a card.', ref: { kind: 'card', id: 32 } },
+    { i: 2, label: 'Birds of Paradise - Birds of Paradise deals 1 damage to any target. (Targeting: Serra Angel)', ref: { kind: 'card', id: 30 } },
+  ] }) },
   { name: 'order (pick 2)', make: () => a({ kind: 'order', title: 'Pick and order', message: 'Put two cards on top of your library in any order', min: 2, max: 2, items: cardItems([20, 21, 22, 23]), cardId: 30 }) },
   { name: 'ability', make: () => a({ kind: 'ability', cardId: 30, items: [{ i: 0, label: 'Cast Birds of Paradise', ref: null, enabled: false }, { i: 1, label: '{T}: Add {W}.', ref: null, enabled: true }, { i: 2, label: '{T}: Add {G}.', ref: null, enabled: true }, { i: 3, label: '{T}: Add one mana of any color.', ref: null, enabled: true }] }) },
   { name: 'damage (trample)', make: () => a({ kind: 'damage', attackerId: 10, blockerIds: [12, 13], damage: 6, defender: { kind: 'player', id: 2 }, overrideOrder: true, maySkip: false }) },
