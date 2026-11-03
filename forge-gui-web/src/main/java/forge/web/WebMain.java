@@ -92,6 +92,8 @@ public final class WebMain {
             prefs.setPref(FPref.UI_ENABLE_ONLINE_IMAGE_FETCHER, false);
             prefs.setPref(FPref.UI_ENABLE_SOUNDS, false);
             prefs.setPref(FPref.UI_ENABLE_MUSIC, false);
+            // upstream's local replays (HostedMatch) race the game thread here, and the tracker keeps its own replays
+            prefs.setPref(FPref.UI_RECORD_REPLAYS, false);
             prefs.setPref(FPref.UI_MATCHES_PER_GAME, "1");
             prefs.setPref(FPref.UI_SHOW_ACTIONABLE_HIGHLIGHTS, true);
             // The engine passes priority for a player who has nothing they could do (its own check of
