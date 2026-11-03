@@ -133,6 +133,7 @@ public final class WebMain {
         @Override public boolean isRunningOnDesktop() { return true; }
         @Override public boolean isLibgdxPort() { return false; }
         @Override public String getCurrentVersion() { return "web"; }
+        @Override public String getUserAgent() { return "Forge/web (gui-web)"; }
         @Override public void invokeInEdtNow(Runnable runnable) { WebEdt.invokeNow(runnable); }
         @Override public void invokeInEdtLater(Runnable runnable) { WebEdt.invokeLater(runnable); }
         @Override public void invokeInEdtAndWait(Runnable proc) { WebEdt.invokeAndWait(proc); }
