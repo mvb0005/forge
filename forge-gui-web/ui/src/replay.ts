@@ -79,7 +79,11 @@ function feed(m: ServerMessage) {
   s.apply(m)
 }
 
-export type Stop = { pos: number; turn: number; phase: PhaseName | null; seq: number; ms: number }
+/** quiet: nothing happened in the step this stop is in (no stack, no log beyond turn, phase and mana lines, nothing
+ * asked), so stepping and playing may skip it. */
+export type Stop = { pos: number; turn: number; phase: PhaseName | null; seq: number; ms: number; quiet: boolean }
+
+const NOISE = new Set(['PHASE', 'TURN', 'MANA'])
 
 export type ReplayIndex = {
   stops: Stop[]
@@ -95,13 +99,16 @@ export function indexReplay(r: Replay, initial: ForgeState): ReplayIndex {
   const stops: Stop[] = []
   let seq = 0
   let seqMs = 0 // when the state a stop shows arrived
+  let busy = false // something happened since the last stop
   const stop = (pos: number) => {
-    const g = useForge.getState().game
-    stops.push({ pos, turn: g?.turn ?? 0, phase: g?.phase ?? null, seq, ms: seqMs })
+    const s = useForge.getState()
+    stops.push({ pos, turn: s.game?.turn ?? 0, phase: s.game?.phase ?? null, seq, ms: seqMs, quiet: !busy && !s.stack.length })
+    busy = false
   }
   r.lines.forEach((l, i) => {
     if (i % KEYFRAME_EVERY === 0) keyframes.push(useForge.getState())
     if (l.m.t === 'state' && seq > 0) stop(i)
+    if (l.m.t === 'ask' || (l.m.t === 'state' && l.m.logAppend?.some((e) => !NOISE.has(e.type)))) busy = true
     feed(l.m)
     if (l.m.t === 'state') {
       seq = l.m.seq
@@ -109,6 +116,15 @@ export function indexReplay(r: Replay, initial: ForgeState): ReplayIndex {
     }
   })
   stop(r.lines.length)
+  // A step is quiet only if every stop in it is.
+  for (let a = 0; a < stops.length; ) {
+    let b = a
+    while (b + 1 < stops.length && stops[b + 1].turn === stops[a].turn && stops[b + 1].phase === stops[a].phase) b++
+    const quiet = stops.slice(a, b + 1).every((x) => x.quiet)
+    for (let i = a; i <= b; i++) stops[i].quiet = quiet
+    a = b + 1
+  }
+  stops[0].quiet = stops[stops.length - 1].quiet = false
   return { stops, keyframes }
 }
 

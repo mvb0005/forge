@@ -85,12 +85,13 @@ function ReplayTable({ replay, idx }: Loaded) {
   const [stop, setStop] = useState(() => startStop(idx))
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState(2)
+  const [skip, setSkip] = useState(true) // skip quiet steps when stepping and playing
   const shown = useRef(-1)
-  // Moving one stop forward applies just the messages between, so the table animates as it did live; anything
+  // Moving a little forward applies just the messages between, so the table animates as it did live; anything
   // else seeks from a keyframe.
   useLayoutEffect(() => {
     const from = shown.current
-    if (from >= 0 && stop === from + 1) advanceReplay(replay, idx.stops[from].pos, idx.stops[stop].pos)
+    if (from >= 0 && stop > from && idx.stops[stop].pos - idx.stops[from].pos < 200) advanceReplay(replay, idx.stops[from].pos, idx.stops[stop].pos)
     else seekReplay(replay, idx, idx.stops[stop].pos)
     shown.current = stop
     const url = new URL(location.href)
@@ -98,33 +99,38 @@ function ReplayTable({ replay, idx }: Loaded) {
     history.replaceState(null, '', url)
   }, [replay, idx, stop])
   const last = idx.stops.length - 1
+  const quiet = useCallback((i: number) => skip && i > 0 && i < last && idx.stops[i].quiet, [skip, idx, last])
   useEffect(() => {
     if (!playing) return
     if (stop >= last) {
       setPlaying(false)
       return
     }
-    const t = setTimeout(() => setStop((s) => Math.min(s + 1, last)), beatMs(idx, stop, speed))
+    let next = stop + 1
+    while (quiet(next)) next++
+    const t = setTimeout(() => setStop(Math.min(next, last)), beatMs(idx, stop, speed))
     return () => clearTimeout(t)
-  }, [playing, stop, speed, idx, last])
+  }, [playing, stop, speed, idx, last, quiet])
 
   const go = useCallback((s: number) => setStop(Math.max(0, Math.min(last, s))), [last])
   // To the first stop of the next turn or step; back, to the start of this one, or of the one before when already there.
+  // Quiet steps are passed over.
   const jump = useCallback((dir: 1 | -1, same: (a: number, b: number) => boolean) => {
     if (dir > 0) {
       let i = stop + 1
       while (i <= last && same(i, stop)) i++
+      while (quiet(i)) i++
       go(i)
       return
     }
     let j = stop
     while (j > 0 && same(j - 1, j)) j--
-    if (j === stop && j > 0) {
+    while (j > 0 && (j === stop || quiet(j))) {
       j--
       while (j > 0 && same(j - 1, j)) j--
     }
     go(j)
-  }, [stop, last, go])
+  }, [stop, last, go, quiet])
   const sameTurn = useCallback((a: number, b: number) => idx.stops[a].turn === idx.stops[b].turn, [idx])
   const samePhase = useCallback((a: number, b: number) => sameTurn(a, b) && idx.stops[a].phase === idx.stops[b].phase, [idx, sameTurn])
 
@@ -161,15 +167,15 @@ function ReplayTable({ replay, idx }: Loaded) {
       <AskHost />
       <Toasts />
       <GameOverModal />
-      <ReplayBar replay={replay} idx={idx} stop={stop} playing={playing} speed={speed}
+      <ReplayBar replay={replay} idx={idx} stop={stop} playing={playing} speed={speed} skip={skip} onSkip={() => setSkip((x) => !x)}
         onStop={go} onPlay={() => setPlaying((p) => !p)} onSpeed={setSpeed}
         onTurn={(d) => jump(d, sameTurn)} onPhase={(d) => jump(d, samePhase)} />
     </div>
   )
 }
 
-function ReplayBar({ replay, idx, stop, playing, speed, onStop, onPlay, onSpeed, onTurn, onPhase }: {
-  replay: Replay; idx: ReplayIndex; stop: number; playing: boolean; speed: number
+function ReplayBar({ replay, idx, stop, playing, speed, skip, onSkip, onStop, onPlay, onSpeed, onTurn, onPhase }: {
+  replay: Replay; idx: ReplayIndex; stop: number; playing: boolean; speed: number; skip: boolean; onSkip: () => void
   onStop: (s: number) => void; onPlay: () => void; onSpeed: (s: number) => void; onTurn: (d: 1 | -1) => void; onPhase: (d: 1 | -1) => void
 }) {
   const s = idx.stops[stop]
@@ -205,6 +211,8 @@ function ReplayBar({ replay, idx, stop, playing, speed, onStop, onPlay, onSpeed,
           <button key={x} type="button" className={`${btn} ${x === speed ? 'bg-panel-2 text-ink' : ''}`} onClick={() => onSpeed(x)}>{x}×</button>
         ))}
         <span className="mx-1 h-4 w-px bg-line" />
+        <button type="button" className={`${btn} whitespace-nowrap ${skip ? 'bg-panel-2 text-ink' : ''}`} onClick={onSkip}
+          title="Step and play past steps where nothing happened">Skip quiet</button>
         <button type="button" className={btn} title="Copy a link to this moment" onClick={copy}>{copied ? 'Copied' : 'Link'}</button>
       </div>
       <div className="relative h-5">

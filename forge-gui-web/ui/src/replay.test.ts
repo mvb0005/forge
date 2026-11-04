@@ -103,4 +103,23 @@ describe('replay', () => {
     expect([0, 1, 2, 3].map((i) => beatMs(idx, i, 1))).toEqual([120, 400 - 5, 1000, 0])
     expect(beatMs(idx, 1, 4)).toBe((400 - 5) / 4)
   })
+
+  it('marks a step quiet when only turn, phase and mana lines happened in it', () => {
+    const log = (type: string) => ({ logAppend: [{ type, message: type }] })
+    const r = stream([
+      state(1, 1, 'UPKEEP', [1]),
+      { ...state(2, 1, 'UPKEEP', [1]), ...log('PHASE') },
+      { ...state(3, 1, 'DRAW', [1]), ...log('MANA') },
+      { ...state(4, 1, 'MAIN1', [1]), ...log('PHASE') },
+      { ...state(5, 1, 'MAIN1', [1, 2]), ...log('LAND') },
+      { ...state(6, 1, 'COMBAT_BEGIN', [1, 2]), ...log('PHASE') },
+      { t: 'ask', id: 1, ask: { kind: 'option', title: 'x', message: 'x', options: ['a'], defaultIndex: 0 } },
+      state(7, 1, 'END_OF_TURN', [1, 2]),
+      state(8, 2, 'UPKEEP', [1, 2]),
+    ])
+    const idx = indexReplay(r, initial)
+    expect(idx.stops.map((s) => `${s.phase}${s.quiet ? ' quiet' : ''}`)).toEqual([
+      'UPKEEP', 'UPKEEP quiet', 'DRAW quiet', 'MAIN1', 'MAIN1', 'COMBAT_BEGIN', 'END_OF_TURN quiet', 'UPKEEP',
+    ])
+  })
 })
