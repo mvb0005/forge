@@ -156,6 +156,7 @@ A client ignores caps it doesn't know and must not rely on a feature whose cap i
 | `game.turnOrder` | `GameDto.turnOrder` |
 | `timer.respond` | the `timer` message: the server passes priority for you when you don't respond in time |
 | `match.commander` | the server plays Commander (`MatchSpec.format: "commander"`) |
+| `autopass` | the `autopass` message and `yield` / `unyield` / `holdPriority` (docs/AUTOPASS.md) |
 
 Changes from v1: `caps`; `GameDto.log` replaced by `state.logAppend`/`logReset`;
 `selectables.playerIds`; assists are computed when the engine asks the human for input (not on
@@ -396,8 +397,27 @@ prompted or timed. It counts only while the game is as it was: any action (a cas
 on the stack, a resolve or a new step starts a new `round`, and a pass for an old round is refused (a `flash` notice).
 If someone acted, you get a "Pass cancelled" `notice` naming what they did. `passed`: you have passed ahead this
 round; `{ t:"unpassAhead" }` takes it back. Offered only where priority would ask you (the stack isn't empty, or the
-step is one of your stops); waiting never runs your clock, the `timer` starts when priority reaches you. Sent only to
+step is one of your stops, see `autopass`), and never while you have a yield running; waiting never runs your clock, the `timer` starts when priority reaches you. Sent only to
 your own seat, when it changes; nothing about other seats' passes is ever sent.
+
+### `autopass`
+`{ t:"autopass", yield:{ kind:"turn"|"nextTurn"|"endStep"|"stack", label:string, playerId?:number }|null, hold:boolean,
+stopped?:string, stackId?:number }` (cap `autopass`, docs/AUTOPASS.md): this seat's "pass until …", sent when it starts
+or ends, when `hold` changes, and on connect. While `yield` is set every priority passes for you (the stack included);
+`label` is what to show ("Passing until Ann's end step"), `playerId` the player whose step it waits for. It ends at its
+target (end of turn: cleanup; `nextTurn`: your upkeep; `endStep`: that player's end step; `stack`: the stack is empty)
+or when an interrupt fires: attackers declared against you or your planeswalkers, a spell or ability targeting you or
+something you control, or a mass removal spell. Then `stopped` says why ("Ann cast Shock targeting your Llanowar
+Elves", "Ben attacks you") and `stackId` points at the stack item; `stopped` is sent until the step changes or the
+prompt after the one it stopped at. A yield you end yourself has no `stopped`. Only priority is ever passed: targets,
+choices, attackers, blockers and every `ask` wait for you as always. `hold`: after you cast a spell or activate an
+ability you are asked again with it on top (off by default: the server passes there, as MTGO does; your own
+triggers still ask).
+
+Where an empty stack asks you, yield or not (the engine passes anyway when you have nothing to do): on your turn main
+1, declare attackers, declare blockers, first strike damage and main 2; on someone else's turn their end step, their
+declare attackers, declare blockers and first strike damage only when something attacks you, a planeswalker you
+control or a battle you protect, and their beginning of combat only in a two-player game.
 
 ### `assist`
 Help computed by the engine; the UI only displays it and never computes rules itself.
@@ -475,6 +495,8 @@ permanents changed), so during most of an AI turn it shows the board at your las
 | `{t:"selectPlayer", playerId:number, shift:boolean, button:number}` | click on a player |
 | `{t:"ok"}` / `{t:"cancel"}` | the two prompt buttons |
 | `{t:"passAhead", round:number}` / `{t:"unpassAhead"}` | pass now for the `ahead` round you were sent, or take it back |
+| `{t:"yield", kind:"turn"\|"nextTurn"\|"endStep"\|"stack", playerId?:number}` | pass until …: `endStep` takes an opponent's `playerId`; `stack` only with something on it; refused (a `flash` notice) when it can't be set now. Replaces a running yield |
+| `{t:"unyield"}` / `{t:"holdPriority", on:boolean}` | stop passing now / ask after your own spells too (`autopass.hold`) |
 | `{t:"answer", id:number, value:any}` | reply to `ask` |
 | `{t:"useMana", color:"W"\|"U"\|"B"\|"R"\|"G"\|"C"}` | spend floating mana |
 | `{t:"undo"}` / `{t:"concede"}` / `{t:"alphaStrike"}` | |
