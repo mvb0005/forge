@@ -2,6 +2,7 @@
 // and Ben (two Shocks, so he always has something to do and Forge never passes for him on its own).
 // usage: node tools/autopass.mjs [--port 7777] [--control-port 7790] [--verbose]
 // 1. Ann casts a Shock at Ben: she isn't asked again with her own spell on top; Ben is.
+// 1b. Ben answers with his own Shock (passed for him); when it has resolved and Ann's Shock is back on top, Ann is asked.
 // 2. Ben passes "until the stack resolves": the Shock resolves and the yield ends with no "stopped".
 // 3. Ben passes "until Ann's end step". Ann Shocks herself: Ben isn't asked. Ann Shocks Ben: Ben's yield stops,
 //    saying why and pointing at the Shock, and he is asked.
@@ -96,20 +97,21 @@ while (Date.now() < openEnd && !(mine(ann) && ann.game?.phase === "MAIN1")) {
 check(ann.caps.includes("autopass"), "the server has the autopass cap");
 check(mine(ann) && ann.game?.phase === "MAIN1", "Ann has priority in her main phase");
 
-async function castShock(at) {
-  const shock = [...ann.cards.values()].find((x) => x.zone === "hand" && x.name === "Shock" && x.controllerId === idOf(ann, "Ann"));
-  const target = idOf(ann, at);
-  const before = ann.stack.length;
-  ann.send({ t: "selectCard", cardId: shock.id, shift: false, button: 1 });
-  await until("Ann to be asked for a target", () => ann.selPlayers.includes(target) || ann.stack.length > before, 5000);
-  if (ann.selPlayers.includes(target)) ann.send({ t: "selectPlayer", playerId: target, shift: false, button: 1 });
-  for (let i = 0; i < 10 && ann.stack.length === before; i++) {
+async function castShock(at, c = ann) {
+  const me = idOf(c, c.name);
+  const shock = [...c.cards.values()].find((x) => x.zone === "hand" && x.name === "Shock" && x.controllerId === me);
+  const target = idOf(c, at);
+  const before = c.stack.length;
+  c.send({ t: "selectCard", cardId: shock.id, shift: false, button: 1 });
+  await until(`${c.name} to be asked for a target`, () => c.selPlayers.includes(target) || c.stack.length > before, 5000);
+  if (c.selPlayers.includes(target)) c.send({ t: "selectPlayer", playerId: target, shift: false, button: 1 });
+  for (let i = 0; i < 10 && c.stack.length === before; i++) {
     await sleep(300);
-    if (ann.stack.length !== before || !/Pay Mana Cost/.test(ann.prompt)) continue;
-    const land = [...ann.cards.values()].find((x) => x.zone === "battlefield" && x.name === "Mountain" && !x.tapped && x.controllerId === idOf(ann, "Ann"));
-    if (land) ann.send({ t: "selectCard", cardId: land.id, shift: false, button: 1 });
+    if (c.stack.length !== before || !/Pay Mana Cost/.test(c.prompt)) continue;
+    const land = [...c.cards.values()].find((x) => x.zone === "battlefield" && x.name === "Mountain" && !x.tapped && x.controllerId === me);
+    if (land) c.send({ t: "selectCard", cardId: land.id, shift: false, button: 1 });
   }
-  return until("the Shock on the stack", () => ann.stack.length === before + 1);
+  return until("the Shock on the stack", () => c.stack.length === before + 1);
 }
 
 // 1. Your own spell on top passes.
@@ -119,6 +121,20 @@ await until("Ben's priority", () => mine(ben) && ben.stack.length === 1);
 check(mine(ben) && ben.stack.length === 1, "1. Ben is asked with Ann's Shock on the stack");
 const annAskedOnOwn = ann.msgs.slice(annFrom).some((m) => m.t === "prompt" && /Stack: 1 to Resolve/.test(m.message));
 check(!annAskedOnOwn, "1. Ann was not asked again with her own Shock on top");
+
+// 1b. Ben answers with his own Shock (passed for him: his own on top). Once it resolves Ann's Shock is on top again,
+//     and Ann is asked this time: Ben's response may need an answer.
+const annLife1 = lifeOf(ann, "Ann");
+await castShock("Ann", ben);
+await until("Ann's priority with Ben's Shock on top", () => mine(ann) && ann.stack.length === 2);
+check(mine(ann) && ann.stack.length === 2, "1b. Ann is asked with Ben's Shock on top (Ben was passed for)");
+ann.send({ t: "ok" });
+await until("Ben's Shock to resolve", () => lifeOf(ann, "Ann") === annLife1 - 2);
+await until("Ann's priority with her own Shock back on top", () => mine(ann) && ann.stack.length === 1);
+check(mine(ann) && ann.stack.length === 1, "1b. Ann is asked once her own Shock is back on top");
+console.log(`     (Ann's Cancel there: "${ann.buttons?.cancel.label}")`);
+ann.send({ t: "ok" });
+await until("Ben's priority", () => mine(ben) && ben.stack.length === 1);
 
 // 2. Until the stack resolves.
 let benFrom = ben.msgs.length;

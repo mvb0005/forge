@@ -59,7 +59,7 @@ final class Stops {
         return false;
     }
 
-    /** The top of the stack is the seat's own spell or activated ability (not a trigger): it just put it there. */
+    /** The top of the stack is the seat's own spell or activated ability (not a trigger). */
     static boolean ownTop(Game game, Player seat) {
         SpellAbilityStackInstance top = game.getStack().peek();
         return top != null && !top.isTrigger() && top.getActivatingPlayer() == seat;

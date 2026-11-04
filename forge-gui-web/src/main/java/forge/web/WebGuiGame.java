@@ -116,6 +116,7 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     private Runnable respondPass;
     private volatile InputPassPriority skipping; // the priority prompt passNow is passing, whose buttons aren't sent
     private volatile boolean holdPriority; // ask after this seat's own spells and abilities too
+    private volatile int ownPassed = -1; // the stack item of ours passNow last passed on
     // the rest of autopass state is guarded by io
     private Yields.Running yielding;
     private boolean userStopped; // the seat ended its yield itself: no "stopped" reason
@@ -1824,9 +1825,13 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
                 || !(h.getInputQueue().getInput() instanceof InputPassPriority pp)) {
             return null;
         }
-        // take() first: a pass ahead that reached us is used either way
-        if (!ahead.take(seat) && (holdPriority || !Stops.ownTop(game, seat))) {
-            return null;
+        // take() first: a pass ahead that reached us is used either way. Your own item on top passes only the first
+        // time: back on top after someone else's response resolved, you're asked (that response may need an answer).
+        if (!ahead.take(seat)) {
+            if (holdPriority || !Stops.ownTop(game, seat) || game.getStack().peek().getId() == ownPassed) {
+                return null;
+            }
+            ownPassed = game.getStack().peek().getId();
         }
         WebEdt.invokeLater(() -> {
             if (!disposed && h.getInputQueue().getInput() == pp) {
