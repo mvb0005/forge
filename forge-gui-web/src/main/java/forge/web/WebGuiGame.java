@@ -40,6 +40,7 @@ import forge.gamemodes.match.YieldUpdate;
 import forge.gamemodes.match.NextGameDecision;
 import forge.gamemodes.match.input.InputAttack;
 import forge.gamemodes.match.input.InputConfirm;
+import forge.gamemodes.match.input.InputLockUI;
 import forge.gamemodes.match.input.InputPassPriority;
 import forge.gamemodes.match.input.InputPayMana;
 import forge.gamemodes.match.input.InputSelectEntitiesFromList;
@@ -967,10 +968,19 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
             }
             case "ok" -> ctrl.selectButtonOk();
             case "cancel" -> {
+                // While passing, Cancel on the engine's "Yielding until …" prompt is Stop; on a real decision (a
+                // discard, targets) it is that decision's Cancel.
+                Object input = ctrl instanceof PlayerControllerHuman h ? h.getInputQueue().getInput() : null;
+                boolean stop;
                 synchronized (io) {
-                    userStopped = yielding != null; // Cancel while passing is Stop (InputLockUI ends the yield)
+                    stop = yielding != null && ctrl instanceof PlayerControllerHuman && (input == null || input instanceof InputPassPriority || input instanceof InputLockUI);
+                    userStopped = stop;
                 }
-                ctrl.selectButtonCancel();
+                if (stop) {
+                    ((PlayerControllerHuman) ctrl).getYieldController().clearActiveYieldAndDispatch();
+                } else {
+                    ctrl.selectButtonCancel();
+                }
             }
             case "useMana" -> {
                 byte b = switch (str(m, "color", "")) {
