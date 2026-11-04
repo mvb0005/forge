@@ -248,11 +248,43 @@ suggestions stay off (APINA already covers them).
 | Q-A6 | Muting abilities (M14.2): a hook in upstream's `AvailableActions` or our own copy of its walk? | Our own copy in forge-gui-web: no upstream edits, and it can say which ability made you stop | not built |
 | Q-A7 | Should reaching a yield's target always ask, even with nothing to do? | No: the target ends the yield and your stops decide (so "my next turn" doesn't ask in upkeep) | assumed no |
 
+## The M14.1 prototype
+
+Built on branch `web/auto-pass` with the "Prototype" column's choices. Nothing in `forge-gui` changed.
+
+- Server: `Stops` (the stop table above, combat involvement, "your own item on top"), `Yields` (kinds to upstream
+  yield updates, the running yield's label, reached or interrupted, and why), `WebGuiGame` (`isUiSetToSkipPhase`
+  asks `Stops`; `passNow` passes a priority prompt without sending it when a pass ahead reaches the seat or its own
+  item is on top; the `autopass` message; `yield` / `unyield` / `holdPriority`; per-seat interrupt defaults on the
+  seat's `YieldController`), `PassAhead.open` asks the seat (`wouldAsk`). Cap `autopass`.
+- Upstream ends "until the stack resolves" only at the seat's next priority; the web ends it when the stack empties
+  (`updateStack`), so the table doesn't say "Passing" in between.
+- UI: `shell/PassMenu.tsx` ("Pass until…" above the plate's buttons, or "⏩ Passing until … · Stop" while a yield
+  runs); the headline and the dock say "Passing" and the yield, and "Stopped passing: …" after an interrupt,
+  pointing at the stack item. Cancel (Esc) on the engine's "Yielding until …" prompt stops the yield; a real
+  decision while passing (the cleanup discard, a reveal, targets) shows as itself and keeps its own Cancel.
+- Tests: `AutoPassTest` (engine, 16 cases: stops, involvement, own top, what the scan counts, yields, why),
+  `tools/autopass.mjs` (two human seats: own Shock passes, stack yield, end-step yield not stopped by a spell at
+  someone else, stopped by one at you, reached at the end step), `PassMenu.test.ts`. `tools/passahead.mjs` now sets
+  Ann to hold priority, since she responds to her own Shocks.
+
+Try it: build the jar and the UI, start a server, then `node tools/start.mjs` (Commander, 3 AIs) and open the seat
+link. Cast a spell: you aren't asked again with it on top. Open "Pass until…" and pick an opponent's end step; an
+attack on you or a spell at you stops it and says why.
+
+Checked in Chrome (desktop width) on a Commander game against 3 AIs: the menu lists the opponents in turn order
+after you; "until my next turn" went from turn 2 to turn 6 without a prompt; the cleanup discard was still asked
+while passing. Not checked: the 390 px Discord frame (the window resize didn't take).
+
+Known gaps: the menu sits above the plate's buttons rather than as a chevron on OK; a skipped priority prompt still
+sends its `selectables`/`playable` (harmless, replaced at once); "why" reads the game when the interrupt fires, so
+it names the top of the stack, which is the spell that interrupted.
+
 ## Milestones
 
 | ID | Milestone | Exit criteria | Status |
 |---|---|---|---|
-| M14.1 | **Fewer pointless stops** (least work, most stops removed). Situational combat stops on others' turns; their beginning of combat only in 1v1; pass after your own spell unless holding; the pass menu with the four yields on upstream's `YieldController`; per-seat interrupt defaults; the `autopass` message with "Passing until …", Stop, and why it stopped; `PassAhead` asks the seat's real stops | Engine tests for the stop and yield decisions; smoke and passahead pass; the menu works at 390 px | prototype (assumptions marked above) |
+| M14.1 | **Fewer pointless stops** (least work, most stops removed). Situational combat stops on others' turns; their beginning of combat only in 1v1; pass after your own spell unless holding; the pass menu with the four yields on upstream's `YieldController`; per-seat interrupt defaults; the `autopass` message with "Passing until …", Stop, and why it stopped; `PassAhead` asks the seat's real stops | Engine tests for the stop and yield decisions; smoke and passahead pass; the menu works at 390 px | prototype, 2026-11-03 (assumptions marked above; the 390 px check not done) |
 | M14.2 | **Why and mute.** "You could …" line from the scan; "Don't stop for this" per ability; our own scan with a skip set (Q-A6) | A muted Clue no longer stops you; tests | todo |
 | M14.3 | **Stops sheet.** Smart / Every step / Custom per step, stop for every combat, interrupts as toggles, trigger-you-control interrupt; settings kept across games (Q-A5) | Settings survive a reconnect and a new game | todo |
 | M14.4 | **Threatened.** Opt-in interrupt when the stack threatens your stuff without targeting (the AI's threat prediction), measured against the 50 ms assist budget | p95 within budget on the Commander bench board | todo |

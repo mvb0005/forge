@@ -143,6 +143,7 @@ Each milestone ends playable. Exit criteria are the definition of done.
 | M8 | Customization and accessibility | M2 | todo |
 | M9 | Desktop packaging (Tauri) | | parked |
 | M11 | Multiplayer with friends: mtg-tracker connects people (a play module), the game server only runs games; one table per server, 4 seats with AI fill, pause on disconnect; replicas deferred (MULTIPLAYER.md). M12, less waiting, comes after | M10 | todo |
+| M14 | Auto-passing: situational stops, "pass until …" yields on upstream's YieldController, why it stopped ([AUTOPASS.md](AUTOPASS.md)) | M12 | doing (M14.1 prototype) |
 
 During your turn the table draws every opponent battlefield in columns, and on other turns one board stays full size with the rest as strips (M7); Tab fan-out (Q-09) is still open.
 

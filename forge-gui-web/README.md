@@ -103,10 +103,13 @@ folder.
 
 ```
 cd forge-gui-web/ui && npx tsc -p tsconfig.app.json --noEmit && npm run test
+mvn -o -pl forge-gui-web -am -Dtest=AutoPassTest -Dsurefire.failIfNoSpecifiedTests=false test   # stops and yields on a real game (APPDATA/LOCALAPPDATA at a scratch folder)
 node forge-gui-web/tools/smoke.mjs                      # a full game, random decks, started through the control API
 node forge-gui-web/tools/smoke.mjs --state token-pod-turn12.txt
 node forge-gui-web/tools/smoke.mjs --format commander --tracker-deck reign-of-dragons.txt --curated neyali,jeleva
 node forge-gui-web/tools/lifecycle.mjs                  # the control API: seats, tickets, 409, ending a match
+node forge-gui-web/tools/passahead.mjs [--three]        # passing ahead with two human seats
+node forge-gui-web/tools/autopass.mjs                   # pass after your own spell, "pass until …" yields and why they stop
 ```
 
 Tracker decklist exports for `--tracker-deck` live in `tools/decks/` (`node tools/smoke.mjs --format commander
