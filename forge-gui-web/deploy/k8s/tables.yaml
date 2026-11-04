@@ -19,6 +19,20 @@ spec:
     - name: control
       port: 7790
 ---
+# The replay viewer (/play/table/<id>/replay/, router.conf) is the table UI on the warm spare, the newest build:
+# mtg-tracker swaps the spare as soon as a deploy changes the template.
+apiVersion: v1
+kind: Service
+metadata:
+  name: viewer
+spec:
+  selector:
+    app: forge-table
+    forge/state: spare
+  ports:
+    - name: http
+      port: 7777
+---
 # mtg-tracker's service account manages the table pods here, and reads their template.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
