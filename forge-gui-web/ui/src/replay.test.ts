@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { advanceReplay, beatMs, indexReplay, parseReplay, replayHello, seekReplay, stopAtSeq } from './replay'
+import { advanceReplay, beatMs, indexReplay, parseReplay, replayHello, replaySource, seekReplay, stopAtSeq } from './replay'
 import { checkReplay } from './replayCheck'
 import { useForge } from './store'
 
@@ -121,5 +121,14 @@ describe('replay', () => {
     expect(idx.stops.map((s) => `${s.phase}${s.quiet ? ' quiet' : ''}`)).toEqual([
       'UPKEEP', 'UPKEEP quiet', 'DRAW quiet', 'MAIN1', 'MAIN1', 'COMBAT_BEGIN', 'END_OF_TURN quiet', 'UPKEEP',
     ])
+  })
+
+  it("opens a game's replay from its table address", () => {
+    const q = (s: string) => new URLSearchParams(s)
+    expect(replaySource('/play/table/acb5115569964078/replay/', q(''))).toBe('/play/games/acb5115569964078/replay')
+    expect(replaySource('/play/table/acb5115569964078/replay/', q('?seat=1&at=40'))).toBe('/play/games/acb5115569964078/replay/1')
+    expect(replaySource('/play/table/acb5115569964078/replay/', q('?seat=x'))).toBe('/play/games/acb5115569964078/replay')
+    expect(replaySource('/play/table/acb5115569964078/', q(''))).toBeNull()
+    expect(replaySource('/', q('?replay=/f.gz'))).toBe('/f.gz')
   })
 })

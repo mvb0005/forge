@@ -50,6 +50,17 @@ export async function readReplay(data: ArrayBuffer): Promise<Replay> {
   return parseReplay(text)
 }
 
+/** The replay file a page shows: ?replay=<url>, or a game's replay page /play/table/<match>/replay/ (router.conf),
+ * whose file is the tracker's, for seat ?seat=N or the tracker's pick. */
+export function replaySource(path: string, q: URLSearchParams): string | null {
+  const src = q.get('replay')
+  if (src) return src
+  const id = /\/play\/table\/([0-9a-f]{16})\/replay\//.exec(path)?.[1]
+  if (!id) return null
+  const seat = q.get('seat')
+  return `/play/games/${id}/replay${seat && /^\d+$/.test(seat) ? `/${seat}` : ''}`
+}
+
 /** The hello the seat's browser got when it connected; replays start with it. */
 export function replayHello(h: ReplayHeader): ServerMessage {
   return { t: 'hello', version: h.version, caps: h.caps, inMatch: true, seat: h.seat, who: h.who } as ServerMessage

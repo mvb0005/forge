@@ -7,6 +7,7 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { useForge } from './store'
 import { lazy, Suspense } from 'react'
 import { PeekRoot } from './popover/PeekRoot'
+import { replaySource } from './replay'
 
 const Bench = lazy(() => import('./bench/Bench').then((m) => ({ default: m.Bench })))
 const ReplayPage = lazy(() => import('./shell/Replay').then((m) => ({ default: m.ReplayPage })))
@@ -19,7 +20,7 @@ export default function App() {
   const q = new URLSearchParams(location.search)
   if (q.has('preview')) return <BoardPreview />
   if (q.has('bench')) return <Suspense><Bench /></Suspense>
-  if (q.has('replay')) return <Suspense><ReplayPage /></Suspense>
+  if (q.has('replay') || replaySource(location.pathname, q)) return <Suspense><ReplayPage /></Suspense>
   if (DevDialogs && q.has('dialogs')) return <Suspense><DevDialogs /></Suspense>
   if (DevPeek && q.has('peek')) return <Suspense><DevPeek /></Suspense>
   if (DevLook && q.has('look')) return <Suspense><DevLook /></Suspense>

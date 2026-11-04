@@ -3,7 +3,7 @@ import { MatchTable } from '../board/MatchTable'
 import { stepWords } from '../look/phase'
 import { setSendTap } from '../net'
 import { PeekRoot } from '../popover/PeekRoot'
-import { advanceReplay, beatMs, indexReplay, readReplay, seekReplay, stopAtSeq, type Replay, type ReplayIndex } from '../replay'
+import { advanceReplay, replaySource, beatMs, indexReplay, readReplay, seekReplay, stopAtSeq, type Replay, type ReplayIndex } from '../replay'
 import { useForge } from '../store'
 import { ErrorBoundary } from '../ErrorBoundary'
 import { GameOverModal, Toasts } from './Global'
@@ -27,7 +27,7 @@ async function load(data: ArrayBuffer): Promise<Loaded> {
 }
 
 export function ReplayPage() {
-  const src = new URLSearchParams(location.search).get('replay')
+  const src = replaySource(location.pathname, new URLSearchParams(location.search))
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
