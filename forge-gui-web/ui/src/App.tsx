@@ -9,6 +9,7 @@ import { lazy, Suspense } from 'react'
 import { PeekRoot } from './popover/PeekRoot'
 
 const Bench = lazy(() => import('./bench/Bench').then((m) => ({ default: m.Bench })))
+const ReplayPage = lazy(() => import('./shell/Replay').then((m) => ({ default: m.ReplayPage })))
 
 const DevDialogs = import.meta.env.DEV ? lazy(() => import('./shell/DevDialogs').then((m) => ({ default: m.DevDialogs }))) : null
 const DevPeek = import.meta.env.DEV ? lazy(() => import('./popover/DevPeek').then((m) => ({ default: m.DevPeek }))) : null
@@ -18,6 +19,7 @@ export default function App() {
   const q = new URLSearchParams(location.search)
   if (q.has('preview')) return <BoardPreview />
   if (q.has('bench')) return <Suspense><Bench /></Suspense>
+  if (q.has('replay')) return <Suspense><ReplayPage /></Suspense>
   if (DevDialogs && q.has('dialogs')) return <Suspense><DevDialogs /></Suspense>
   if (DevPeek && q.has('peek')) return <Suspense><DevPeek /></Suspense>
   if (DevLook && q.has('look')) return <Suspense><DevLook /></Suspense>

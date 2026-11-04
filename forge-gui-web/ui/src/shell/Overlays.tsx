@@ -67,7 +67,7 @@ function AskBody({ ask }: { ask: Ask }) {
   }
 }
 
-function RevealPanel() {
+export function RevealPanel() {
   const reveal = useForge((s) => s.reveal)
   const cards = useForge((s) => s.cards)
   const clear = useForge((s) => s.clearReveal)
