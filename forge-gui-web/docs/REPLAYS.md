@@ -158,6 +158,8 @@ that hostname. Later, if at all (Q-R7).
 
 ## Questions for Matt
 
+R1 is UI only, so Q-R1, Q-R2 and Q-R5 to Q-R8 weren't needed for it: the prototype assumes nothing about them.
+
 | ID | Question | Options and lean | Blocks |
 |---|---|---|---|
 | Q-R1 | Where the viewer is served from | Router path `/play/table/replay/` to any table pod (lean); a viewer-only Deployment; the tracker | R2 |
@@ -186,10 +188,11 @@ that hostname. Later, if at all (Q-R7).
 (phase), Shift+← and Shift+→ a turn, `,` and `.` one update. A move of one update forward applies just
 that update, so the table animates as it did live; any other move seeks.
 
-To try it, serve the built UI from a local game server with a replay file beside it (a copy of `ui/dist`
-with the file in it, passed as `--ui`), then open
-`http://127.0.0.1:<port>/play/table/?replay=<file>&at=965`. Bare `?replay` asks for a file. `npm run dev`
-works too, without card images.
+To try it: download a replay from the play page's "replay" link, run a local game server (README "Run")
+and `npm run dev` in `ui/` (it proxies card images to the server; `FORGE=host:port`), open
+`http://127.0.0.1:5173/?replay` and pick the file. Without a server it works too, with no card images.
+To test `?replay=<url>` and `&at=`, pass the game server a copy of `ui/dist` with the file in it as `--ui`
+and open `http://127.0.0.1:<port>/play/table/?replay=<file>&at=965`.
 
 Checked on 2026-11-03 with the real file above, the built UI and a local game server (Chrome, window focused):
 
