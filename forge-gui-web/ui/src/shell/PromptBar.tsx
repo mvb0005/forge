@@ -5,6 +5,7 @@ import { useBoardUi } from '../board/uiStore'
 import { stepWords } from '../look/phase'
 import { MoreTime } from '../board/Callouts'
 import { PassAhead } from './PassAhead'
+import { PassMenu } from './PassMenu'
 import { usePrompt, useRespondCountdown } from '../board/situation'
 import { useForge } from '../store'
 
@@ -14,7 +15,12 @@ function isTyping(t: EventTarget | null) {
 
 /** The current action, in large type above OK and Cancel. Gold while the decision is yours. */
 export function PromptHeadline() {
-  const { text, waiting } = usePrompt()
+  const asked = usePrompt()
+  const passing = useForge((s) => s.autopass.yield?.label ?? null)
+  const stopped = useForge((s) => s.autopass.stopped)
+  // While a yield runs the server passes for you: say what you're waiting for, not the engine's yield text.
+  const text = passing ?? asked.text
+  const waiting = passing != null || asked.waiting
   const phase = useForge((s) => s.game?.phase ?? null)
   const left = useRespondCountdown()
   if (!text) return null
@@ -31,7 +37,7 @@ export function PromptHeadline() {
     >
       <span style={{ position: 'absolute', left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, background: waiting ? 'var(--lk-parchment-mute)' : 'var(--lk-gold)' }} />
       <div className="lk-label" style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 11.5, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: waiting ? 'var(--lk-parchment-dim)' : 'var(--lk-gold)' }}>
-        <span style={{ whiteSpace: 'nowrap' }}>{waiting ? 'Waiting' : 'Your move'}</span>
+        <span style={{ whiteSpace: 'nowrap' }}>{passing ? 'Passing' : waiting ? 'Waiting' : 'Your move'}</span>
         {step && <span style={{ fontWeight: 500, letterSpacing: '0.04em', color: 'var(--lk-parchment-mute)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{step}</span>}
         {left != null && !waiting && (
           <span title="The server passes priority for you when this runs out" style={{ marginLeft: 'auto', whiteSpace: 'nowrap', color: left <= 3 ? 'var(--lk-danger, #e0695c)' : 'var(--lk-parchment-dim)', fontVariantNumeric: 'tabular-nums' }}>
@@ -47,6 +53,9 @@ export function PromptHeadline() {
       >
         {text}
       </div>
+      {stopped && !passing && (
+        <div className="lk-text" style={{ marginTop: 4, fontSize: 12.5, color: 'var(--lk-ember-text, #e8a15c)' }}>Stopped passing: {stopped}</div>
+      )}
     </div>
   )
 }
@@ -102,6 +111,7 @@ export function PromptBar() {
   const spectating = useForge((s) => !!s.game && s.game.localPlayerIds.length === 0)
   const over = useForge((s) => !!s.game?.gameOver) // still true after "See the board" closes the result
   const backUrl = useForge((s) => s.returnUrl)
+  const passing = useForge((s) => !!s.autopass.yield)
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -119,7 +129,10 @@ export function PromptBar() {
           send({ t: 'ok' })
         }
       } else if (e.key === 'Escape') {
-        if (b?.cancel.enabled && !useBoardUi.getState().zoneView) {
+        if (s.autopass.yield && !useBoardUi.getState().zoneView) {
+          e.preventDefault()
+          send({ t: 'unyield' })
+        } else if (b?.cancel.enabled && !useBoardUi.getState().zoneView) {
           e.preventDefault()
           send({ t: 'cancel' })
         }
@@ -154,8 +167,14 @@ export function PromptBar() {
   return (
     <div ref={root} key={shake} className={`lk-text ${shake ? 'shell-shake' : ''}`} style={{ position: 'relative', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 8, width: '100%', height: '100%' }}>
       {settling && <span key={change} aria-hidden className="settle-bar" style={{ position: 'absolute', left: 0, right: 0, top: -6, height: 2, borderRadius: 1, background: 'var(--lk-gold)', transformOrigin: 'left', animation: `settle ${SETTLE_MS}ms linear forwards` }} />}
+      <PassMenu />
       <PassAhead />
-      {showCancel ? (
+      {passing ? (
+        <button type="button" onClick={() => send({ t: 'unyield' })} style={plateButton(false)}>
+          Stop passing
+          <span style={{ fontWeight: 500, opacity: 0.55 }}>Esc</span>
+        </button>
+      ) : showCancel ? (
         <button type="button" disabled={!cancel.enabled} onClick={() => settled() && send({ t: 'cancel' })} style={{ ...plateButton(false), opacity: cancel.enabled ? (settling ? 0.6 : 1) : 0.4, cursor: cancel.enabled ? 'pointer' : 'default' }}>
           {cancel.label || 'Cancel'}
           {cancel.enabled && <span style={{ fontWeight: 500, opacity: 0.55 }}>Esc</span>}

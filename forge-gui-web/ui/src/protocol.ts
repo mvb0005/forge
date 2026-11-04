@@ -163,8 +163,14 @@ export type ServerMessage =
   | { t: 'timer'; seconds: number | null }
   // Passing ahead: while someone else has priority, whether you may pass now for `round` (open) and have (passed).
   | { t: 'ahead'; round: number; open: boolean; passed: boolean }
+  // This seat's "pass until …" (cap autopass): what it waits for, whether you hold priority after your own spells,
+  // and why the last one ended early (with the stack item to point at).
+  | { t: 'autopass'; yield: YieldDto | null; hold: boolean; stopped?: string; stackId?: number }
   | AssistMessage
   | { t: 'error'; message: string }
+
+export type YieldKind = 'turn' | 'nextTurn' | 'endStep' | 'stack'
+export type YieldDto = { kind: YieldKind; label: string; playerId?: number }
 
 export type ManaColor = keyof ManaPool
 
@@ -175,6 +181,9 @@ export type ClientMessage =
   | { t: 'moreTime' } // "In response": 20 more seconds on the respond timer
   | { t: 'passAhead'; round: number } // pass now for the round you were shown; refused once it's over
   | { t: 'unpassAhead' }
+  | { t: 'yield'; kind: YieldKind; playerId?: number } // pass until …; endStep names an opponent
+  | { t: 'unyield' } // stop passing
+  | { t: 'holdPriority'; on: boolean } // ask after your own spells and abilities too
   | { t: 'cancel' }
   | { t: 'answer'; id: number; value: unknown }
   | { t: 'useMana'; color: ManaColor }
