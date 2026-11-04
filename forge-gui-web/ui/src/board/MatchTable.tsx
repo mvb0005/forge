@@ -10,6 +10,7 @@ import { Arrows } from './Arrows'
 import { Arena } from './Arena'
 import { BlockSlots } from './CombatArena'
 import { Face } from './Face'
+import { HandScroll } from './HandScroll'
 import { Scoreboard } from './Scoreboard'
 import { SidePanel } from './Preview'
 import { CommandSlots, Piles, PlayerBorder, Ribbon, SeatPlate, StripSeat, useSeatColors } from './Seat'
@@ -146,6 +147,7 @@ export function MatchTable({ centerSlot }: { centerSlot: ReactNode }) {
               <BlockSlots layout={layout} />
               <CommandSlots regions={r} />
               <CardLayer layout={layout} />
+              <HandScroll hand={layout.hand} row={r.hand} rootRef={rootRef} />
             </TableMat>
           )}
           {W > 0 && (

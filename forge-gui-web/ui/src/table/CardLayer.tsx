@@ -37,6 +37,7 @@ const reducedMotion = () => !!window.matchMedia?.('(prefers-reduced-motion: redu
 export function useTableLayout(viewport: View) {
   const userFocus = useBoardUi((s) => s.focus)
   const handOrder = useBoardUi((s) => s.handOrder)
+  const handStart = useBoardUi((s) => s.handStart)
   const openLands = useBoardUi((s) => s.openLands)
   const { meId, focusId } = useForge(useShallow((s) => seatIds(s, userFocus)))
   const sig = useForge((s) => tableSignature(s, meId, focusId))
@@ -44,9 +45,9 @@ export function useTableLayout(viewport: View) {
     const s = useForge.getState()
     if (!s.game || meId == null) return { placements: new Map(), regions: { ...tableFrame(viewport, false, 0) } as LayoutResult['regions'] }
     const mode = tableMode(s.combat, s.game.phase)
-    return LAYOUTS[mode]({ mode, viewport, meId, focusId, game: s.game, players: s.players, cards: s.cards, combat: s.combat, highlighted: s.highlighted, stack: s.stack, selectable: s.selectable.cardIds, handOrder, openLands })
+    return LAYOUTS[mode]({ mode, viewport, meId, focusId, game: s.game, players: s.players, cards: s.cards, combat: s.combat, highlighted: s.highlighted, stack: s.stack, selectable: s.selectable.cardIds, handOrder, handStart, openLands })
     // sig stands for everything structural in the store, so the rest is read through getState.
-  }, [sig, viewport.w, viewport.h, meId, focusId, handOrder, openLands])
+  }, [sig, viewport.w, viewport.h, meId, focusId, handOrder, handStart, openLands])
   return { layout, meId, focusId }
 }
 
@@ -188,10 +189,10 @@ function slideHand(e: ReactPointerEvent<HTMLElement>, id: number, drag: RefObjec
   const ids = s.players[meId]?.zones.hand ?? []
   const order = orderedHand(ids, s.cards, useBoardUi.getState().handOrder)
   if (!order.includes(id)) return
-  let to = others.findIndex((n) => e.clientX < n.x)
-  if (to < 0) to = others.length
+  // Only the cards in view have nodes (a big hand scrolls): drop in front of the one passed, or after the last.
+  const before = others.find((n) => e.clientX < n.x)
   const next = order.filter((x) => x !== id)
-  next.splice(to, 0, id)
+  next.splice(before ? next.indexOf(before.id) : next.indexOf(others[others.length - 1].id) + 1, 0, id)
   if (next.join() !== order.join()) useBoardUi.getState().setHandOrder(next)
 }
 
