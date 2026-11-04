@@ -71,9 +71,9 @@ The format is a message stream, so a position is "after the first N messages".
 ### Pacing
 
 The recorded `ms` can't drive playback (16 minutes before turn 1). Playback steps one **beat** at a time:
-each `state` message and the messages before it. The wait before a beat is the recorded gap, capped at
-1 s, divided by the speed (1×, 2×, 4×, 8×). Pauses are short, and a busy AI turn still plays out at the
-pace it was sent.
+a `state` message and the messages after it up to the next state (the prompt, buttons and choices on that
+board). The wait before a beat is the recorded gap, kept between 120 ms and 1 s, divided by the speed (1×,
+2×, 4×, 8×). Long pauses shrink to a second, and a burst of AI updates stays watchable.
 
 ### Positions and links
 
@@ -92,6 +92,8 @@ The live table shows `seq` nowhere today, so a bug report from a game in progres
 - `ask` stays open until the client answers, and answers aren't recorded, so the viewer closes an open
   ask at the next `state` (the game thread is blocked until it's answered, so the next state comes after
   the answer). Recording answers would make this exact and could show what was picked (Q-R4).
+- `reveal` stays until the player dismisses it, which isn't recorded either, so the viewer closes it at the
+  next step or turn.
 - Notices are cleared on every seek; while playing they show as they did.
 
 ### Whose view
@@ -150,9 +152,9 @@ that hostname. Later, if at all (Q-R7).
 |---|---|---|
 | D-R1 | The viewer is the table in a `?replay` mode: no socket, input off, the store fed from the file | recommended; assumed for the prototype |
 | D-R2 | Seeking uses keyframes built in the browser; the file format doesn't change for it | recommended; assumed for the prototype |
-| D-R3 | Playback steps by beats (a state message and what came before it), each gap capped at 1 s, divided by speed | recommended; assumed for the prototype |
+| D-R3 | Playback steps by beats (a state message and what follows it up to the next), each gap kept between 120 ms and 1 s, divided by speed | recommended; assumed for the prototype |
 | D-R4 | A moment is match id, seat and `seq`; `&at=<seq>` opens it, after state `seq` | recommended; assumed for the prototype |
-| D-R5 | `timer` and `ahead` are dropped in a replay; an open `ask` closes at the next `state` | assumed for the prototype (until Q-R4) |
+| D-R5 | `timer` and `ahead` are dropped in a replay; an open `ask` closes at the next `state`, and a `reveal` at the next step or turn (the player's dismissing it isn't recorded) | assumed for the prototype (until Q-R4) |
 
 ## Questions for Matt
 
@@ -160,8 +162,8 @@ that hostname. Later, if at all (Q-R7).
 |---|---|---|---|
 | Q-R1 | Where the viewer is served from | Router path `/play/table/replay/` to any table pod (lean); a viewer-only Deployment; the tracker | R2 |
 | Q-R2 | Who may watch a replay | Host and admins (today); every human seated in the game, any seat's file, once it's over (lean; needs the seats' people recorded in `play_games`); anyone signed in to the tracker | R2 |
-| Q-R3 | A combined, all-seeing view | Only per-seat files, with a seat switcher (lean for now); add an all-seeing recording, maybe admin-only | R4 |
-| Q-R4 | Record what each seat sent (answers, clicks) | Lean yes: one more line kind, `{ms, c:<client message>}`. The viewer closes asks exactly and can show "chose X" | R3 |
+| Q-R3 | A combined, all-seeing view | Only per-seat files, with a seat switcher (lean for now); add an all-seeing recording, maybe admin-only. Assumed for the prototype: one seat's file | R4 |
+| Q-R4 | Record what each seat sent (answers, clicks) | Lean yes: one more line kind, `{ms, c:<client message>}`. The viewer closes asks exactly and can show "chose X". Assumed for the prototype: not recorded; asks close at the next state (D-R5) | R3 |
 | Q-R5 | Retention | Keep everything (lean; ~250 KB a game, not backed up, as the terms already warn); or keep the last N per person | — |
 | Q-R6 | Replays lost when a server dies | Accept; send what there is on shutdown (lean); checkpoints every turn | R3 |
 | Q-R7 | Replays in the Discord Activity | Not now (lean); later a token-carrying route on the Activity hostname | R5 |
@@ -171,8 +173,33 @@ that hostname. Later, if at all (Q-R7).
 
 | ID | Milestone | Exit criteria | Status |
 |---|---|---|---|
-| R1 | **Watch a replay file** | The built UI's `?replay` mode opens a file (picker or drop) or `?replay=<url>`, draws the table as the seat saw it with input off, and has play/pause, speed, step, previous/next turn, a scrubber with turn ticks, phase jumps, and a copyable `&at=<seq>` link that reopens the same moment. A real replay plays and seeks; `tsc`, vitest and the build pass | doing (prototype on branch `replays/viewer`) |
+| R1 | **Watch a replay file** | The built UI's `?replay` mode opens a file (picker or drop) or `?replay=<url>`, draws the table as the seat saw it with input off, and has play/pause, speed, step, previous/next turn, a scrubber with turn ticks, phase jumps, and a copyable `&at=<seq>` link that reopens the same moment. A real replay plays and seeks; `tsc`, vitest and the build pass | prototype done 2026-11-03 on branch `replays/viewer`, not reviewed (below) |
 | R2 | **Watch from the tracker** | The router serves `/play/table/replay/` (Q-R1); the play page's "replay" links open the viewer (download stays); the people allowed by Q-R2 see the game in their history and may open it | todo |
 | R3 | **Better recordings** | Answers recorded (Q-R4), shutdown sends what there is (Q-R6), the live table shows its seq (Q-R8) | todo |
 | R4 | **Other seats** | A seat switcher across the human seats' files, kept at the same turn and phase; perhaps the all-seeing recording (Q-R3) | todo |
 | R5 | **Discord** | Q-R7 | parked |
+
+### R1: the prototype
+
+`ui/src/replay.ts` (`indexReplay`, `seekReplay`, `advanceReplay`, `stopAtSeq`, `beatMs`) and
+`ui/src/shell/Replay.tsx` (the page and its control bar). Keys: Space plays and pauses, ← and → move a step
+(phase), Shift+← and Shift+→ a turn, `,` and `.` one update. A move of one update forward applies just
+that update, so the table animates as it did live; any other move seeks.
+
+To try it, serve the built UI from a local game server with a replay file beside it (a copy of `ui/dist`
+with the file in it, passed as `--ui`), then open
+`http://127.0.0.1:<port>/play/table/?replay=<file>&at=965`. Bare `?replay` asks for a file. `npm run dev`
+works too, without card images.
+
+Checked on 2026-11-03 with the real file above, the built UI and a local game server (Chrome, window focused):
+
+- it opens at `&at=965` on turn 27, main phase, seq 965, with that turn's stack, prompt and log;
+- turn and step jumps, single updates, the scrubber and play at 2× all move the readout and the address
+  bar's `at` as expected, and the end shows the game-over result;
+- a file given to the picker loads the same way;
+- cost in the browser, from the key press to React's commit (paint not included): a single update 10 to
+  40 ms, a turn jump 55 to 80 ms, a scrubber seek across the game 50 to 110 ms;
+- `tools/replay.check.test.ts` also seeks to 60 stops across the file and checks that each board, prompt
+  and ask match playing through (each seek under 100 ms in node; indexing the whole file takes 130 ms).
+
+Not done in R1: the tracker link and serving (R2), and a look at the bar in light mode or on a small screen.
