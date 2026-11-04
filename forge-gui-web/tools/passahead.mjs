@@ -71,6 +71,11 @@ function client(name, ticket) {
 const [annSeat, benSeat] = started.seats.filter((s) => s.ticket);
 const ann = client("Ann", annSeat.ticket);
 const ben = client("Ben", benSeat.ticket);
+// Ann responds to her own Shocks, so she holds priority after her spells (the server passes there otherwise: autopass).
+ann.ws.addEventListener("message", (ev) => {
+  const m = JSON.parse(String(ev.data));
+  if (m.t === "hello" && m.caps?.includes("autopass")) ann.send({ t: "holdPriority", on: true });
+});
 let failures = 0;
 const check = (ok, what) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${what}`);
