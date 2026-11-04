@@ -125,10 +125,10 @@ public final class WebMain {
         server.awaitClose();
     }
 
-    private static final class HeadlessGui implements IGuiBase {
+    static final class HeadlessGui implements IGuiBase {
         private final String assetsDir;
 
-        private HeadlessGui(String assetsDir) {
+        HeadlessGui(String assetsDir) {
             this.assetsDir = assetsDir;
         }
 
