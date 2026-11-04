@@ -153,14 +153,13 @@ final class PassAhead {
         return new State(round, open(seat), r != null && r == round);
     }
 
-    // this held. Still to be asked this round, and would be asked (not passed for by its stops).
+    // this held. Still to be asked this round, and would be asked (not passed for by its stops or its yield).
     private boolean open(Player seat) {
         if (seat == null || holder == null || first == null || seat == holder || seat.hasLost()) {
             return false;
         }
-        boolean asked = !stack.isEmpty() || WebGuiGame.stopsAt(seat == game.getPhaseHandler().getPlayerTurn(),
-                game.getPhaseHandler().getPhase());
-        if (!asked) {
+        WebGuiGame session = seats.get(seat);
+        if (session == null || !session.wouldAsk(game, seat, stack.isEmpty())) {
             return false;
         }
         Player x = holder;
