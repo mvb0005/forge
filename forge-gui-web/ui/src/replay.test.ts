@@ -82,6 +82,20 @@ describe('replay', () => {
     expect(useForge.getState().ask).toBeNull()
   })
 
+  it('closes a reveal at the next step', () => {
+    const r = stream([
+      state(1, 1, 'MAIN1', [1]),
+      { t: 'reveal', title: 'Revealed', cardIds: [1] },
+      state(2, 1, 'MAIN1', [1]),
+      state(3, 1, 'COMBAT_BEGIN', [1]),
+    ])
+    const idx = indexReplay(r, initial)
+    seekReplay(r, idx, 3)
+    expect(useForge.getState().reveal?.title).toBe('Revealed')
+    seekReplay(r, idx, 4)
+    expect(useForge.getState().reveal).toBeNull()
+  })
+
   it('paces a beat by the recorded gap, kept between a glimpse and a second', () => {
     const r = parseReplay([header, ...[0, 5, 400, 100000].map((ms, i) => line({ ms, m: state(i + 1, 1, 'MAIN1', [1]) }))].join('\n'))
     const idx = indexReplay(r, initial)

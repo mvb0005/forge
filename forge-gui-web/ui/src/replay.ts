@@ -69,12 +69,13 @@ const KEYFRAME_EVERY = 100
 const MIN_BEAT_MS = 120
 const MAX_BEAT_MS = 1000
 
-/** Applies one replayed message. Live-only messages are dropped, and an open ask closes at the next state: answers
- * aren't recorded, and the game thread waits on an ask until it's answered. */
+/** Applies one replayed message. Live-only messages are dropped. What the player closed isn't recorded, so an open
+ * ask closes at the next state (the game thread waits on an ask until it's answered), and a reveal at the next step. */
 function feed(m: ServerMessage) {
   if (m.t === 'timer' || m.t === 'ahead') return
   const s = useForge.getState()
   if (m.t === 'state' && s.ask) s.clearAsk()
+  if (m.t === 'state' && s.reveal && m.game && (m.game.phase !== s.game?.phase || m.game.turn !== s.game?.turn)) s.clearReveal()
   s.apply(m)
 }
 
