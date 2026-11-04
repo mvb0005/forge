@@ -190,7 +190,7 @@ function ReplayBar({ replay, idx, stop, playing, speed, onStop, onPlay, onSpeed,
   return (
     <div className="lk-plate fixed left-1/2 top-2 z-[70] flex w-[min(760px,calc(100vw-120px))] -translate-x-1/2 flex-col gap-1 rounded-xl px-3 py-2 text-xs shadow-2xl" style={{ color: 'var(--lk-parchment)' }}>
       <div className="flex items-center gap-1">
-        <span className="font-title font-bold" title={`Match ${h.matchId}, seat ${h.seat}`}>Replay · {h.who}'s view</span>
+        <span className="whitespace-nowrap font-title font-bold" title={`Match ${h.matchId}, seat ${h.seat}`}>Replay · {h.who}'s view</span>
         <span className="ml-2 truncate text-ink-dim">Turn {s.turn} · {stepWords(s.phase) || '—'} · seq {s.seq}</span>
         <span className="ml-auto" />
         <button type="button" className={btn} title="Previous turn (Shift+←)" onClick={() => onTurn(-1)}>⏮</button>
