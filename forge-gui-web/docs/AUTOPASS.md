@@ -75,7 +75,7 @@ counts. 92 priority prompts in all:
 | Where | Prompts |
 |---|---|
 | Your turn, empty stack (main 1, main 2, attacks) | 60 |
-| Your turn, something on the stack (mostly your own spells and triggers) | 12 |
+| Your turn, something on the stack (assumed mostly your own spells and triggers: the log didn't record whose) | 12 |
 | Their turn, beginning of combat | 3 |
 | Their turn, declare attackers / blockers, **you not attacked** | 4 |
 | Their turn, declare attackers / blockers, you attacked | 2 |
@@ -165,7 +165,12 @@ Later (M14.3): a stops sheet with "Smart" (these), "Every step" and per-step tog
 **Your own spell on top.** After you cast a spell or activate an ability you get priority again with it on top.
 MTGO passes there unless you hold priority; Forge asks. Recommendation: pass when the top item is your own spell or
 activated ability (not a trigger), with "Hold priority" as a toggle in the pass menu for the rare time you respond to
-yourself (Q-A3). Your own triggers still ask (Matt's "triggers I control").
+yourself (Q-A3). Your own triggers still ask (Matt's "triggers I control"). It passes only the first time: when your
+item is back on top after someone's response resolved, you're asked, since that response may need an answer.
+
+Cost: in this fork that prompt is also where Cancel is "Undo" (an undo checkpoint is taken at every priority prompt,
+verified: Ann's Cancel there reads "Undo" in `tools/autopass.mjs`). Passing it means a cast on your own turn can't be
+taken back from that prompt any more (Q-A8).
 
 ### Yields and how long they last
 
@@ -186,10 +191,13 @@ stops, interrupts and mutes are standing settings. Whether standing settings out
 | Attackers declared against you | on | combat involving you |
 | You or your permanents targeted | on | Matt's first example |
 | Mass removal | on | it hits you without targeting |
-| An opponent casts a spell or ability | **off** | on, "until my next turn" ends at the first spell in a pod (Q-A1) |
+| An opponent casts a spell or ability | **off** | on, "until my next turn" ends at the first spell in a pod (Q-A1). This also changes the existing End Turn button: it no longer stops when an opponent casts something (it used FModel's default, on) |
 | A trigger you control | off (upstream's is "any trigger"; ours would be yours only) | M14.3 |
 
 ### How it looks
+
+Built in M14.1: the menu (above the plate's buttons, not a chevron on OK), "Passing" in the headline and dock, and
+"Stopped passing: …". Not built: the ⏩ mark on the target player's plate and the F2/F3 keys.
 
 - **Pass menu.** A small chevron button beside OK ("Pass ▾") opens a short list: *Until end of turn*,
   *Until my next turn*, *Until Ann's end step* (one per opponent), *Until the stack resolves* (only when it isn't
@@ -247,6 +255,7 @@ suggestions stay off (APINA already covers them).
 | Q-A5 | Do standing settings (stops, interrupts, mutes, hold) outlive a game? | Kept by the client (localStorage) and sent at connect; the tracker doesn't need them | per game only |
 | Q-A6 | Muting abilities (M14.2): a hook in upstream's `AvailableActions` or our own copy of its walk? | Our own copy in forge-gui-web: no upstream edits, and it can say which ability made you stop | not built |
 | Q-A7 | Should reaching a yield's target always ask, even with nothing to do? | No: the target ends the yield and your stops decide (so "my next turn" doesn't ask in upkeep) | assumed no |
+| Q-A8 | Passing after your own spell skips the prompt where Cancel is Undo. Keep the pass (and lose that take-back), keep asking when Undo is available (and lose most of the gain on your own turn), or move Undo off that prompt (e.g. a Z / undo button that works while waiting)? | Keep the pass, and make Undo reachable without that prompt (Z already sends `undo`; check what the engine allows once priority has moved on) | pass kept; undo not checked |
 
 ## The M14.1 prototype
 
@@ -265,8 +274,9 @@ Built on branch `web/auto-pass` with the "Prototype" column's choices. Nothing i
   decision while passing (the cleanup discard, a reveal, targets) shows as itself and keeps its own Cancel.
 - Tests: `AutoPassTest` (engine, 16 cases: stops, involvement, own top, what the scan counts, yields, why),
   `tools/autopass.mjs` (two human seats: own Shock passes, stack yield, end-step yield not stopped by a spell at
-  someone else, stopped by one at you, reached at the end step), `PassMenu.test.ts`. `tools/passahead.mjs` now sets
-  Ann to hold priority, since she responds to her own Shocks.
+  someone else, stopped by one at you, reached at the end step; your own Shock back on top after a response asks),
+  `PassMenu.test.ts`. `tools/passahead.mjs` now sets Ann to hold priority, since she responds to her own Shocks, so
+  it no longer covers the default path; `autopass.mjs` does.
 
 Try it: build the jar and the UI, start a server, then `node tools/start.mjs` (Commander, 3 AIs) and open the seat
 link. Cast a spell: you aren't asked again with it on top. Open "Pass until…" and pick an opponent's end step; an
