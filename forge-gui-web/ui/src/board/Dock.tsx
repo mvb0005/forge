@@ -15,7 +15,7 @@ import { useSeatColors } from './Seat'
  */
 export function Dock() {
   const { who, step } = usePhaseLine()
-  const { text, waiting } = usePrompt()
+  const { text, waiting, passing, stopped } = usePrompt()
   const left = useRespondCountdown()
   return (
     <div className="lk-text" style={{ flex: 'none', maxHeight: '64%', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 10, borderTop: '1px solid var(--lk-metal-line)' }}>
@@ -33,13 +33,14 @@ export function Dock() {
       >
         <span aria-hidden style={{ position: 'absolute', left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, background: waiting ? 'var(--lk-parchment-mute)' : 'var(--lk-gold)' }} />
         <div className="lk-label" style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: waiting ? 'var(--lk-parchment-dim)' : 'var(--lk-gold)' }}>
-          <span>{waiting ? 'Waiting' : 'Your move'}</span>
+          <span>{passing ? 'Passing' : waiting ? 'Waiting' : 'Your move'}</span>
           {left != null && !waiting && <span style={{ marginLeft: 'auto', color: left <= 3 ? 'var(--lk-ember-light)' : 'var(--lk-parchment-dim)', fontVariantNumeric: 'tabular-nums' }}>{left}s</span>}
           {left != null && !waiting && <MoreTime />}
         </div>
         <div className="lk-title" style={{ marginTop: 3, fontWeight: 700, fontSize: waiting ? 14.5 : 16.5, lineHeight: 1.25, color: waiting ? 'var(--lk-parchment-dim)' : 'var(--lk-parchment)' }}>
           {text || 'The table is quiet'}
         </div>
+        {stopped && <div style={{ marginTop: 3, fontSize: 12, color: 'var(--lk-ember-light)' }}>Stopped passing: {stopped}</div>}
       </div>
       <StackList />
     </div>

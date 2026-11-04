@@ -15,12 +15,7 @@ function isTyping(t: EventTarget | null) {
 
 /** The current action, in large type above OK and Cancel. Gold while the decision is yours. */
 export function PromptHeadline() {
-  const asked = usePrompt()
-  const passing = useForge((s) => s.autopass.yield?.label ?? null)
-  const stopped = useForge((s) => s.autopass.stopped)
-  // While a yield runs the server passes for you: say what you're waiting for, not the engine's yield text.
-  const text = passing ?? asked.text
-  const waiting = passing != null || asked.waiting
+  const { text, waiting, passing, stopped } = usePrompt()
   const phase = useForge((s) => s.game?.phase ?? null)
   const left = useRespondCountdown()
   if (!text) return null
@@ -53,7 +48,7 @@ export function PromptHeadline() {
       >
         {text}
       </div>
-      {stopped && !passing && (
+      {stopped && (
         <div className="lk-text" style={{ marginTop: 4, fontSize: 12.5, color: 'var(--lk-ember-text, #e8a15c)' }}>Stopped passing: {stopped}</div>
       )}
     </div>
@@ -111,7 +106,6 @@ export function PromptBar() {
   const spectating = useForge((s) => !!s.game && s.game.localPlayerIds.length === 0)
   const over = useForge((s) => !!s.game?.gameOver) // still true after "See the board" closes the result
   const backUrl = useForge((s) => s.returnUrl)
-  const passing = useForge((s) => !!s.autopass.yield)
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -129,10 +123,7 @@ export function PromptBar() {
           send({ t: 'ok' })
         }
       } else if (e.key === 'Escape') {
-        if (s.autopass.yield && !useBoardUi.getState().zoneView) {
-          e.preventDefault()
-          send({ t: 'unyield' })
-        } else if (b?.cancel.enabled && !useBoardUi.getState().zoneView) {
+        if (b?.cancel.enabled && !useBoardUi.getState().zoneView) {
           e.preventDefault()
           send({ t: 'cancel' })
         }
@@ -169,12 +160,7 @@ export function PromptBar() {
       {settling && <span key={change} aria-hidden className="settle-bar" style={{ position: 'absolute', left: 0, right: 0, top: -6, height: 2, borderRadius: 1, background: 'var(--lk-gold)', transformOrigin: 'left', animation: `settle ${SETTLE_MS}ms linear forwards` }} />}
       <PassMenu />
       <PassAhead />
-      {passing ? (
-        <button type="button" onClick={() => send({ t: 'unyield' })} style={plateButton(false)}>
-          Stop passing
-          <span style={{ fontWeight: 500, opacity: 0.55 }}>Esc</span>
-        </button>
-      ) : showCancel ? (
+      {showCancel ? (
         <button type="button" disabled={!cancel.enabled} onClick={() => settled() && send({ t: 'cancel' })} style={{ ...plateButton(false), opacity: cancel.enabled ? (settling ? 0.6 : 1) : 0.4, cursor: cancel.enabled ? 'pointer' : 'default' }}>
           {cancel.label || 'Cancel'}
           {cancel.enabled && <span style={{ fontWeight: 500, opacity: 0.55 }}>Esc</span>}

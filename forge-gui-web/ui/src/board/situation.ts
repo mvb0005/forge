@@ -41,9 +41,15 @@ export function usePrompt() {
     }
     return `${+land}${+spell}${+ability}`
   })
+  const label = useForge((s) => s.autopass.yield?.label ?? null)
+  const stopped = useForge((s) => s.autopass.stopped)
   const asked = promptText(message, stackTop, { land: canKey[0] === '1', spell: canKey[1] === '1', ability: canKey[2] === '1' })
+  // While a yield runs the server passes priority for you: say what you're waiting for, not the engine's yield text.
+  // A real decision (targets, a discard, blocks) still shows as itself: yields never answer those.
+  const passing = label != null && (!yours || !!message?.startsWith('Yielding until')) ? label : null
+  if (passing) return { text: passing, waiting: true, passing, stopped: null }
   // Not your move unless something is yours to press or pick; the engine can hold your priority while an AI acts.
-  return { text: asked || (waiting ? `Waiting for ${waiting}…` : ''), waiting: !yours }
+  return { text: asked || (waiting ? `Waiting for ${waiting}…` : ''), waiting: !yours, passing: null, stopped }
 }
 
 /** Whole seconds until the server passes priority for you, ticking; null when it isn't timing you. */
