@@ -36,6 +36,7 @@ import forge.gamemodes.match.AbstractGuiGame;
 import forge.gamemodes.match.Selection;
 import forge.trackable.TrackableObject;
 import forge.gamemodes.match.HostedMatch;
+import forge.gamemodes.match.YieldUpdate;
 import forge.gamemodes.match.NextGameDecision;
 import forge.gamemodes.match.input.InputAttack;
 import forge.gamemodes.match.input.InputConfirm;
@@ -112,6 +113,17 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     private JsonObject lastAhead; // resent on reconnect (io held)
     private long respondDeadline; // System.currentTimeMillis() when the timer passes
     private Runnable respondPass;
+    private volatile InputPassPriority skipping; // the priority prompt passNow is passing, whose buttons aren't sent
+    private volatile boolean holdPriority; // ask after this seat's own spells and abilities too
+    // the rest of autopass state is guarded by io
+    private Yields.Running yielding;
+    private boolean userStopped; // the seat ended its yield itself: no "stopped" reason
+    private String stopped; // why the last yield ended early, until the prompt after the one it stopped at
+    private String stoppedPrompt;
+    private long stoppedStep;
+    private String autopassKey;
+    private JsonObject lastAutopass;
+    private PlayerControllerHuman prefsSet;
 
     private static final ScheduledExecutorService FLUSHER = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "Web state flush");
@@ -274,6 +286,9 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
             OpenAsk a = open;
             if (a != null) {
                 ch.send(a.msg);
+            }
+            if (lastAutopass != null) {
+                ch.send(lastAutopass);
             }
             if (lastAhead != null) {
                 ch.send(lastAhead);
@@ -912,6 +927,7 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         }
         switch (t) {
             case "moreTime" -> moreTime();
+            case "yield", "unyield", "holdPriority" -> yieldCommand(t, m);
             case "passAhead", "unpassAhead" -> {
                 PassAhead p = passAhead();
                 Player s = p == null ? null : seat(match.getGame());
@@ -950,7 +966,12 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
                 }
             }
             case "ok" -> ctrl.selectButtonOk();
-            case "cancel" -> ctrl.selectButtonCancel();
+            case "cancel" -> {
+                synchronized (io) {
+                    userStopped = yielding != null; // Cancel while passing is Stop (InputLockUI ends the yield)
+                }
+                ctrl.selectButtonCancel();
+            }
             case "useMana" -> {
                 byte b = switch (str(m, "color", "")) {
                     case "W" -> MagicColor.WHITE;
@@ -1757,6 +1778,14 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     @Override
     public void showPromptMessage(PlayerView playerView, String message, CardView card) {
         cancelWaitingTimer();
+        InputPassPriority now = passNow();
+        skipping = now;
+        if (now != null) {
+            // Passed without asking: the client never sees this prompt (or its buttons), so its bar doesn't flicker.
+            armRespondTimer();
+            sendAutopass(null);
+            return;
+        }
         JsonObject p = msg("prompt");
         p.add("playerId", ViewProjector.id(playerView));
         p.addProperty("message", message == null ? "" : message);
@@ -1770,6 +1799,142 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         // inputs re-prompt after every click that changes them (e.g. a blocker assigned)
         decisionPoint();
         armRespondTimer();
+        sendAutopass(message);
+    }
+
+    /**
+     * A priority prompt this seat answers without being asked, passed on WebEdt (where clicks run): a pass ahead
+     * reaching it, or its own spell or ability just put on the stack (unless it holds priority). Null otherwise.
+     */
+    private InputPassPriority passNow() {
+        Game game = match.getGame();
+        PassAhead ahead = disposed ? null : passAhead();
+        Player seat = ahead == null ? null : seat(game);
+        if (seat == null || !(seat.getController() instanceof PlayerControllerHuman h)
+                || !(h.getInputQueue().getInput() instanceof InputPassPriority pp)) {
+            return null;
+        }
+        // take() first: a pass ahead that reached us is used either way
+        if (!ahead.take(seat) && (holdPriority || !Stops.ownTop(game, seat))) {
+            return null;
+        }
+        WebEdt.invokeLater(() -> {
+            if (!disposed && h.getInputQueue().getInput() == pp) {
+                pp.passPriority();
+            }
+        });
+        return pp;
+    }
+
+    @Override
+    public void updateAutoPassPrompt() {
+        super.updateAutoPassPrompt();
+        sendAutopass(null);
+    }
+
+    @Override
+    public void refreshYieldUi(PlayerView player) {
+        sendAutopass(null);
+    }
+
+    /**
+     * This seat's yield ("pass until …"), its hold setting, and why a yield ended early, when any of them changes
+     * (the `autopass` message). Runs where the yield changes: the game thread for an interrupt or a reached target
+     * (so the game is as the interrupt left it), WebEdt for the seat's own commands. prompt: the prompt just sent.
+     */
+    private void sendAutopass(String prompt) {
+        Game g = match.getGame();
+        Player seat = disposed ? null : seat(g);
+        if (seat == null || !(seat.getController() instanceof PlayerControllerHuman h)) {
+            return;
+        }
+        seatDefaults(h);
+        Yields.Running now = Yields.running(h.getYieldController(), g, seat);
+        long step = g.getPhaseHandler().getTurn() * 100L + (g.getPhaseHandler().getPhase() == null ? 0 : g.getPhaseHandler().getPhase().ordinal());
+        synchronized (io) {
+            Yields.Running was = yielding;
+            yielding = now;
+            if (was != null && now == null) {
+                stopped = userStopped || Yields.reached(was, g) ? null : Yields.why(g, seat);
+                stoppedPrompt = null;
+                stoppedStep = step;
+                if (stopped != null && stopped.isEmpty()) {
+                    stopped = null;
+                }
+            } else if (stopped != null && (now != null || step != stoppedStep || (prompt != null && stoppedPrompt != null && !prompt.equals(stoppedPrompt)))) {
+                stopped = null;
+            } else if (stopped != null && prompt != null) {
+                stoppedPrompt = prompt;
+            }
+            if (now == null) {
+                userStopped = false;
+            }
+            JsonObject a = msg("autopass");
+            if (now == null) {
+                a.add("yield", JsonNull.INSTANCE);
+            } else {
+                JsonObject y = new JsonObject();
+                y.addProperty("kind", now.kind());
+                y.addProperty("label", now.label());
+                if (now.owner() != null) {
+                    y.addProperty("playerId", now.owner().getId());
+                }
+                a.add("yield", y);
+            }
+            a.addProperty("hold", holdPriority);
+            if (stopped != null) {
+                a.addProperty("stopped", stopped);
+                if (!g.getStack().isEmpty()) {
+                    a.addProperty("stackId", g.getStack().peek().getId());
+                }
+            }
+            String key = a.toString();
+            if (key.equals(autopassKey)) {
+                return;
+            }
+            autopassKey = key;
+            lastAutopass = a;
+            flushLocked();
+            sendLocked(a);
+        }
+    }
+
+    /** This seat's own interrupt settings, once per controller (a seat taken over gets a new one). */
+    private void seatDefaults(PlayerControllerHuman h) {
+        if (prefsSet != h) {
+            Yields.seatDefaults(h.getYieldController());
+            prefsSet = h;
+        }
+    }
+
+    /** "Pass until …" from the client: start a yield of this kind, end the running one, or hold priority. */
+    private void yieldCommand(String t, JsonObject m) {
+        Game g = match.getGame();
+        Player seat = seat(g);
+        if (seat == null || !(seat.getController() instanceof PlayerControllerHuman h)) {
+            return;
+        }
+        seatDefaults(h);
+        switch (t) {
+            case "yield" -> {
+                Player who = m.has("playerId") ? g.getPlayer(m.get("playerId").getAsInt()) : null;
+                YieldUpdate u = Yields.start(str(m, "kind", ""), g, seat, who);
+                if (u == null) {
+                    flashIncorrectAction();
+                    return;
+                }
+                h.sendYieldUpdate(u);
+            }
+            case "unyield" -> {
+                synchronized (io) {
+                    userStopped = true;
+                }
+                h.getYieldController().clearActiveYieldAndDispatch();
+            }
+            case "holdPriority" -> holdPriority = m.has("on") && m.get("on").getAsBoolean();
+            default -> { }
+        }
+        sendAutopass(null);
     }
 
     /**
@@ -1781,19 +1946,11 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         PlayerControllerHuman human = null;
         InputPassPriority priority = null;
         Game game = match.getGame();
-        PassAhead ahead = disposed ? null : passAhead();
-        Player seat = ahead == null ? null : seat(game);
+        Player seat = disposed ? null : seat(game);
         if (seat != null && seat.getController() instanceof PlayerControllerHuman h
-                && h.getInputQueue().getInput() instanceof InputPassPriority pp) {
+                && h.getInputQueue().getInput() instanceof InputPassPriority pp && pp != skipping) {
             boolean responding = !game.getStack().isEmpty() || game.getPhaseHandler().getPlayerTurn() != seat;
-            if (ahead.take(seat)) {
-                // They passed ahead and nothing has happened since: priority reached them, so that's their pass.
-                WebEdt.invokeLater(() -> {
-                    if (!disposed && h.getInputQueue().getInput() == pp) {
-                        pp.passPriority();
-                    }
-                });
-            } else if (seconds > 0 && responding && !UNTIMED.contains(game.getPhaseHandler().getPhase())) {
+            if (seconds > 0 && responding && !UNTIMED.contains(game.getPhaseHandler().getPhase())) {
                 human = h;
                 priority = pp;
             }
@@ -1845,6 +2002,10 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
 
     @Override
     public void updateButtons(PlayerView owner, String label1, String label2, boolean enable1, boolean enable2, boolean focus1) {
+        InputPassPriority skipped = skipping;
+        if (skipped != null && getGameController() instanceof PlayerControllerHuman h && h.getInputQueue().getInput() == skipped) {
+            return; // the prompt these buttons belong to is being passed (passNow)
+        }
         JsonObject b = msg("buttons");
         b.add("playerId", ViewProjector.id(owner));
         JsonObject ok = new JsonObject();
@@ -2078,27 +2239,25 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         });
     }
 
-    /**
-     * Where an empty stack still asks you (the engine passes for you anyway when you have nothing to do). Every
-     * step where a choice changes combat: on your turn after attacks and after blocks (you have priority first,
-     * rule 509.4); on theirs before attacks (tap or kill a would-be attacker), after attacks (remove one, flash in a
-     * blocker), after blocks, and at their end step. First strike damage on both, for the pump between the two.
-     */
-    private static final Set<PhaseType> MY_STOPS = EnumSet.of(PhaseType.MAIN1, PhaseType.COMBAT_DECLARE_ATTACKERS,
-            PhaseType.COMBAT_DECLARE_BLOCKERS, PhaseType.COMBAT_FIRST_STRIKE_DAMAGE, PhaseType.MAIN2);
-    private static final Set<PhaseType> THEIR_STOPS = EnumSet.of(PhaseType.COMBAT_BEGIN,
-            PhaseType.COMBAT_DECLARE_ATTACKERS, PhaseType.COMBAT_DECLARE_BLOCKERS,
-            PhaseType.COMBAT_FIRST_STRIKE_DAMAGE, PhaseType.END_OF_TURN);
-
+    /** Where an empty stack still asks you (the engine passes for you anyway when you have nothing to do): Stops. */
     @Override
     public boolean isUiSetToSkipPhase(PlayerView playerTurn, PhaseType phase) {
-        boolean mine = playerTurn != null && isLocalPlayer(playerTurn);
-        return !stopsAt(mine, phase);
+        Game g = match.getGame();
+        Player seat = seat(g);
+        if (seat == null) {
+            return true;
+        }
+        // A yield's target step needs no exception: an opponent's end step is always a stop, and reaching your next
+        // turn only ends the yield (AUTOPASS.md Q-A7).
+        return !Stops.stopsAt(g, seat, playerTurn == null ? null : g.getPlayer(playerTurn), phase);
     }
 
-    /** Whether priority with an empty stack asks a player in this step (their turn or someone else's). */
-    static boolean stopsAt(boolean mine, PhaseType phase) {
-        return (mine ? MY_STOPS : THEIR_STOPS).contains(phase);
+    /** Whether priority would ask this seat now (PassAhead): not while it yields, and only in its stops when the stack is empty. */
+    boolean wouldAsk(Game g, Player seat, boolean stackEmpty) {
+        if (getGameController() instanceof PlayerControllerHuman h && h.getYieldController().isYieldActive()) {
+            return false;
+        }
+        return !stackEmpty || Stops.stopsAt(g, seat, g.getPhaseHandler().getPlayerTurn(), g.getPhaseHandler().getPhase());
     }
 
     @Override
@@ -2124,6 +2283,7 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     @Override
     public void updateStack() {
         dirty();
+        endStackYieldIfEmpty();
     }
 
     @Override
@@ -2134,6 +2294,19 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     @Override
     public void notifyStackRemoval(GameEventSpellRemovedFromStack event) {
         dirty();
+    }
+
+    /**
+     * Upstream ends "until the stack resolves" only at this seat's next priority; end it as the stack empties, so the
+     * table doesn't say "Passing" meanwhile.
+     */
+    private void endStackYieldIfEmpty() {
+        Game g = match.getGame();
+        if (g != null && g.getStack().isEmpty() && getGameController() instanceof PlayerControllerHuman h
+                && h.getYieldController().autoPassUntilStackEmpty()) {
+            h.getYieldController().setAutoPassUntilStackEmpty(false, false);
+            sendAutopass(null);
+        }
     }
 
     @Override

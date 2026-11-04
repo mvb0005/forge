@@ -173,7 +173,7 @@ public final class MatchHost {
     private static JsonArray caps() {
         JsonArray caps = new JsonArray();
         for (String c : new String[] {"log.append", "selectables.players", "match.commander", "card.basePT", "card.keywordLabels",
-                "player.colorIdentity", "player.commander", "game.turnOrder", "timer.respond"}) {
+                "player.colorIdentity", "player.commander", "game.turnOrder", "timer.respond", "autopass"}) {
             caps.add(c);
         }
         Assists.standard().caps().forEach(caps::add);
