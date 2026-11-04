@@ -1,4 +1,5 @@
-import type { ServerMessage } from './protocol'
+import type { PhaseName, ServerMessage } from './protocol'
+import { useForge, type ForgeState } from './store'
 
 // A seat's replay (PROTOCOL.md "Replays"): every message the game server sent that seat, recorded as gzipped
 // JSON lines and kept by the tracker. Replaying feeds the messages to the store as if they arrived live.
@@ -39,9 +40,13 @@ export function parseReplay(text: string): Replay {
   return { header, lines, end }
 }
 
-/** A replay file as the tracker serves it (gzipped). */
+/** A replay file as the tracker serves it (gzipped), or already unzipped. */
 export async function readReplay(data: ArrayBuffer): Promise<Replay> {
-  const text = await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('gzip'))).text()
+  const b = new Uint8Array(data, 0, Math.min(2, data.byteLength))
+  const gzipped = b[0] === 0x1f && b[1] === 0x8b
+  const text = gzipped
+    ? await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('gzip'))).text()
+    : new TextDecoder().decode(data)
   return parseReplay(text)
 }
 
@@ -54,4 +59,79 @@ export function replayHello(h: ReplayHeader): ServerMessage {
 export function replayInto(apply: (m: ServerMessage) => void, r: Replay, upTo = r.lines.length) {
   apply(replayHello(r.header))
   for (const l of r.lines.slice(0, upTo)) apply(l.m)
+}
+
+// Watching a replay (docs/REPLAYS.md). A position is how many of the replay's messages have been applied. Playback
+// stops just before each state message (and at the end), so a stop shows a board and what the player was asked
+// on it; "at seq N" is the stop before state N + 1.
+
+const KEYFRAME_EVERY = 100
+const MIN_BEAT_MS = 120
+const MAX_BEAT_MS = 1000
+
+/** Applies one replayed message. Live-only messages are dropped, and an open ask closes at the next state: answers
+ * aren't recorded, and the game thread waits on an ask until it's answered. */
+function feed(m: ServerMessage) {
+  if (m.t === 'timer' || m.t === 'ahead') return
+  const s = useForge.getState()
+  if (m.t === 'state' && s.ask) s.clearAsk()
+  s.apply(m)
+}
+
+export type Stop = { pos: number; turn: number; phase: PhaseName | null; seq: number; ms: number }
+
+export type ReplayIndex = {
+  stops: Stop[]
+  /** keyframes[k] is the store after the first k * KEYFRAME_EVERY messages. */
+  keyframes: ForgeState[]
+}
+
+/** Applies the whole replay once from a clean store, keeping keyframes and the stops. */
+export function indexReplay(r: Replay, initial: ForgeState): ReplayIndex {
+  useForge.setState(initial, true)
+  useForge.getState().apply(replayHello(r.header))
+  const keyframes: ForgeState[] = []
+  const stops: Stop[] = []
+  let seq = 0
+  const stop = (pos: number) => {
+    const g = useForge.getState().game
+    stops.push({ pos, turn: g?.turn ?? 0, phase: g?.phase ?? null, seq, ms: r.lines[pos]?.ms ?? r.end?.ms ?? r.lines[pos - 1]?.ms ?? 0 })
+  }
+  r.lines.forEach((l, i) => {
+    if (i % KEYFRAME_EVERY === 0) keyframes.push(useForge.getState())
+    if (l.m.t === 'state' && seq > 0) stop(i)
+    feed(l.m)
+    if (l.m.t === 'state') seq = l.m.seq
+  })
+  stop(r.lines.length)
+  return { stops, keyframes }
+}
+
+/** Puts the store at a position: the nearest keyframe at or before it, then the messages after that. */
+export function seekReplay(r: Replay, idx: ReplayIndex, pos: number) {
+  const k = Math.min(Math.floor(pos / KEYFRAME_EVERY), idx.keyframes.length - 1)
+  useForge.setState(idx.keyframes[k], true)
+  advanceReplay(r, k * KEYFRAME_EVERY, pos)
+  useForge.setState({ notices: [] })
+}
+
+/** Moves the store forward from one position to a later one. */
+export function advanceReplay(r: Replay, from: number, to: number) {
+  for (let i = from; i < to; i++) feed(r.lines[i].m)
+}
+
+/** The stop showing seq N: the last stop at or before it. */
+export function stopAtSeq(idx: ReplayIndex, seq: number): number {
+  let best = 0
+  idx.stops.forEach((s, i) => {
+    if (s.seq <= seq) best = i
+  })
+  return best
+}
+
+/** How long to show a stop before playing the next one: the recorded gap, kept between a glimpse and a second. */
+export function beatMs(idx: ReplayIndex, stop: number, speed: number): number {
+  const a = idx.stops[stop], b = idx.stops[stop + 1]
+  if (!b) return 0
+  return Math.min(MAX_BEAT_MS, Math.max(MIN_BEAT_MS, b.ms - a.ms)) / speed
 }
