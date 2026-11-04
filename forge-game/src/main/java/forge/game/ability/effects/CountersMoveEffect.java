@@ -169,9 +169,9 @@ public class CountersMoveEffect extends SpellAbilityEffect {
             if (srcCards.isEmpty()) {
                 return;
             }
-            Card source = srcCards.get(0);
+            Card source = stillThere(game, srcCards.get(0));
 
-            if (source.getCounters(cType) <= 0) {
+            if (source == null || source.getCounters(cType) <= 0) {
                 return;
             }
             Map<String, Object> params = Maps.newHashMap();
@@ -242,6 +242,7 @@ public class CountersMoveEffect extends SpellAbilityEffect {
                     source = srcCards.get(0);
                 }
             }
+            source = source == null ? null : stillThere(game, source);
             if (source == null) {
                 return;
             }
@@ -319,6 +320,14 @@ public class CountersMoveEffect extends SpellAbilityEffect {
         }
         table.replaceCounterEffect(game, sa);
     } // moveCounterResolve
+
+    // The source as it is now, or null if it changed zones since the ability saw it: that is a new object without
+    // its counters (CR 400.7), and an ability that moves counters from "this" can't take them from its last known
+    // information. Multiple sources (ValidSource) are read from the battlefield and don't need this.
+    private static Card stillThere(Game game, Card source) {
+        Card cur = game.getCardState(source, null);
+        return cur != null && cur.equalsWithGameTimestamp(source) ? cur : null;
+    }
 
     protected void removeCounter(SpellAbility sa, final Card src, final Card dest, CounterType cType, String counterNum, Multiset<CounterType> countersToAdd) {
         final Card host = sa.getHostCard();
