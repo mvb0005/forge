@@ -31,6 +31,9 @@ export function opponentIds(players: Record<number, PlayerDto>, meId: number, tu
 }
 
 const ZONE_W = 40
+const FAN_MAX = 10 // a bigger hand lies flat: a deep fan pushes its ends off the table
+const HAND_TITLE = 0.34 // the least of each hand card left in view (the start of its name), as a share of its width
+export const HAND_ARROW = 44 // room at each end of a scrolling hand for its count
 export const PILE_X = [0, 78, 156] // library, graveyard, exile/command inside the piles region
 
 /**
@@ -386,21 +389,39 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
     })
   }
 
-  // Your hand: fanned along the bottom, in mana-value order unless you have arranged it.
+  // Your hand, in mana-value order unless you have arranged it. Up to FAN_MAX cards it is fanned along the
+  // bottom; a bigger hand lies flat. Each card keeps at least its title (name and cost) in view; when even
+  // that doesn't fit, a window of the hand is shown and the rest scrolls (handStart is the first card shown).
+  // Cards outside the window wait invisibly at its edges.
   const local = input.game.localPlayerIds.includes(meId)
   const hand = me && local ? orderedHand(me.zones.hand, cards, input.handOrder ?? null) : []
+  let handView: LayoutResult['hand']
   if (hand.length) {
     const { w: W, h: H } = handRow
     const n = hand.length
     const cw = Math.max(60, Math.min(170, (H + 18) / CARD_RATIO))
-    const step = n > 1 ? Math.min(cw * 0.9, (W - cw - 16) / (n - 1)) : 0
-    const x0 = (W - ((n - 1) * step + cw)) / 2
-    const mid = (n - 1) / 2
-    const tilt = Math.min(3.2, 18 / Math.max(1, n))
+    const title = cw * HAND_TITLE
+    const fit = (room: number) => (n > 1 ? Math.min(cw * 0.9, (room - cw) / (n - 1)) : 0)
+    const scrolls = n > 1 && fit(W - 16) < title
+    const room = scrolls ? W - 16 - 2 * HAND_ARROW : W - 16
+    const step = scrolls ? title : fit(room)
+    const shown = scrolls ? Math.max(1, Math.floor((room - cw) / step) + 1) : n
+    const start = Math.max(0, Math.min(n - shown, input.handStart ?? 0))
+    const x0 = (W - ((shown - 1) * step + cw)) / 2
+    const mid = (shown - 1) / 2
+    const fan = n <= FAN_MAX
+    const tilt = fan ? Math.min(3.2, 18 / Math.max(1, n)) : 0
     hand.forEach((id, i) => {
-      const d = i - mid
-      put(id, { kind: 'hand', x: handRow.x + x0 + i * step, y: handRow.y + 6 + d * d * 0.9, w: cw, rot: d * tilt, z: 6000 + i })
+      const j = i - start
+      if (j < 0 || j >= shown) {
+        const x = handRow.x + x0 + (j < 0 ? 0 : (shown - 1) * step)
+        put(id, { kind: 'zone', x, y: handRow.y + 6, w: cw, rot: 0, z: 5990, opacity: 0 })
+        return
+      }
+      const d = j - mid
+      put(id, { kind: 'hand', x: handRow.x + x0 + j * step, y: handRow.y + 6 + (fan ? d * d * 0.9 : 0), w: cw, rot: d * tilt, z: 6000 + j })
     })
+    if (scrolls) handView = { ids: hand, start, shown }
   }
 
   // Spells on the stack are drawn in the dock (right-hand column): on the table they head off that way and fade.
@@ -438,7 +459,7 @@ function table(input: LayoutInput, combat: boolean): LayoutResult {
     pile(opp.zones.hand, x + 20, y + 90, opp.zones.hand.length)
   }
 
-  return { placements, regions }
+  return { placements, regions, hand: handView }
 }
 
 export const mainLayout: LayoutFn = (input) => table(input, false)

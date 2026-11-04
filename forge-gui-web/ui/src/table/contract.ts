@@ -47,11 +47,13 @@ export type LayoutInput = {
   selectable?: Set<number> // card ids you may choose now (lands unfold from the shelf when one is)
   openLands?: number[] // players whose land shelf you opened: their lands are drawn on the battlefield
   handOrder?: number[] | null // your arranged hand; absent means mana-value order
+  handStart?: number // first card shown of a hand too big to show whole
 }
 
 export type LayoutResult = {
   placements: Map<number, Placement>
   regions: Record<string, Region>
+  hand?: { ids: number[]; start: number; shown: number } // set when your hand scrolls: its order and the window shown
 }
 
 // Pure: same input, same output, no DOM reads. Unit-tested against fixtures and bench boards.
