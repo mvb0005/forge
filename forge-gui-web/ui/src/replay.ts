@@ -94,15 +94,19 @@ export function indexReplay(r: Replay, initial: ForgeState): ReplayIndex {
   const keyframes: ForgeState[] = []
   const stops: Stop[] = []
   let seq = 0
+  let seqMs = 0 // when the state a stop shows arrived
   const stop = (pos: number) => {
     const g = useForge.getState().game
-    stops.push({ pos, turn: g?.turn ?? 0, phase: g?.phase ?? null, seq, ms: r.lines[pos]?.ms ?? r.end?.ms ?? r.lines[pos - 1]?.ms ?? 0 })
+    stops.push({ pos, turn: g?.turn ?? 0, phase: g?.phase ?? null, seq, ms: seqMs })
   }
   r.lines.forEach((l, i) => {
     if (i % KEYFRAME_EVERY === 0) keyframes.push(useForge.getState())
     if (l.m.t === 'state' && seq > 0) stop(i)
     feed(l.m)
-    if (l.m.t === 'state') seq = l.m.seq
+    if (l.m.t === 'state') {
+      seq = l.m.seq
+      seqMs = l.ms
+    }
   })
   stop(r.lines.length)
   return { stops, keyframes }

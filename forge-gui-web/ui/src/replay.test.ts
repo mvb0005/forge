@@ -99,7 +99,8 @@ describe('replay', () => {
   it('paces a beat by the recorded gap, kept between a glimpse and a second', () => {
     const r = parseReplay([header, ...[0, 5, 400, 100000].map((ms, i) => line({ ms, m: state(i + 1, 1, 'MAIN1', [1]) }))].join('\n'))
     const idx = indexReplay(r, initial)
-    expect([0, 1, 2, 3].map((i) => beatMs(idx, i, 1))).toEqual([400 - 5, 1000, 120, 0])
-    expect(beatMs(idx, 0, 4)).toBe((400 - 5) / 4)
+    // The wait at a stop is the time until the next board arrived: 5 ms (raised to 120), 395 ms, 99.6 s (cut to 1 s).
+    expect([0, 1, 2, 3].map((i) => beatMs(idx, i, 1))).toEqual([120, 400 - 5, 1000, 0])
+    expect(beatMs(idx, 1, 4)).toBe((400 - 5) / 4)
   })
 })
