@@ -126,6 +126,7 @@ export function SeatPlate({ player: p, isMe, compact = false }: { player: Player
   const active = useForge((s) => s.game?.activePlayerId === p.id)
   const phase = useForge((s) => s.game?.phase ?? null)
   const spectating = useForge((s) => !!s.game && s.game.localPlayerIds.length === 0)
+  const replaying = useBoardUi((s) => s.replaying)
   const attacked = useForge((s) => !!s.combat?.bands.some((b) => b.defender?.kind === 'player' && b.defender.id === p.id))
   const after = useForge((s) => s.combatAssist?.players.find((x) => x.id === p.id)?.lifeAfter ?? null)
   const ribbon = useRibbonCards(isMe ? undefined : p)
@@ -164,7 +165,7 @@ export function SeatPlate({ player: p, isMe, compact = false }: { player: Player
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
         <div className="lk-title" style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: compact ? 15 : 18, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{isMe && !spectating ? 'You' : p.name}</span>
-          {spectating && p.isAI && !p.hasLost && (
+          {spectating && !replaying && p.isAI && !p.hasLost && (
             <button
               type="button"
               onClick={(e) => {
@@ -179,7 +180,7 @@ export function SeatPlate({ player: p, isMe, compact = false }: { player: Player
           )}
         </div>
         <div style={{ display: 'flex', gap: 8, fontSize: compact ? 11 : 12, color: 'var(--lk-parchment-dim)', whiteSpace: 'nowrap' }}>
-          <span>Hand <b className="lk-title" style={{ color: 'var(--lk-parchment)' }}>{p.handCount}</b></span>
+          <HandCount player={p} />
           <span>Library <b className="lk-title" style={{ color: 'var(--lk-parchment)' }}>{p.libraryCount}</b></span>
         </div>
         {facts.length > 0 && (
@@ -211,6 +212,7 @@ export function PlayerBorder({ player: p, isMe, region, cmdW, turn, bodyH }: { p
   const phase = useForge((s) => s.game?.phase ?? null)
   const local = useForge((s) => !!s.game?.localPlayerIds.includes(p.id))
   const spectating = useForge((s) => !!s.game && s.game.localPlayerIds.length === 0)
+  const replaying = useBoardUi((s) => s.replaying)
   const attacked = useForge((s) => !!s.combat?.bands.some((b) => b.defender?.kind === 'player' && b.defender.id === p.id))
   const after = useForge((s) => s.combatAssist?.players.find((x) => x.id === p.id)?.lifeAfter ?? null)
   const viewing = useBoardUi((s) => s.zoneView?.playerId === p.id)
@@ -276,7 +278,7 @@ export function PlayerBorder({ player: p, isMe, region, cmdW, turn, bodyH }: { p
         </div>
         <div className="lk-title" title={p.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, fontWeight: 700, fontSize: 15, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--lk-parchment)' }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{local ? 'You' : p.name}</span>
-          {spectating && p.isAI && !p.hasLost && (
+          {spectating && !replaying && p.isAI && !p.hasLost && (
             <button
               type="button"
               onClick={(e) => {
@@ -428,7 +430,7 @@ function Pool({ player: p, isMe }: { player: PlayerDto; isMe: boolean }) {
   )
 }
 
-type Zone = 'graveyard' | 'exile' | 'command'
+type Zone = 'graveyard' | 'exile' | 'command' | 'hand'
 const ZONE_TITLE = { graveyard: 'Graveyard', exile: 'Exile', command: 'Command', hand: 'Hand' }
 
 function useZoneMark(ids: number[]) {
@@ -441,6 +443,13 @@ function OppZones({ player: p }: { player: PlayerDto }) {
       {(['graveyard', 'exile', 'command'] as const).map((z) => (zoneIds(p, z).length ? <ZoneLink key={z} player={p} zone={z} /> : null))}
     </div>
   )
+}
+
+/** "Hand N". Someone else's hand the server sent face up (a replay seen by everyone) opens like a zone. */
+function HandCount({ player: p, style }: { player: PlayerDto; style?: CSSProperties }) {
+  const open = useForge((s) => !s.game?.localPlayerIds.includes(p.id) && p.zones.hand.length > 0 && p.zones.hand.every((id) => s.cards[id] && !s.cards[id].hidden))
+  if (open) return <span style={style}><ZoneLink player={p} zone="hand" /></span>
+  return <span style={style}>Hand <b className="lk-title" style={{ color: 'var(--lk-parchment)' }}>{p.handCount}</b></span>
 }
 
 function ZoneLink({ player: p, zone, zero = false }: { player: PlayerDto; zone: Zone; zero?: boolean }) {
@@ -486,7 +495,7 @@ function SeatZones({ player: p, isMe, piles }: { player: PlayerDto; isMe: boolea
   if (piles) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 'auto' }}>
-        <span style={{ fontSize: 12, color: 'var(--lk-parchment-dim)' }}>Hand <b className="lk-title" style={{ color: 'var(--lk-parchment)' }}>{p.handCount}</b></span>
+        <HandCount player={p} style={{ fontSize: 12, color: 'var(--lk-parchment-dim)' }} />
         <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
           <Pile n={p.libraryCount} label="Library" back mini />
           <Pile n={p.zones.graveyard.length} label="Graveyard" player={p} zone="graveyard" mini />
@@ -497,7 +506,7 @@ function SeatZones({ player: p, isMe, piles }: { player: PlayerDto; isMe: boolea
   }
   return (
     <div style={{ display: 'flex', gap: isMe ? 8 : 6, fontSize: isMe ? 12 : 10.5, color: 'var(--lk-parchment-dim)', whiteSpace: 'nowrap' }}>
-      <span>Hand <b className="lk-title" style={{ color: 'var(--lk-parchment)' }}>{p.handCount}</b></span>
+      <HandCount player={p} />
       <span>Lib <b className="lk-title" style={{ color: 'var(--lk-parchment)' }}>{p.libraryCount}</b></span>
       <ZoneLink player={p} zone="graveyard" zero />
       <ZoneLink player={p} zone="exile" zero />
@@ -543,6 +552,7 @@ function Pile({ n, label, back, player, zone, mini = false }: { n: number; label
 
 function ZoneViewer({ player, zone, up }: { player: PlayerDto; zone: Zone; up: boolean }) {
   const cards = useForge((s) => s.cards)
+  const mine = useForge((s) => !!s.game?.localPlayerIds.includes(player.id))
   const setZoneView = useBoardUi((s) => s.setZoneView)
   const list = useMemo(() => [...zoneIds(player, zone)].reverse().map((id) => cards[id]).filter((c): c is CardDto => !!c), [player, zone, cards])
   useEffect(() => {
@@ -569,7 +579,7 @@ function ZoneViewer({ player, zone, up }: { player: PlayerDto; zone: Zone; up: b
     >
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, padding: '12px 16px 8px', borderBottom: '1px solid var(--lk-metal-line)' }}>
         <span className="lk-title" style={{ fontWeight: 700, fontSize: 18 }}>{ZONE_TITLE[zone]}</span>
-        <span style={{ fontSize: 15, color: 'var(--lk-parchment-dim)', flex: 1 }}>{player.isAI ? player.name : 'Yours'} · {list.length}</span>
+        <span style={{ fontSize: 15, color: 'var(--lk-parchment-dim)', flex: 1 }}>{mine ? 'Yours' : player.name} · {list.length}</span>
         <button type="button" title="Close" onClick={() => setZoneView(null)} style={{ border: 0, background: 'none', color: 'var(--lk-parchment-dim)', fontSize: 18, cursor: 'pointer' }}>×</button>
       </div>
       <div className="bf-scroll" style={{ display: 'grid', gap: 10, overflowY: 'auto', padding: 14, gridTemplateColumns: `repeat(${cols}, ${cw}px)` }}>
