@@ -203,7 +203,7 @@ saved board's player order. What a saved board can't carry is listed under "Play
 | D-R6 | One recording per game, made by a never-connected table session that sees every card anyone may see; cards that a seat sees differently carry that seat's version (`as`); human seats' own messages are in it, tagged with the seat (option 3 above) | Matt asked for it 2026-11-04; prototype on `replays/server` |
 | D-R7 | The tracker projects a perspective (a seat, or everyone) when serving, into the per-seat format the viewer already reads; the browser never picks what a seat may see | prototype |
 | D-R8 | The recording saves a `GameState` at each turn's first main phase; "play from here" starts a new game from one, by the control API's `stateText` | prototype |
-| D-R9 | A saved board's permanents load as `NoETBTrigs` (their enter triggers and "as it enters" choices already happened); a match from a saved board keeps its seats in order (HostedMatch otherwise puts humans first) and skips the coin toss and mulligans | prototype (engine changes: Q-R12) |
+| D-R9 | A saved board's permanents load as `NoETBTrigs` (their enter triggers and "as it enters" choices already happened). A match from `stateText` keeps its seats in order (HostedMatch otherwise puts humans first) and skips the coin toss and mulligans (`GameRules.setFromSavedBoard`); the development `state` files keep Forge's usual start, which they were written for (`passahead.mjs` fails without it) | prototype (engine changes: Q-R12) |
 
 ## Questions for Matt
 
@@ -222,7 +222,7 @@ R1 is UI only, so Q-R1, Q-R2 and Q-R5 to Q-R8 weren't needed for it: the prototy
 | Q-R9 | Who may watch "everyone" and another seat's view | Whoever may watch the game may pick any perspective (lean, assumed; once it's over hands don't matter much); or a player sees only their own seat until an admin opens it up | R6 |
 | Q-R10 | Who may play from here, and who sits where | Whoever may watch the replay; they take the seat they watch (the first human seat from "everyone") and AIs take the rest (lean, built); later invite the original players, or open a lobby on the board | R7 |
 | Q-R11 | Keep sending the old per-seat files during the change | No: the tracker learns the new file first, then the game server switches (lean, built that way) | R6 |
-| Q-R12 | Two small changes to upstream code for play from here: `GameAction.startGame` skips the coin toss and mulligans when given a start-game hook (only saved boards use one), and `HostedMatch.keepPlayerOrder()` | Keep both (lean). Renumbering the board text in MatchHost instead would still change the turn order | landing |
+| Q-R12 | Small changes to upstream code for play from here: a `GameRules` flag (from a saved board), read by `GameAction.startGame` (no coin toss or mulligans) and `HostedMatch` (players stay in order); plus the `Card` face-down fix | Keep them (lean): off unless set, and only MatchHost sets it. Renumbering the board text in MatchHost instead would still change the turn order | landing |
 | Q-R13 | The name at a played-on seat | Your own, unless another seat has it (lean, built); or the original player's | R7 |
 | Q-R14 | What the saved boards cost | About 14% of a file (10 KB of 70 KB for 26 turns): one per turn (lean); or every other turn | — |
 
@@ -288,6 +288,12 @@ seat's live table had (each session counts its own).
   boards are equal. 1 and 18 of the boards differ otherwise, all "a moment later" (priority, step, a library
   count, a card another player had just drawn, face down). `replay.check.test.ts` passes for seats 0, 1, 2 and
   everyone.
+- A game with two human seats and two AIs (Ann, Cal, Ben, Dee; two `smoke.mjs --join --save`, 30 turns, Ben
+  conceding at 11): seat 0 against Ann's stream (253 prompts) and seat 2 against Ben's (65), both pass. The
+  comparison allows each card to look as it did to the seat one prompt before or after, since the two reads are
+  a moment apart (Ben's Mountain reached the battlefield in the recording just before Ann's prompt, in hers just
+  after); a hidden card shown for longer than that would still fail.
+- `passahead.mjs` and `passahead.mjs --three` pass (development states keep Forge's usual start, D-R9).
 - The viewer from the tracker's route: everyone's view and each seat's (an AI seat sees its own hand face up and
   the others' face down); switching keeps `at`.
 - Play from here: `smoke.mjs --from-replay <file> --turn 7` and `--turn 15` play on to a result; in the browser,
@@ -301,8 +307,10 @@ seat's live table had (each session counts its own).
 **Sizes.** The 26-turn game: one file of 70.6 KB, of which the 26 saved boards are about 10 KB (330 KB raw).
 Smoke's own stream of the same game, gzipped, is 38 KB, and the old format sent one such file per human seat
 (real ones were bigger, with the full states sent on reconnects: 953 KB for the biggest). A projected seat is 45
-to 51 KB, everyone's 49 KB. The 13-turn game: 43 KB against 23 KB for the seat's stream. So the one file costs
-about two old seat files, whatever the number of humans, and AI seats come free.
+to 51 KB, everyone's 49 KB. The 13-turn game: 43 KB against 23 KB for the seat's stream. The two-human game:
+99.5 KB for 30 turns, against 58 KB for Ann's stream and 19 KB for Ben's (who left at turn 11). So the one file
+costs about two old seat files for one human. Each human adds their own prompts, buttons and asks, far less than
+a file of their own, and AI seats come free.
 
 ### Play from here: limits
 
@@ -315,6 +323,8 @@ damage (added on this branch), face-down state, chosen types, and the library's 
 - anything on the stack (at the first main phase it's usually empty; the bench's `-dump` has the same limit);
 - what each player knew: a card revealed earlier is hidden again;
 - the random seed, so the game goes on differently from the original.
+
+Not seen on a played-on board yet, so unverified with `NoETBTrigs`: auras and equipment (`AttachedTo`) and tokens.
 
 The new game records itself too, so it can be replayed and played on again.
 
@@ -338,5 +348,5 @@ http://127.0.0.1:7799/replays --save live0.jsonl`; project with `python -m mtgtr
 run tools/replay.compare.test.ts`. `smoke.mjs --from-replay <file> --turn N` plays on from a turn.
 
 Before it can land: Matt's review and Q-R12; the tracker landing and deploying before the game server (the new
-file goes to `/play/replays/<id>`, which the tracker on `main` doesn't take); and a game with two humans (only one
-human seat played here, so the seat's-own-messages path ran for one seat).
+file goes to `/play/replays/<id>`, which the tracker on `main` doesn't take); a played-on board with auras and
+tokens; and a real game in the cluster (reconnects and takeovers weren't exercised here).
