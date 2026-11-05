@@ -21,7 +21,7 @@
 // checks 40 starting life, a commander in every command zone, and that casts/tax only go up (tax higher after a recast).
 // Optional fields: basePower/baseToughness, keywordLabels, colorIdentity, commanders/commanderDamage, turnOrder and
 // the `mana` assist are checked for shape whenever they arrive.
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
 const opt = (name, dflt) => {
@@ -43,6 +43,13 @@ const stateFile = opt("state", null);
 const seconds = Number(opt("seconds", stateFile ? 900 : 600));
 const maxTurns = Number(opt("turns", 0));
 const verbose = flag("verbose");
+// --replay-url: the spec's replayUrl (the game server POSTs the match's replay there; tools/receive.mjs keeps it).
+// --save FILE: write what this seat was sent as a per-seat replay (PROTOCOL.md "Replays", format 1), to compare
+// with the server's recording projected for this seat.
+const replayUrl = opt("replay-url", null);
+const saveFile = opt("save", null);
+const saved = [];
+const savedAt = Date.now();
 const passive = flag("passive");
 const letTimer = flag("let-timer");
 const moreTime = flag("more-time"); // with --let-timer: ask for more time ("In response") once per timed prompt
@@ -297,12 +304,12 @@ async function control(method, path, body) {
 
 // The spec mtg-tracker would send (PROTOCOL.md "Control API").
 function matchSpec() {
-  if (stateFile) return { version: 1, state: stateFile, returnUrl: "/" };
+  if (stateFile) return { version: 1, state: stateFile, returnUrl: "/", ...(replayUrl ? { replayUrl } : {}) };
   const me = { kind: "human", name: "Smoke", deck: trackerDeck ? { name: trackerDeck.replace(/\.txt$/, ""), list: trackerText } : { id: deck } };
   const ais = curated
     ? curated.split(",").map((id) => ({ kind: "ai", opponent: id }))
     : Array.from({ length: opponents }, () => ({ kind: "ai", deck: { id: opp } }));
-  return { version: 1, format, seats: [me, ...ais], returnUrl: "/" };
+  return { version: 1, format, seats: [me, ...ais], returnUrl: "/", ...(replayUrl ? { replayUrl } : {}) };
 }
 
 const join = opt("join", null);
@@ -500,6 +507,7 @@ ws.onmessage = (ev) => {
   }
   counts[m.t] = (counts[m.t] || 0) + 1;
   lastMsgAt = Date.now();
+  if (saveFile) saved.push(m);
   if (verbose && m.t !== "state") console.log("<<", raw.slice(0, 300));
   switch (m.t) {
     case "hello":
@@ -720,6 +728,13 @@ const timer = setInterval(() => {
 
 let finished = false;
 function finish(code) {
+  if (saveFile) {
+    const hello = saved.find((m) => m.t === "hello") ?? {};
+    const header = { replay: 1, matchId: startRes.body.matchId, seat: hello.seat, who: hello.who, version: hello.version, caps: hello.caps, format, startedAt: new Date(savedAt).toISOString(), seats: [] };
+    const rows = saved.filter((m) => m.t !== "hello").map((m) => JSON.stringify({ ms: 0, m }));
+    writeFileSync(saveFile, [JSON.stringify(header), ...rows].join("\n") + "\n");
+    console.log(`saved ${rows.length} messages to ${saveFile}`);
+  }
   if (finished) return;
   finished = true;
   clearInterval(timer);
