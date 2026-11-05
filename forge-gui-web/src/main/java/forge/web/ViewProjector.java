@@ -31,7 +31,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Set;
 
 /** Turns Forge's view objects into the DTOs of PROTOCOL.md. Pure functions of the views plus what the local seat may see. */
 final class ViewProjector {
@@ -266,8 +265,11 @@ final class ViewProjector {
     }
 
     JsonObject card(CardView c) {
-        Set<PlayerView> viewers = gui.getLocalPlayers();
-        boolean visible = gui.mayView(c);
+        return card(c, gui.getLocalPlayers(), gui.mayView(c), gui.mayFlip(c));
+    }
+
+    /** The card as these viewers see it: {@code visible} and {@code flip} are what mayView and mayFlip say for them. */
+    JsonObject card(CardView c, Iterable<PlayerView> viewers, boolean visible, boolean flip) {
         JsonObject o = new JsonObject();
         o.addProperty("id", c.getId());
         o.addProperty("zone", zoneName(c.getZone()));
@@ -280,7 +282,7 @@ final class ViewProjector {
         String backImg = null;
         if (state != null) {
             img = imgUrl(state.getImageKey(viewers));
-            if (c.hasAlternateState() && gui.mayFlip(c)) {
+            if (c.hasAlternateState() && flip) {
                 CardStateView alt = c.getAlternateState();
                 if (alt != null) {
                     backImg = imgUrl(alt.getImageKey(viewers));
