@@ -57,9 +57,10 @@ type MatchSpec = {
   format?: "commander" | "constructed";   // default commander
   seats: Seat[];                           // 2 to 4, at least one human, in turn order
   state?: string;                          // development: start from a saved board; seats may then be omitted (you, then AIs)
+  stateText?: string;                      // a saved board given whole (a replay's `board.state`, docs/REPLAYS.md); seats in its player order, decks not needed
   returnUrl?: string;                      // where the table's "Back" links go (the tracker's play page)
   resultsUrl?: string;                     // POSTed the result when the match ends (below)
-  replayUrl?: string;                      // each human seat's replay is POSTed to <replayUrl>/<matchId>/<seat> (below)
+  replayUrl?: string;                      // the match's replay is POSTed to <replayUrl>/<matchId> (below)
 };
 type Seat =
   | { kind: "human"; name?: string; person?: string; deck: Deck }
@@ -88,25 +89,42 @@ type Result = {
 };
 ```
 
-**Replays.** With `replayUrl`, each human seat's session records every message it is sent, in order, from the
-start of the match to its end, whether or not a browser is connected (while nobody is, the server keeps
-building that seat's state for the recording; a reconnect still gets a full state). When the match ends,
-finished, ended or abandoned, the file is POSTed to `<replayUrl>/<matchId>/<seat>` as `application/gzip`
-with the control secret, retried like results. It is gzipped JSON lines:
+**Replays.** With `replayUrl`, the match is recorded once, by a table session that is never connected and
+may see every card anyone at the table may see (docs/REPLAYS.md D-R6). When the match ends, finished, ended or
+abandoned, the file is POSTed to `<replayUrl>/<matchId>` as `application/gzip` with the control secret, retried
+like results. It is gzipped JSON lines (format 2):
 
 ```ts
 // line 1
-type ReplayHeader = { replay: 1; matchId: string; seat: number; who: string; version: 2; caps: string[];
+type TableReplayHeader = { replay: 2; matchId: string; version: 2; caps: string[];
   format: string; startedAt: string; seats: { index: number; kind: "human" | "ai"; name: string; deck: string }[] };
-// then one line per message, ms since the match started
+// the table's state messages (and the game's end), ms since the match started. A card that some seat sees
+// otherwise (another player's hand, a face-down card's front) carries that seat's version: as: {"<seat>": CardDto}
+type TableLine = { ms: number; m: ServerMessage };
+// a human seat's own messages (prompt, buttons, ask, reveal, ...), after a state holding every card they name
+type SeatLine = { ms: number; s: number; m: ServerMessage };
+// after all of those: the board at each turn's first main phase, a GameState text (players in seat order)
+type BoardLine = { ms: number; board: { turn: number; seq: number; players: string[]; state: string } };
+// last: the final board as a full state, and the result
+type ReplayEnd = { ms: number; snapshot: true; result: Result; m?: StateMessage };
+```
+
+The tracker never serves this file. It serves one perspective of it in the per-seat format 1 the viewer reads
+(`mtgtracker/play/replays.py`): for seat N each card becomes its `as.N`, `game.localPlayerIds` is seat N's player
+and only seat N's own lines stay; for everyone, the cards as they are and no seat's lines. Boards never leave.
+
+```ts
+type ReplayHeader = { replay: 1; matchId: string; seat: number; who: string; version: 2; caps: string[];
+  format: string; startedAt: string; seats: { index: number; kind: "human" | "ai"; name: string; deck: string }[];
+  perspectives?: true; boards?: number[] };  // projected: other views may be asked for; the turns with a saved board
 type ReplayLine = { ms: number; m: ServerMessage };
-// last: the final board as a full state, and the result. Not applied when replaying; a replay is checked against it
 type ReplayEnd = { ms: number; snapshot: true; result: Result; m?: StateMessage };
 ```
 
 Replaying is feeding a `hello` built from the header, then each `m`, to the client's store (`ui/src/replay.ts`);
-`ui/tools/replay.check.test.ts` checks a file ends on its snapshot. A replay is what that seat saw: other
-players' hands stay hidden. A server that dies before the match ends sends no replay.
+`ui/tools/replay.check.test.ts` checks a file ends on its snapshot. Older files (format 1, one per human seat,
+POSTed to `<replayUrl>/<matchId>/<seat>`) are that seat's own stream and are served as they are. A server that
+dies before the match ends sends no replay.
 
 ## Server to client
 
