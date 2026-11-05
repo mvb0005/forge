@@ -8,13 +8,16 @@ import java.io.OutputStreamWriter;
 import java.io.UncheckedIOException;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.zip.GZIPOutputStream;
 
 /**
  * A match's replay (PROTOCOL.md "Replays"), as gzipped JSON lines. The first line is a header; each other line is
  * {@code {"ms":<since start>,"m":<message>}} for the table's messages, {@code {"ms":..,"s":<seat>,"m":..}} for one
- * seat's own, or {@code {"ms":..,"board":..}} for a saved board; the last is a full state of the final board marked
- * {@code "snapshot":true}, with the match's result, which a viewer doesn't apply (it checks a replay against it).
+ * seat's own, or {@code {"ms":..,"board":..}} for a saved board (all of them after the rest); the last is a full
+ * state of the final board marked {@code "snapshot":true}, with the match's result, which a viewer doesn't apply
+ * (it checks a replay against it).
  */
 final class Recorder {
     static final int FORMAT = 2;
@@ -22,6 +25,7 @@ final class Recorder {
     private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     private final Writer out;
     private final long start = System.nanoTime();
+    private final List<String> boards = new ArrayList<>();
     private int lines;
     private boolean finished;
 
@@ -47,15 +51,18 @@ final class Recorder {
         }
     }
 
+    /** Saved boards are written together at the end, where gzip finds what one turn's board repeats of the last. */
     synchronized void board(JsonObject board) {
         if (!finished) {
-            line("{\"ms\":" + ms() + ",\"board\":" + board + "}");
+            boards.add("{\"ms\":" + ms() + ",\"board\":" + board + "}");
         }
     }
 
     /** Closes the replay with the final board and returns the file. */
     synchronized byte[] finish(String finalState, JsonObject result) {
         if (!finished) {
+            boards.forEach(this::line);
+            boards.clear();
             line("{\"ms\":" + ms() + ",\"snapshot\":true,\"result\":" + result
                     + (finalState != null ? ",\"m\":" + finalState : "") + "}");
             finished = true;
