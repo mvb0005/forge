@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type DragEvent } from 'react'
 import { MatchTable } from '../board/MatchTable'
+import { useBoardUi } from '../board/uiStore'
 import { stepWords } from '../look/phase'
 import { setSendTap } from '../net'
 import { PeekRoot } from '../popover/PeekRoot'
@@ -32,7 +33,11 @@ export function ReplayPage() {
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     setSendTap(() => {})
-    return () => setSendTap(null)
+    useBoardUi.setState({ replaying: true })
+    return () => {
+      setSendTap(null)
+      useBoardUi.setState({ replaying: false })
+    }
   }, [])
   useEffect(() => {
     if (!src) return
@@ -174,6 +179,22 @@ function ReplayTable({ replay, idx }: Loaded) {
   )
 }
 
+/** The views a game's replay page may switch to: everyone and each seat for a game with one replay (the tracker
+ * projects each), else the human seats' own files. A local file has only its own. */
+function perspectives(h: Replay['header']): { seat: number; label: string }[] {
+  if (!/\/play\/table\/[0-9a-f]{16}\/replay\//.test(location.pathname)) return []
+  const seats = h.seats.filter((s) => h.perspectives || s.kind === 'human').map((s) => ({ seat: s.index, label: `${s.name}'s view${s.kind === 'ai' ? ' (AI)' : ''}` }))
+  return h.perspectives ? [{ seat: -1, label: "Everyone's view" }, ...seats] : seats
+}
+
+/** Reopens the page as another view, at the same moment (seq is the same in every view of a game). */
+function watchAs(seat: number) {
+  const url = new URL(location.href)
+  if (seat < 0) url.searchParams.delete('seat')
+  else url.searchParams.set('seat', String(seat))
+  location.assign(url)
+}
+
 function ReplayBar({ replay, idx, stop, playing, speed, skip, onSkip, onStop, onPlay, onSpeed, onTurn, onPhase }: {
   replay: Replay; idx: ReplayIndex; stop: number; playing: boolean; speed: number; skip: boolean; onSkip: () => void
   onStop: (s: number) => void; onPlay: () => void; onSpeed: (s: number) => void; onTurn: (d: 1 | -1) => void; onPhase: (d: 1 | -1) => void
@@ -192,11 +213,19 @@ function ReplayBar({ replay, idx, stop, playing, speed, skip, onSkip, onStop, on
     })
   }
   const h = replay.header
+  const views = perspectives(h)
   const btn = 'rounded-md px-2 py-1 text-ink-dim hover:bg-panel-2 hover:text-ink'
   return (
     <div className="lk-plate fixed left-1/2 top-2 z-[70] flex w-[min(760px,calc(100vw-120px))] -translate-x-1/2 flex-col gap-1 rounded-xl px-3 py-2 text-xs shadow-2xl" style={{ color: 'var(--lk-parchment)' }}>
       <div className="flex items-center gap-1">
-        <span className="whitespace-nowrap font-title font-bold" title={`Match ${h.matchId}, seat ${h.seat}`}>Replay · {h.who}'s view</span>
+        {views.length > 1 ? (
+          <select className="rounded-md bg-panel-2 px-1 py-0.5 font-title font-bold text-ink" title="Whose view: the server sends only what that seat saw"
+            value={h.seat} onChange={(e) => watchAs(Number(e.target.value))} aria-label="Whose view">
+            {views.map((v) => <option key={v.seat} value={v.seat}>{v.label}</option>)}
+          </select>
+        ) : (
+          <span className="whitespace-nowrap font-title font-bold" title={`Match ${h.matchId}, seat ${h.seat}`}>Replay · {h.who}'s view</span>
+        )}
         <span className="ml-2 truncate text-ink-dim">Turn {s.turn} · {stepWords(s.phase) || '—'} · seq {s.seq}</span>
         <span className="ml-auto" />
         <button type="button" className={btn} title="Previous turn (Shift+←)" onClick={() => onTurn(-1)}>⏮</button>

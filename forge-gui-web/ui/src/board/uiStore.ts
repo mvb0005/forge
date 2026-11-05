@@ -9,6 +9,7 @@ type BoardUi = {
   handOrder: number[] | null // null: the hand is shown in mana-value order
   handStart: number // first card shown when the hand is too big to show whole
   openLands: number[] // players whose land shelf is opened onto their battlefield
+  replaying: boolean // the table is a replay: nothing it offers can be sent
   setFocus: (playerId: number, turn: number) => void
   setHoverStack: (id: number | null) => void
   setZoneView: (z: BoardUi['zoneView']) => void
@@ -25,6 +26,7 @@ export const useBoardUi = create<BoardUi>()((set) => ({
   handOrder: null,
   handStart: 0,
   openLands: [],
+  replaying: false,
   setFocus: (playerId, turn) => set({ focus: { playerId, turn } }),
   setHoverStack: (hoverStackId) => set({ hoverStackId }),
   setZoneView: (zoneView) => set({ zoneView }),
