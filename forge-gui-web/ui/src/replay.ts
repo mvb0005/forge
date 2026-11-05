@@ -16,6 +16,8 @@ export type ReplayHeader = {
   seats: { index: number; kind: 'human' | 'ai'; name: string; deck: string }[]
   /** One view the tracker projected from a game's one replay (docs/REPLAYS.md D-R7); every other view may be asked for. */
   perspectives?: boolean
+  /** The turns whose first main phase the recording saved as a board a new game may start from (D-R8). */
+  boards?: number[]
 }
 
 export type ReplayResult = { matchId: string; status: string; winner?: string; turn?: number; summary?: string; log?: string[] }

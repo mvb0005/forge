@@ -195,6 +195,20 @@ function watchAs(seat: number) {
   location.assign(url)
 }
 
+/** Play from here (docs/REPLAYS.md D-R8): the tracker starts a new game on the board saved at this turn's first
+ * main phase, this seat yours and AIs the others, and answers the new table's address. */
+async function playFrom(matchId: string, turn: number, seat: number): Promise<string> {
+  const res = await fetch(`/play/games/${matchId}/replay/play`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ turn, seat }),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok || !body.url) throw new Error(body.error?.message ?? body.detail ?? `${res.status} ${res.statusText}`)
+  return body.url
+}
+
 function ReplayBar({ replay, idx, stop, playing, speed, skip, onSkip, onStop, onPlay, onSpeed, onTurn, onPhase }: {
   replay: Replay; idx: ReplayIndex; stop: number; playing: boolean; speed: number; skip: boolean; onSkip: () => void
   onStop: (s: number) => void; onPlay: () => void; onSpeed: (s: number) => void; onTurn: (d: 1 | -1) => void; onPhase: (d: 1 | -1) => void
@@ -214,9 +228,15 @@ function ReplayBar({ replay, idx, stop, playing, speed, skip, onSkip, onStop, on
   }
   const h = replay.header
   const views = perspectives(h)
+  const [starting, setStarting] = useState<string | null>(null)
+  const canPlayOn = views.length > 0 && !!h.boards?.includes(s.turn)
+  const playOn = () => {
+    setStarting('Starting…')
+    playFrom(h.matchId, s.turn, h.seat).then((url) => location.assign(url), (e) => setStarting(`Couldn't start: ${e.message ?? e}`))
+  }
   const btn = 'rounded-md px-2 py-1 text-ink-dim hover:bg-panel-2 hover:text-ink'
   return (
-    <div className="lk-plate fixed left-1/2 top-2 z-[70] flex w-[min(760px,calc(100vw-120px))] -translate-x-1/2 flex-col gap-1 rounded-xl px-3 py-2 text-xs shadow-2xl" style={{ color: 'var(--lk-parchment)' }}>
+    <div className="lk-plate fixed left-1/2 top-2 z-[70] flex w-[min(880px,calc(100vw-120px))] -translate-x-1/2 flex-col gap-1 rounded-xl px-3 py-2 text-xs shadow-2xl" style={{ color: 'var(--lk-parchment)' }}>
       <div className="flex items-center gap-1">
         {views.length > 1 ? (
           <select className="rounded-md bg-panel-2 px-1 py-0.5 font-title font-bold text-ink" title="Whose view: the server sends only what that seat saw"
@@ -243,6 +263,12 @@ function ReplayBar({ replay, idx, stop, playing, speed, skip, onSkip, onStop, on
         <button type="button" className={`${btn} whitespace-nowrap ${skip ? 'bg-panel-2 text-ink' : ''}`} onClick={onSkip}
           title="Step and play past steps where nothing happened">Skip quiet</button>
         <button type="button" className={btn} title="Copy a link to this moment" onClick={copy}>{copied ? 'Copied' : 'Link'}</button>
+        {canPlayOn && (
+          <button type="button" className={`${btn} whitespace-nowrap`} onClick={playOn} disabled={starting === 'Starting…'}
+            title={`A new game on turn ${s.turn}'s board, from its first main phase: you play ${h.seat < 0 ? 'the first human seat' : `${h.who}'s seat`}, AIs the others`}>
+            {starting ?? 'Play from here'}
+          </button>
+        )}
       </div>
       <div className="relative h-5">
         <input type="range" min={0} max={last} value={stop} onChange={(e) => onStop(Number(e.target.value))}
