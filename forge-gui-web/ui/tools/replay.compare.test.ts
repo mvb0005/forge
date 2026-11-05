@@ -24,9 +24,15 @@ const board = () => {
   return { game, players: s.players, cards: s.cards, stack: s.stack, combat: s.combat }
 }
 
-/** What a seat may see of each card it knows: the fields hidden information changes. */
-const seen = (cards: ReturnType<typeof board>['cards']) =>
-  Object.fromEntries(Object.values(cards).map((c) => [c.id, [c.hidden, c.name, c.img, c.backImg, c.text]]))
+/** What a seat may see of each card it knows: the fields hidden information changes. A card only one side knows
+ * yet (another player's card drawn between the two reads) must be hidden there: knowing it exists shows nothing. */
+function seen(cards: ReturnType<typeof board>['cards'], other: ReturnType<typeof board>['cards']) {
+  const out: Record<number, unknown> = {}
+  for (const c of Object.values(cards)) out[c.id] = other[c.id] || !c.hidden ? [c.hidden, c.name, c.img, c.backImg, c.text] : 'hidden, not known to the other'
+  return out
+}
+const known = (a: ReturnType<typeof board>['cards'], b: ReturnType<typeof board>['cards']) =>
+  Object.fromEntries(Object.entries(seen(a, b)).filter(([id, v]) => b[Number(id)] || v !== 'hidden, not known to the other'))
 
 /** Which parts of two boards differ, field by field. */
 function what(a: ReturnType<typeof board>, b: ReturnType<typeof board>): string {
@@ -61,7 +67,7 @@ it.skipIf(!file || !live)('a projected seat sees what that seat did live', () =>
   expect(a.length).toEqual(b.length)
   let differ = 0
   a.forEach((x, i) => {
-    expect(seen(x.cards), `what the seat could see at prompt ${i}`).toEqual(seen(b[i].cards))
+    expect(known(x.cards, b[i].cards), `what the seat could see at prompt ${i}`).toEqual(known(b[i].cards, x.cards))
     if (JSON.stringify(x) !== JSON.stringify(b[i]) && differ++ < 10) console.log(`at prompt ${i}: ${what(x, b[i])}`)
   })
   console.log(`${differ} of ${a.length} boards differ (a moment later: step, priority, sickness, log, combat)`)
