@@ -1279,6 +1279,7 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
             setPlayerTurn(player0);
         }
         turn = cturn;
+        game.updateTurnForView(); // a loaded board shows its turn, not the 1 it started from
 
         game.fireEvent(new GameEventTurnPhase(playerTurn, phase, "dev"));
         if (endCombat) {
