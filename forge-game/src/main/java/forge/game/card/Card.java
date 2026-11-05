@@ -6515,15 +6515,15 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
         }
 
         if (isManifested()) {
-            String set = getManifestedSA().getCardState().getSetCode();
+            String set = setCodeOf(getManifestedSA());
             return StaticData.instance().getOtherImageKey(ImageKeys.MANIFEST_IMAGE, set);
         }
         if (isCloaked()) {
-            String set = getCloakedSA().getCardState().getSetCode();
+            String set = setCodeOf(getCloakedSA());
             return StaticData.instance().getOtherImageKey(ImageKeys.CLOAKED_IMAGE, set);
         }
         if (getCastSA() != null) {
-            String set = getCastSA().getCardState().getSetCode();
+            String set = setCodeOf(getCastSA());
             if (getCastSA().isKeyword(Keyword.DISGUISE)) {
                 return StaticData.instance().getOtherImageKey(ImageKeys.CLOAKED_IMAGE, set);
             } else if (getCastSA().isKeyword(Keyword.MORPH) || getCastSA().isKeyword(Keyword.MEGAMORPH)) {
@@ -6533,6 +6533,11 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
         // TODO add face-down SA to key
 
         return ImageKeys.getTokenKey(ImageKeys.HIDDEN_CARD);
+    }
+
+    // A face-down card a saved board (GameState) put on the battlefield has an ability with no card state behind it
+    private static String setCodeOf(SpellAbility sa) {
+        return sa.getCardState() == null ? null : sa.getCardState().getSetCode();
     }
 
     public final boolean isTributed() { return tributed; }
