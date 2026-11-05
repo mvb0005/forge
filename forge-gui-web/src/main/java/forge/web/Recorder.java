@@ -11,13 +11,13 @@ import java.nio.charset.StandardCharsets;
 import java.util.zip.GZIPOutputStream;
 
 /**
- * One seat's replay (PROTOCOL.md "Replays"): every message the seat was sent, in order, whether or not a
- * browser was connected, as gzipped JSON lines. The first line is a header; each other line is
- * {@code {"ms":<since start>,"m":<message>}}; the last is a full state of the final board marked
+ * A match's replay (PROTOCOL.md "Replays"), as gzipped JSON lines. The first line is a header; each other line is
+ * {@code {"ms":<since start>,"m":<message>}} for the table's messages, {@code {"ms":..,"s":<seat>,"m":..}} for one
+ * seat's own, or {@code {"ms":..,"board":..}} for a saved board; the last is a full state of the final board marked
  * {@code "snapshot":true}, with the match's result, which a viewer doesn't apply (it checks a replay against it).
  */
 final class Recorder {
-    static final int FORMAT = 1;
+    static final int FORMAT = 2;
 
     private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     private final Writer out;
@@ -37,14 +37,26 @@ final class Recorder {
 
     synchronized void add(String message) {
         if (!finished) {
-            line("{\"ms\":" + (System.nanoTime() - start) / 1_000_000 + ",\"m\":" + message + "}");
+            line("{\"ms\":" + ms() + ",\"m\":" + message + "}");
+        }
+    }
+
+    synchronized void add(int seat, String message) {
+        if (!finished) {
+            line("{\"ms\":" + ms() + ",\"s\":" + seat + ",\"m\":" + message + "}");
+        }
+    }
+
+    synchronized void board(JsonObject board) {
+        if (!finished) {
+            line("{\"ms\":" + ms() + ",\"board\":" + board + "}");
         }
     }
 
     /** Closes the replay with the final board and returns the file. */
     synchronized byte[] finish(String finalState, JsonObject result) {
         if (!finished) {
-            line("{\"ms\":" + (System.nanoTime() - start) / 1_000_000 + ",\"snapshot\":true,\"result\":" + result
+            line("{\"ms\":" + ms() + ",\"snapshot\":true,\"result\":" + result
                     + (finalState != null ? ",\"m\":" + finalState : "") + "}");
             finished = true;
             try {
@@ -58,6 +70,10 @@ final class Recorder {
 
     synchronized int lines() {
         return lines;
+    }
+
+    private long ms() {
+        return (System.nanoTime() - start) / 1_000_000;
     }
 
     private void line(String s) {

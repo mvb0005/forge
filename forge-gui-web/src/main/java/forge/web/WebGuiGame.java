@@ -16,6 +16,7 @@ import forge.game.GameEntityView;
 import forge.game.GameLog;
 import forge.game.GameLogEntry;
 import forge.game.GameObject;
+import forge.game.GameState;
 import forge.game.GameView;
 import forge.game.card.Card;
 import forge.game.card.CardView;
@@ -122,8 +123,15 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
     private final Object io = new Object();
     private final Set<ClientChannel> channels = ConcurrentHashMap.newKeySet();
     private WebGuiGame spectator;
-    /** This seat's replay, if the match records one: everything sent, connected or not. */
+    /** The match's replay, on its table session (docs/REPLAYS.md D-R6), which sees every card anyone may see. */
     private Recorder recorder;
+    private TableView tableView;
+    private boolean gameOverRecorded;
+    /** Table only: the cards each human seat's own messages refer to, kept in the replay's states. */
+    private final Map<Integer, Set<CardView>> seatCards = new HashMap<>();
+    /** A human seat's session when the match records: its own messages go into the table's replay as this seat's. */
+    private WebGuiGame table;
+    private int tableSeat;
     private boolean capturing;
     private JsonObject captured;
     private boolean forceFull = true;
@@ -315,6 +323,17 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         if (recorder != null) {
             recorder.add(m.toString());
         }
+        String t = m.get("t").getAsString();
+        if (table != null && !t.equals("state") && !t.equals("timer")) {
+            Set<CardView> refs = new HashSet<>(askCards);
+            refs.addAll(revealCards);
+            refs.addAll(selectCards);
+            refs.addAll(highlightCards);
+            if (promptCard != null) {
+                refs.add(promptCard);
+            }
+            table.seatMessage(tableSeat, m, refs);
+        }
         for (ClientChannel ch : channels) {
             ch.send(m);
         }
@@ -331,9 +350,82 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         return name == null ? null : faces.get(name);
     }
 
-    void record(Recorder r) {
+    /** Makes this the match's table session: never connected, it records the replay. Seat names in seat order. */
+    void table(Recorder r, List<String> seatNames) {
         synchronized (io) {
             recorder = r;
+            tableView = new TableView(proj, seatNames);
+        }
+    }
+
+    /** This human seat's own messages go into the table session's replay as seat {@code index}'s. */
+    void recordInto(WebGuiGame t, int index) {
+        synchronized (io) {
+            table = t;
+            tableSeat = index;
+        }
+    }
+
+    Recorder recorder() {
+        return recorder;
+    }
+
+    // Table only: the board at the first main phase of every turn, as a GameState (D-R8: play from here)
+    private Game boardsOf;
+    private final Object boardSaver = new Object() {
+        @Subscribe
+        public void onPhase(GameEventTurnPhase e) {
+            // "dev" is the phase change made while a saved board is being loaded, before its cards are in place
+            if (e.phase() == PhaseType.MAIN1 && !"dev".equals(e.phaseDesc())) {
+                saveBoard();
+            }
+        }
+    };
+
+    private synchronized void saveBoardsOf(Game g) {
+        if (boardsOf != g) {
+            boardsOf = g;
+            g.subscribeToEvents(boardSaver);
+        }
+    }
+
+    /** On the game thread. The saved board's players are in the game's order, which is the seats' (names say whose). */
+    private void saveBoard() {
+        Game g = boardsOf;
+        try {
+            GameState gs = new GameState();
+            gs.initFromGame(g);
+            JsonObject b = new JsonObject();
+            b.addProperty("turn", g.getPhaseHandler().getTurn());
+            JsonArray names = new JsonArray();
+            for (Player p : g.getPlayers()) {
+                names.add(p.getName());
+            }
+            b.add("players", names);
+            b.addProperty("state", gs.toString());
+            synchronized (io) {
+                flushLocked();
+                b.addProperty("seq", seq);
+                recorder.board(b);
+            }
+        } catch (RuntimeException e) {
+            System.err.println("Saving the board failed: " + e);
+        }
+    }
+
+    /** Table only: one seat's message, after a state that holds every card it refers to. */
+    private void seatMessage(int seat, JsonObject m, Set<CardView> refs) {
+        synchronized (io) {
+            if (recorder == null) {
+                return;
+            }
+            seatCards.put(seat, refs);
+            flushLocked();
+            if (m.get("t").getAsString().equals("gameOver") && !gameOverRecorded) {
+                gameOverRecorded = true;
+                recorder.add(m.toString());
+            }
+            recorder.add(seat, m.toString());
         }
     }
 
@@ -435,6 +527,10 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         if (spec != null) {
             spec.dirty();
         }
+        WebGuiGame t = table;
+        if (t != null) {
+            t.dirty();
+        }
         synchronized (schedLock) {
             if (flushScheduled) {
                 return;
@@ -502,6 +598,7 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
             if (promptCard != null) {
                 cards.add(promptCard);
             }
+            seatCards.values().forEach(cards::addAll);
 
             List<JsonObject> changed = new ArrayList<>();
             Map<Integer, String> newCards = new HashMap<>();
@@ -510,7 +607,7 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
                 if (c == null || !seen.add(c.getId())) {
                     continue;
                 }
-                JsonObject co = proj.card(c);
+                JsonObject co = tableView != null ? tableView.card(c, gv) : proj.card(c);
                 String cs = co.toString();
                 if (full || !cs.equals(sentCards.get(c.getId()))) {
                     changed.add(co);
@@ -1605,6 +1702,13 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         // still say they're in a hand.
         if (spec != null && (gameView0 == null || spec.getGameView() != gameView0)) {
             spec.setGameView(gameView0);
+        }
+        WebGuiGame t = table;
+        if (t != null && (gameView0 == null || t.getGameView() != gameView0)) {
+            t.setGameView(gameView0);
+        }
+        if (tableView != null && gameView0 != null && gameView0.getGame() != null) {
+            saveBoardsOf(gameView0.getGame());
         }
         if (gameView0 == null) {
             synchronized (io) {

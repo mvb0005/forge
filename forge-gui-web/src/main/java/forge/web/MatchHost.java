@@ -71,7 +71,6 @@ public final class MatchHost {
         final String deckName;
         String ticket;
         WebGuiGame session;
-        Recorder recorder;
         volatile ClientChannel channel;
 
         Seat(int index, boolean human, String name, String person, String deckName) {
@@ -102,6 +101,8 @@ public final class MatchHost {
     private String replayUrl;
     private String watchTicket;
     private WebGuiGame spectator;
+    /** The never-connected session that records the match's replay, when it has a replayUrl (docs/REPLAYS.md D-R6). */
+    private WebGuiGame table;
     private HostedMatch currentMatch;
     private Map<String, String[]> currentFaces = Map.of();
     private Instant startedAt;
@@ -345,6 +346,9 @@ public final class MatchHost {
             session = new WebGuiGame(match, watch.facts());
             session.faces(faces);
             session.watch(watch);
+            if (table != null) {
+                session.recordInto(table, seat.index);
+            }
             seat.session = session;
             seat.channel = ch;
         }
@@ -549,8 +553,10 @@ public final class MatchHost {
             joined = false;
             state = State.PLAYING;
         }
+        WebGuiGame tableSession = null;
         if (replayUrl != null) {
             JsonArray seatsOut = new JsonArray();
+            List<String> seatNames = new ArrayList<>();
             for (Seat s : newSeats) {
                 JsonObject j = new JsonObject();
                 j.addProperty("index", s.index);
@@ -558,22 +564,25 @@ public final class MatchHost {
                 j.addProperty("name", s.name);
                 j.addProperty("deck", s.deckName);
                 seatsOut.add(j);
+                seatNames.add(s.name);
             }
+            JsonObject header = new JsonObject();
+            header.addProperty("matchId", id);
+            header.addProperty("version", 2);
+            header.add("caps", caps());
+            header.addProperty("format", commander ? "commander" : "constructed");
+            header.addProperty("startedAt", startedAt.toString());
+            header.add("seats", seatsOut);
+            tableSession = new WebGuiGame(match, firstSession.facts());
+            tableSession.faces(faces);
+            tableSession.table(new Recorder(header), seatNames);
             for (Seat s : newSeats) {
-                if (s.session == null) {
-                    continue;
+                if (s.session != null) {
+                    s.session.recordInto(tableSession, s.index);
                 }
-                JsonObject header = new JsonObject();
-                header.addProperty("matchId", id);
-                header.addProperty("seat", s.index);
-                header.addProperty("who", s.name);
-                header.addProperty("version", 2);
-                header.add("caps", caps());
-                header.addProperty("format", commander ? "commander" : "constructed");
-                header.addProperty("startedAt", startedAt.toString());
-                header.add("seats", seatsOut);
-                s.recorder = new Recorder(header);
-                s.session.record(s.recorder);
+            }
+            synchronized (lock) {
+                table = tableSession;
             }
         }
         if (gameState != null) {
@@ -589,9 +598,13 @@ public final class MatchHost {
                 state = State.IDLE;
                 seats = List.of();
                 spectator = null;
+                table = null;
                 currentMatch = null;
             }
             watchSession.dispose();
+            if (tableSession != null) {
+                tableSession.dispose();
+            }
             for (Seat s : newSeats) {
                 if (s.session != null) {
                     s.session.dispose();
@@ -790,6 +803,7 @@ public final class MatchHost {
     private void finished(String id) {
         List<Seat> done;
         WebGuiGame watch;
+        WebGuiGame recording;
         String url;
         String replays;
         JsonObject r;
@@ -799,6 +813,8 @@ public final class MatchHost {
             }
             done = seats;
             watch = spectator;
+            recording = table;
+            table = null;
             WebGuiGame any = done.stream().filter(s -> s.session != null).map(s -> s.session).findFirst().orElse(null);
             r = any == null ? new JsonObject() : any.outcome().deepCopy();
             r.addProperty("matchId", id);
@@ -813,12 +829,13 @@ public final class MatchHost {
             url = resultsUrl;
             replays = replayUrl;
         }
+        if (recording != null) {
+            byte[] file = recording.recorder().finish(recording.snapshot(), r);
+            System.out.println("Replay of match " + id + ": " + recording.recorder().lines() + " lines, " + file.length + " B");
+            results.send(replays + "/" + id, file, "application/gzip");
+            recording.dispose();
+        }
         for (Seat s : done) {
-            if (s.recorder != null) {
-                byte[] file = s.recorder.finish(s.session.snapshot(), r);
-                System.out.println("Replay of match " + id + " seat " + s.index + ": " + s.recorder.lines() + " lines, " + file.length + " B");
-                results.send(replays + "/" + id + "/" + s.index, file, "application/gzip");
-            }
             if (s.session != null) {
                 s.session.dispose();
             }
