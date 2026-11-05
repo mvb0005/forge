@@ -449,6 +449,9 @@ public final class MatchHost {
         String stateName = str(spec, "state", null);
         // stateText: a board given whole, such as one a replay saved (docs/REPLAYS.md D-R8: play from here)
         String stateText = str(spec, "stateText", null);
+        // A replay's board is in seat order and holds every hand; the development states under `state` were written
+        // for Forge's usual start (humans first, a coin toss and mulligans) and keep it
+        boolean savedBoard = stateText != null;
         if (stateText != null && stateText.length() > MAX_STATE_TEXT) {
             throw new Refused(400, "That board is too big");
         }
@@ -596,12 +599,12 @@ public final class MatchHost {
             }
         }
         if (gameState != null) {
-            match.keepPlayerOrder(); // the board's p0, p1... are the seats in order, humans or not
             match.setStartGameHook(() -> gameState.applyToGameNow(match.getGame()));
         }
         match.setOnMatchOver(() -> finished(started));
         GameRules rules = new GameRules(commander ? GameType.Commander : GameType.Constructed);
         rules.setGamesPerMatch(1);
+        rules.setFromSavedBoard(savedBoard);
         try {
             match.startMatch(rules, variants, players, guis, null);
         } catch (RuntimeException e) {

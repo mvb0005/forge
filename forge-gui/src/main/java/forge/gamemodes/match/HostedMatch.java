@@ -69,9 +69,6 @@ public class HostedMatch {
         startGameHook = hook;
     }
     public void setEndGameHook(Runnable hook) { endGameHook = hook; }
-    /** Keep the players in the order given (a saved board names them by position) instead of humans first. */
-    public void keepPlayerOrder() { keepPlayerOrder = true; }
-    private boolean keepPlayerOrder = false;
     public void setOnMatchOver(Runnable callback) { onMatchOver = callback; }
 
     private static GameRules getDefaultRules(final GameType gameType) {
@@ -126,7 +123,7 @@ public class HostedMatch {
         }
 
         final List<RegisteredPlayer> sortedPlayers = Lists.newArrayList(players);
-        if (!keepPlayerOrder) sortedPlayers.sort((p1, p2) -> {
+        if (!gameRules.isFromSavedBoard()) sortedPlayers.sort((p1, p2) -> {
             final int v1 = p1.getPlayer() instanceof LobbyPlayerHuman ? 0 : 1;
             final int v2 = p2.getPlayer() instanceof LobbyPlayerHuman ? 0 : 1;
             return Integer.compare(v1, v2);

@@ -6,6 +6,7 @@ import java.util.Set;
 public class GameRules {
     private final GameType gameType;
     private boolean manaBurn;
+    private boolean fromSavedBoard;
     private boolean orderCombatants;
     private int poisonCountersToLose = 10; // is commonly 10, but turns into 15 for 2HG
     private int gamesPerMatch = 3;
@@ -31,6 +32,15 @@ public class GameRules {
 
     public GameType getGameType() {
         return gameType;
+    }
+
+    /** The game starts on a saved board (a GameState its start-game hook loads), which says whose turn it is, holds
+     * every hand and names the players by position: no coin toss or mulligans, and the players stay in order. */
+    public boolean isFromSavedBoard() {
+        return fromSavedBoard;
+    }
+    public void setFromSavedBoard(final boolean fromSavedBoard) {
+        this.fromSavedBoard = fromSavedBoard;
     }
 
     public boolean hasManaBurn() {

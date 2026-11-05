@@ -2342,8 +2342,8 @@ public class GameAction {
         startGame(lastGameOutcome, null);
     }
     public void startGame(GameOutcome lastGameOutcome, Runnable startGameHook) {
-        // The hook loads a saved board, which says whose turn it is and what each hand holds: no coin toss or mulligans
-        Player first = startGameHook != null ? game.getPlayers().get(0) : determineFirstTurnPlayer(lastGameOutcome);
+        boolean savedBoard = game.getRules().isFromSavedBoard();
+        Player first = savedBoard ? game.getPlayers().get(0) : determineFirstTurnPlayer(lastGameOutcome);
 
         GameType gameType = game.getRules().getGameType();
         do {
@@ -2370,7 +2370,7 @@ public class GameAction {
                 }
             }
 
-            if (game.getRules().getGameType() != GameType.Puzzle && startGameHook == null) {
+            if (game.getRules().getGameType() != GameType.Puzzle && !savedBoard) {
                 new MulliganService(first).perform();
             }
             if (game.isGameOver()) { break; } // conceded during "mulligan" prompt
