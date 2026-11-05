@@ -67,6 +67,10 @@ public class GameState {
         private int speed = 0;
         private String precast = null;
         private String putOnStack = null;
+        // <commander id>:<count>, comma separated: how often this player cast each of their commanders, and how
+        // much combat damage each commander dealt them
+        private String commanderCast = "";
+        private String commanderDamage = "";
         private final Map<ZoneType, String> cardTexts = new EnumMap<>(ZoneType.class);
     }
     private final List<PlayerState> playerStates = new ArrayList<>();
@@ -149,6 +153,12 @@ public class GameState {
             if (!p.persistentMana.isEmpty()) {
                 sb.append(TextUtil.concatNoSpace(prefix + "persistentmana=", p.persistentMana, "\n"));
             }
+            if (!p.commanderCast.isEmpty()) {
+                sb.append(TextUtil.concatNoSpace(prefix + "commandercast=", p.commanderCast, "\n"));
+            }
+            if (!p.commanderDamage.isEmpty()) {
+                sb.append(TextUtil.concatNoSpace(prefix + "commanderdamage=", p.commanderDamage, "\n"));
+            }
             appendCards(p.cardTexts, prefix, sb);
         }
         return sb.toString();
@@ -171,6 +181,25 @@ public class GameState {
             p.manaPool = processManaPool(player.getManaPool());
             p.numRingTemptedYou = player.getNumRingTemptedYou();
             p.speed = player.getSpeed();
+            List<String> casts = new ArrayList<>();
+            for (Card c : player.getCommanders()) {
+                if (player.getCommanderCast(c) > 0) {
+                    casts.add(c.getId() + ":" + player.getCommanderCast(c));
+                }
+            }
+            p.commanderCast = String.join(",", casts);
+            List<Entry<Card, Integer>> dealt = new ArrayList<>();
+            player.getCommanderDamage().forEach(dealt::add);
+            // in seat order, so a board saved again after loading says the same
+            dealt.sort(Comparator.comparing((Entry<Card, Integer> e) -> game.getPlayers().indexOf(e.getKey().getOwner()))
+                    .thenComparing(e -> e.getKey().getName()));
+            List<String> damage = new ArrayList<>();
+            for (Entry<Card, Integer> e : dealt) {
+                if (e.getValue() > 0) {
+                    damage.add(e.getKey().getId() + ":" + e.getValue());
+                }
+            }
+            p.commanderDamage = String.join(",", damage);
             playerStates.add(p);
         }
 
@@ -180,6 +209,10 @@ public class GameState {
 
         // Mark the cards that need their ID remembered for various reasons
         cardsReferencedByID.clear();
+        for (Player player : game.getPlayers()) {
+            // commander tax and damage name them
+            cardsReferencedByID.addAll(player.getCommanders());
+        }
         for (ZoneType zone : ZONES.keySet()) {
             for (Card card : game.getCardsIncludePhasingIn(zone)) {
                 if (card.getExiledWith() != null) {
@@ -567,6 +600,10 @@ public class GameState {
             turn = Integer.parseInt(categoryValue);
         } else if (categoryName.equals("removesummoningsickness")) {
             removeSummoningSickness = categoryValue.equalsIgnoreCase("true");
+        } else if (categoryName.endsWith("commandercast")) {
+            getPlayerState(categoryName).commanderCast = categoryValue;
+        } else if (categoryName.endsWith("commanderdamage")) {
+            getPlayerState(categoryName).commanderDamage = categoryValue;
         } else if (categoryName.endsWith("life")) {
             getPlayerState(categoryName).life = Integer.parseInt(categoryValue);
         } else if (categoryName.endsWith("counters")) {
@@ -668,6 +705,7 @@ public class GameState {
         handleScriptExecution(game);
         handlePrecastSpells(game);
         handleMarkedDamage();
+        handleCommanderStats(game);
 
         game.getTriggerHandler().setSuppressAllTriggers(false);
 
@@ -1046,6 +1084,32 @@ public class GameState {
         } else {
             sa.resolve();
         }
+    }
+
+    private void handleCommanderStats(final Game game) {
+        for (int i = 0; i < playerStates.size(); i++) {
+            Player p = game.getPlayers().get(i);
+            for (String[] e : idCounts(playerStates.get(i).commanderCast)) {
+                Card c = idToCard.get(Integer.parseInt(e[0]));
+                for (int n = Integer.parseInt(e[1]); c != null && n > 0; n--) {
+                    p.incCommanderCast(c);
+                }
+            }
+            for (String[] e : idCounts(playerStates.get(i).commanderDamage)) {
+                Card c = idToCard.get(Integer.parseInt(e[0]));
+                if (c != null) {
+                    p.restoreCommanderDamage(c, Integer.parseInt(e[1]));
+                }
+            }
+        }
+    }
+
+    private static List<String[]> idCounts(String s) {
+        List<String[]> out = new ArrayList<>();
+        for (String e : s.isEmpty() ? new String[0] : s.split(",")) {
+            out.add(e.split(":"));
+        }
+        return out;
     }
 
     private void handleMarkedDamage() {

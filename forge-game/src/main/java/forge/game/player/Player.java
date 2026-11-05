@@ -2889,6 +2889,11 @@ public class Player extends GameEntity implements Comparable<Player> {
     public void addCommanderDamage(Card commander, int damage) {
         commanderDamage.merge(commander, damage, Integer::sum);
     }
+    /** A saved board (GameState) puts back the combat damage a commander has dealt this player. */
+    public void restoreCommanderDamage(Card commander, int damage) {
+        addCommanderDamage(commander, damage);
+        view.updateCommanderDamage(this);
+    }
 
     public ColorSet getCommanderColorID() {
         if (commanders.isEmpty()) {
