@@ -21,7 +21,6 @@ import forge.player.PlayerControllerHuman;
 import forge.trackable.TrackableCollection;
 import forge.web.assist.Assists;
 
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
@@ -54,6 +53,7 @@ public final class MatchHost {
     /** No seat here for this ticket: no ticket, an old one, or a different match. */
     static final int NO_SEAT = 4004;
     static final int SPEC_VERSION = 1;
+    static final int MAX_STATE_TEXT = 1 << 20;
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final Pattern MATCH_ID = Pattern.compile("[0-9a-f]{16}");
     /** A seat's picture is only ever a Discord avatar on Discord's CDN (the table shows it, proxied in Discord). */
@@ -447,7 +447,17 @@ public final class MatchHost {
         }
         JsonArray seatSpecs = spec.has("seats") && spec.get("seats").isJsonArray() ? spec.getAsJsonArray("seats") : new JsonArray();
         String stateName = str(spec, "state", null);
-        GameState gameState = stateName == null ? null : loadState(stateName);
+        // stateText: a board given whole, such as one a replay saved (docs/REPLAYS.md D-R8: play from here)
+        String stateText = str(spec, "stateText", null);
+        if (stateText != null && stateText.length() > MAX_STATE_TEXT) {
+            throw new Refused(400, "That board is too big");
+        }
+        if (stateText != null) {
+            stateName = "saved board";
+        } else if (stateName != null) {
+            stateText = readState(stateName);
+        }
+        GameState gameState = stateText == null ? null : parseState(stateName, stateText);
         if (gameState != null && seatSpecs.isEmpty()) {
             // A saved board with no seats named: you are its first player, AIs the rest.
             for (int i = 0; i < gameState.getPlayerCount(); i++) {
@@ -463,7 +473,7 @@ public final class MatchHost {
             throw new Refused(400, stateName + " has " + gameState.getPlayerCount() + " players, not " + seatSpecs.size());
         }
         if (gameState != null) {
-            commander = readState(stateName).contains("IsCommander"); // the board decides, as SimulateMatch -state does
+            commander = stateText.contains("IsCommander"); // the board decides, as SimulateMatch -state does
         }
 
         Set<GameType> variants = commander ? EnumSet.of(GameType.Commander) : null;
@@ -889,10 +899,10 @@ public final class MatchHost {
         }
     }
 
-    private GameState loadState(String name) {
+    private static GameState parseState(String name, String text) {
         GameState gs = new GameState();
-        try (InputStream in = Files.newInputStream(stateFile(name))) {
-            gs.parse(in);
+        try {
+            gs.parse(List.of(text.split("\\r?\\n")));
         } catch (Exception e) {
             throw new Refused(400, "Can't read state " + name + ": " + e.getMessage());
         }
