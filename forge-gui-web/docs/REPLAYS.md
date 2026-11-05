@@ -103,6 +103,10 @@ be merged into a full view, because the server filters each stream for its viewe
 file at all. The options are watching one seat (and switching between the human seats' files), or a new
 **all-seeing recording**: one more stream, projected for a viewer who may see every card (Q-R3).
 
+Matt chose (2026-11-04): one recording per game, made by the server from the game, that shows everything
+and any one seat, AI seats included, with the server deciding what each seat saw. See "One recording per
+game" below.
+
 ### Who may watch
 
 Today, the host and admins. Everyone in Matt's tracker is a friend behind Cloudflare Access, and once the
@@ -146,6 +150,48 @@ The Activity's hostname serves only the discord module and the table, outside Ac
 the replay route isn't reachable there. Watching in the Activity needs a token-carrying replay route on
 that hostname. Later, if at all (Q-R7).
 
+## One recording per game (R6)
+
+Today's files are per seat and made from each seat's socket stream: AI seats have none, nobody's file shows
+the whole table, a takeover once corrupted a seat's file, and 70% of the biggest file (953 KB, 72 full
+states) is the full states sent on reconnects.
+
+### How to record it
+
+1. **Every seat's stream, all in one file.** Exact, but about 5 copies of the board: ~1 MB a 4-player game.
+2. **Engine input (seed and decisions), re-run when served.** Smallest, but the engine isn't deterministic
+   with AIs on a wall clock or humans (bench notes: AI timeouts change games), and serving needs an engine.
+   No.
+3. **One all-seeing stream with per-seat variants (recommended).** A **table session**: one more
+   `WebGuiGame` like the spectator, never connected, that may see every card anyone may see. Its state
+   stream is the base. Each card whose DTO differs for some seat (a hand card for the other seats, a
+   face-down card's back, a library card a seat is searching) carries those seats' versions:
+   `"as":{"2":<card as seat 2 sees it>}`. The variants are made by the same `ViewProjector.card`, with that
+   seat as the viewer, so the engine still decides what each seat sees. Each human seat's own messages
+   (prompt, buttons, choices, asks, reveals) are written in the same file, tagged with the seat. Stack,
+   combat, log and players are the same for every viewer.
+
+### How a perspective is served
+
+The tracker keeps the one file and **projects** it when serving: for seat N it replaces every card that has
+an `as.N` with it, drops `as`, sets `game.localPlayerIds` to that seat's player, and keeps only seat N's own
+messages; for "everyone" it drops `as` and every seat's messages. The result is today's per-seat format
+(`replay: 1`), so the viewer, keyframes, stops and `&at` don't change, and `seq` is the same number in every
+perspective (switching keeps the moment). The browser gets only the perspective it asked for, and picks
+nothing itself. Old per-seat files are served as they are.
+
+The table shows a spectator's view for "everyone", with each hand drawn face up (display only: the server
+sent the cards visible).
+
+### Play from here
+
+Forge can save a board as a `GameState` text and load it into a new game (puzzle mode, the bench's
+`-state`/`-dump`, the control API's `state`). The table session saves one at the first main phase of every
+turn (as the bench's `-dump` does) as a line in the replay; projecting drops them (they show libraries). To
+play on from turn N, the control API takes the saved text (`stateText`) and seats: humans and AIs, in the
+saved board's player order. What a saved board can't carry is listed under "Play from here: limits" below
+once tested.
+
 ## Decisions
 
 | ID | Decision | Status |
@@ -155,6 +201,9 @@ that hostname. Later, if at all (Q-R7).
 | D-R3 | Playback steps by beats (a state message and what follows it up to the next), each gap kept between 120 ms and 1 s, divided by speed | recommended; assumed for the prototype |
 | D-R4 | A moment is match id, seat and `seq`; `&at=<seq>` opens it, after state `seq` | recommended; assumed for the prototype |
 | D-R5 | `timer` and `ahead` are dropped in a replay; an open `ask` closes at the next `state`, and a `reveal` at the next step or turn (the player's dismissing it isn't recorded) | assumed for the prototype (until Q-R4) |
+| D-R6 | One recording per game, made by a never-connected table session that sees every card anyone may see; cards that a seat sees differently carry that seat's version (`as`); human seats' own messages are in it, tagged with the seat (option 3 above) | Matt asked for it 2026-11-04; prototype on `replays/server` |
+| D-R7 | The tracker projects a perspective (a seat, or everyone) when serving, into the per-seat format the viewer already reads; the browser never picks what a seat may see | prototype |
+| D-R8 | The recording saves a `GameState` at each turn's first main phase; "play from here" starts a new game from one, by the control API's `stateText` | prototype |
 
 ## Questions for Matt
 
@@ -164,12 +213,15 @@ R1 is UI only, so Q-R1, Q-R2 and Q-R5 to Q-R8 weren't needed for it: the prototy
 |---|---|---|---|
 | Q-R1 | Where the viewer is served from | Router path `/play/table/replay/` to any table pod (lean); a viewer-only Deployment; the tracker | R2 |
 | Q-R2 | Who may watch a replay | Host and admins (today); every human seated in the game, any seat's file, once it's over (lean; needs the seats' people recorded in `play_games`); anyone signed in to the tracker | R2 |
-| Q-R3 | A combined, all-seeing view | Only per-seat files, with a seat switcher (lean for now); add an all-seeing recording, maybe admin-only. Assumed for the prototype: one seat's file | R4 |
+| Q-R3 | A combined, all-seeing view | Answered 2026-11-04: one recording, every perspective (D-R6) | — |
 | Q-R4 | Record what each seat sent (answers, clicks) | Lean yes: one more line kind, `{ms, c:<client message>}`. The viewer closes asks exactly and can show "chose X". Assumed for the prototype: not recorded; asks close at the next state (D-R5) | R3 |
 | Q-R5 | Retention | Keep everything (lean; ~250 KB a game, not backed up, as the terms already warn); or keep the last N per person | — |
 | Q-R6 | Replays lost when a server dies | Accept; send what there is on shutdown (lean); checkpoints every turn | R3 |
 | Q-R7 | Replays in the Discord Activity | Not now (lean); later a token-carrying route on the Activity hostname | R5 |
 | Q-R8 | Show the moment on the live table so bug reports can cite it | Lean yes: "T31 · seq 965" in the table menu, copyable | R3 |
+| Q-R9 | Who may watch "everyone" and another seat's view | Whoever may watch the game may pick any perspective (lean, assumed; once it's over hands don't matter much); or a player sees only their own seat until an admin opens it up | R6 |
+| Q-R10 | Who may play from here, and who sits where | Whoever may watch the replay; they take the seat they watch (or seat 1 from "everyone") and AIs take the rest (lean, assumed); later invite the original players | R7 |
+| Q-R11 | Keep sending the old per-seat files during the change | No: the tracker learns the new file first, then the game server switches (lean, assumed) | R6 |
 
 ## Milestones
 
@@ -180,6 +232,8 @@ R1 is UI only, so Q-R1, Q-R2 and Q-R5 to Q-R8 weren't needed for it: the prototy
 | R3 | **Better recordings** | Answers recorded (Q-R4), shutdown sends what there is (Q-R6), the live table shows its seq (Q-R8) | todo |
 | R4 | **Other seats** | A seat switcher across the human seats' files, kept at the same turn and phase; perhaps the all-seeing recording (Q-R3) | todo |
 | R5 | **Discord** | Q-R7 | parked |
+| R6 | **One recording per game** | D-R6, D-R7: one file per game; the viewer switches between everyone and any seat (AI seats too), keeping the moment; a projected seat matches what that seat's own stream showed; old files still open | prototype on `replays/server` |
+| R7 | **Play from here** | D-R8: from a replay's turn, a new live game starts on that board with the seats people or AIs; the limits are written down | prototype on `replays/server` |
 
 ### R1: the prototype
 
