@@ -60,16 +60,34 @@ function boards(r: Replay) {
   return out
 }
 
+const prompts = (r: Replay) => r.lines.filter((l) => l.m.t === 'prompt').map((l) => (l.m as { message: string }).message)
+
 it.skipIf(!file || !live)('a projected seat sees what that seat did live', () => {
-  const a = boards(read(file!))
-  const b = boards(read(live!))
-  console.log(`${a.length - 1} prompts projected, ${b.length - 1} live`)
-  expect(a.length).toEqual(b.length)
+  const projected = read(file!)
+  const seat = read(live!)
+  const a = boards(projected)
+  const b = boards(seat)
+  const n = b.length - 1
+  // A seat that joined after the start missed the prompts before it connected (it is sent the current one then).
+  const skip = Math.max(0, prompts(projected).indexOf(prompts(seat)[0]))
+  console.log(`${a.length - 1} prompts projected, ${n} live, the first ${skip} before the seat connected`)
+  // Once the seat's browser left (the game over, or conceded), its session was still sent the cleared prompt, and
+  // a seat that left early misses the rest of the game.
+  const stayed = seat.lines.some((l) => l.m.t === 'gameOver')
+  expect(a.length - 1 - skip - n).toBeGreaterThanOrEqual(0)
+  expect(a.length - 1 - skip - n).toBeLessThanOrEqual(1)
   let differ = 0
-  a.forEach((x, i) => {
-    expect(known(x.cards, b[i].cards), `what the seat could see at prompt ${i}`).toEqual(known(b[i].cards, x.cards))
+  for (let i = 0; i < n; i++) {
+    const x = a[i + skip]
+    // Each read is a moment off the other: a card may look as it did to the seat one prompt before or after.
+    const mine = known(x.cards, b[i].cards)
+    const near = [b[i - 1], b[i], b[i + 1]].filter(Boolean).map((y) => known(y.cards, x.cards))
+    for (const [id, v] of Object.entries(mine)) {
+      const seen = near.map((y) => y[Number(id)]).filter((w) => w !== undefined)
+      if (seen.length) expect(seen.map((w) => JSON.stringify(w)), `card ${id} at prompt ${i}`).toContain(JSON.stringify(v))
+    }
     if (JSON.stringify(x) !== JSON.stringify(b[i]) && differ++ < 10) console.log(`at prompt ${i}: ${what(x, b[i])}`)
-  })
-  console.log(`${differ} of ${a.length} boards differ (a moment later: step, priority, sickness, log, combat)`)
-  expect(a[a.length - 1]).toEqual(b[b.length - 1])
+  }
+  console.log(`${differ} of ${n} boards differ (a moment later: step, priority, sickness, log, combat)`)
+  if (stayed) expect(a[a.length - 1]).toEqual(b[b.length - 1])
 })
