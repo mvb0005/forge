@@ -58,6 +58,7 @@ import forge.web.assist.Samples;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -78,6 +79,8 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The human seat's IGuiGame. Projects the game into protocol DTOs (diffed and coalesced),
@@ -402,7 +405,7 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
                 names.add(p.getName());
             }
             b.add("players", names);
-            b.addProperty("state", gs.toString());
+            b.addProperty("state", alreadyInPlay(gs.toString()));
             synchronized (io) {
                 flushLocked();
                 b.addProperty("seq", seq);
@@ -411,6 +414,21 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         } catch (RuntimeException e) {
             System.err.println("Saving the board failed: " + e);
         }
+    }
+
+    private static final Pattern BATTLEFIELD = Pattern.compile("(?m)^(p\\d+battlefield=)(.+)$");
+
+    /** Marks every permanent NoETBTrigs: it entered long ago, so loading the board mustn't run its enter triggers
+     * or ask its "as it enters" choices again (those are saved, as ChosenType and the like). */
+    static String alreadyInPlay(String state) {
+        Matcher m = BATTLEFIELD.matcher(state);
+        StringBuilder sb = new StringBuilder();
+        while (m.find()) {
+            m.appendReplacement(sb, Matcher.quoteReplacement(m.group(1) + String.join(";",
+                    Arrays.stream(m.group(2).split(";")).map(c -> c + "|NoETBTrigs").toList())));
+        }
+        m.appendTail(sb);
+        return sb.toString();
     }
 
     /** Table only: one seat's message, after a state that holds every card it refers to. */
