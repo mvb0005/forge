@@ -596,6 +596,7 @@ public final class MatchHost {
             }
         }
         if (gameState != null) {
+            match.keepPlayerOrder(); // the board's p0, p1... are the seats in order, humans or not
             match.setStartGameHook(() -> gameState.applyToGameNow(match.getGame()));
         }
         match.setOnMatchOver(() -> finished(started));
