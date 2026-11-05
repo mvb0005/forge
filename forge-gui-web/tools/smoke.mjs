@@ -22,6 +22,7 @@
 // Optional fields: basePower/baseToughness, keywordLabels, colorIdentity, commanders/commanderDamage, turnOrder and
 // the `mana` assist are checked for shape whenever they arrive.
 import { readFileSync, writeFileSync } from "node:fs";
+import { gunzipSync } from "node:zlib";
 
 const args = process.argv.slice(2);
 const opt = (name, dflt) => {
@@ -47,6 +48,10 @@ const verbose = flag("verbose");
 // --save FILE: write what this seat was sent as a per-seat replay (PROTOCOL.md "Replays", format 1), to compare
 // with the server's recording projected for this seat.
 const replayUrl = opt("replay-url", null);
+// --from-replay FILE --turn N: play on from turn N of a recorded game (docs/REPLAYS.md D-R8), the first player
+// (whose board it is at seat 0) human, the rest AIs, with the recording's names
+const fromReplay = opt("from-replay", null);
+const fromTurn = Number(opt("turn", 0));
 const saveFile = opt("save", null);
 const saved = [];
 const savedAt = Date.now();
@@ -304,6 +309,13 @@ async function control(method, path, body) {
 
 // The spec mtg-tracker would send (PROTOCOL.md "Control API").
 function matchSpec() {
+  if (fromReplay) {
+    const lines = gunzipSync(readFileSync(fromReplay)).toString("utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    const board = lines.find((l) => l.board && l.board.turn === fromTurn)?.board;
+    if (!board) throw new Error(`no board saved at turn ${fromTurn}`);
+    const seats = board.players.map((name, i) => ({ kind: i === 0 ? "human" : "ai", name }));
+    return { version: 1, stateText: board.state, seats, returnUrl: "/", ...(replayUrl ? { replayUrl } : {}) };
+  }
   if (stateFile) return { version: 1, state: stateFile, returnUrl: "/", ...(replayUrl ? { replayUrl } : {}) };
   const me = { kind: "human", name: "Smoke", deck: trackerDeck ? { name: trackerDeck.replace(/\.txt$/, ""), list: trackerText } : { id: deck } };
   const ais = curated
