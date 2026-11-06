@@ -22,6 +22,9 @@ import forge.game.card.Card;
 import forge.game.card.CardView;
 import forge.game.combat.Combat;
 import forge.game.event.GameEvent;
+import forge.game.event.GameEventAttackersDeclared;
+import forge.game.event.GameEventBlockersDeclared;
+import forge.game.event.GameEventCombatEnded;
 import forge.game.event.GameEventSpellAbilityCast;
 import forge.game.event.GameEventSpellRemovedFromStack;
 import forge.game.event.GameEventTurnPhase;
@@ -401,6 +404,65 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
             }
         }
     };
+
+    // A seat's combat numbers follow the combat, not only its own prompts: auto-pass, pass ahead and yields skip
+    // most of those, and a watcher in a pod gets none during others' combat.
+    private Game combatOf;
+    private final Object combatWatcher = new Object() {
+        @Subscribe
+        public void onAttackers(GameEventAttackersDeclared e) {
+            refreshAssists();
+        }
+
+        @Subscribe
+        public void onBlockers(GameEventBlockersDeclared e) {
+            refreshAssists();
+        }
+
+        @Subscribe
+        public void onPhase(GameEventTurnPhase e) {
+            refreshAssists();
+        }
+
+        @Subscribe
+        public void onCombatEnded(GameEventCombatEnded e) {
+            refreshAssists();
+        }
+    };
+
+    private synchronized void watchCombatOf(Game g) {
+        if (combatOf != g) {
+            combatOf = g;
+            g.subscribeToEvents(combatWatcher);
+        }
+    }
+
+    /** On the game thread (where the events fire): the assists, sent if they changed. */
+    private void refreshAssists() {
+        if (disposed || !ThreadUtil.isGameThread()) {
+            return;
+        }
+        Game game = match.getGame();
+        Player seat = seat(game);
+        if (seat == null) {
+            return;
+        }
+        Object input = seat.getController() instanceof PlayerControllerHuman h ? h.getInputQueue().getInput() : null;
+        List<JsonObject> out;
+        try {
+            out = assists.update(game, seat, Assists.decisionKey(game, seat, input));
+        } catch (RuntimeException e) {
+            System.err.println("Assist refresh failed: " + e);
+            return;
+        }
+        if (out.isEmpty()) {
+            return;
+        }
+        synchronized (io) {
+            flushLocked();
+            out.forEach(this::sendLocked);
+        }
+    }
 
     private synchronized void saveBoardsOf(Game g) {
         if (boardsOf != g) {
@@ -1759,6 +1821,9 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         }
         if (tableView != null && gameView0 != null && gameView0.getGame() != null) {
             saveBoardsOf(gameView0.getGame());
+        }
+        if (tableView == null && gameView0 != null && gameView0.getGame() != null) {
+            watchCombatOf(gameView0.getGame());
         }
         if (gameView0 == null) {
             synchronized (io) {

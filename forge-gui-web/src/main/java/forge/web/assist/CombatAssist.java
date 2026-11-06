@@ -9,6 +9,7 @@ import forge.game.GameEntity;
 import forge.game.card.Card;
 import forge.game.combat.Combat;
 import forge.game.keyword.Keyword;
+import forge.game.phase.PhaseType;
 import forge.game.player.Player;
 
 import java.util.List;
@@ -17,7 +18,8 @@ import java.util.List;
  * The combat prediction behind the UI's combat arena, computed by the engine's own combat
  * evaluator (the one the AI uses) on the real game state. Only what's on the board counts:
  * activated abilities and cards in hand are ignored, so nothing hidden leaks.
- * Before blockers are declared the combat has no blocks, so this reads as "if unblocked".
+ * Before blockers are declared the combat has no blocks, so this reads as "if unblocked". Recomputed on the game's
+ * combat events as well as at this seat's prompts (WebGuiGame#refreshAssists), so watchers see it too.
  */
 public final class CombatAssist implements AssistProducer {
     @Override
@@ -28,7 +30,11 @@ public final class CombatAssist implements AssistProducer {
     @Override
     public JsonElement compute(Game game, Player seat) {
         Combat combat = game == null ? null : game.getCombat();
-        if (combat == null || combat.getAttackers().isEmpty()) {
+        // A prediction only until damage: from the damage steps on, the board shows what happened (and the
+        // evaluator would count the damage already dealt again).
+        PhaseType phase = game == null ? null : game.getPhaseHandler().getPhase();
+        if (combat == null || combat.getAttackers().isEmpty()
+                || (phase != PhaseType.COMBAT_DECLARE_ATTACKERS && phase != PhaseType.COMBAT_DECLARE_BLOCKERS)) {
             return null;
         }
 

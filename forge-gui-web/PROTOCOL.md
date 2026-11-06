@@ -424,12 +424,14 @@ Help computed by the engine; the UI only displays it and never computes rules it
 
 `{ t:"assist", kind:K, [K]: payload | null }`: the payload sits in a field named like the kind.
 Assists are computed when the engine asks the human for input (a prompt, a click that changes the
-current input, an `ask`), not on every state change, and a kind is sent only when its payload
-changed. A `state` always precedes it, so its ids are known. `null` clears that kind. On connect
+current input, an `ask`), and on the game's combat events (attackers declared, blockers declared, each
+step, combat ended) whether or not this seat is asked, but not on every state change. A kind is sent
+only when its payload changed. A `state` always precedes it, so its ids are known. `null` clears that kind. On connect
 every current assist is re-sent after the full state. Unknown kinds must be ignored.
 
 #### kind `combat`
-`{ t:"assist", kind:"combat", combat: CombatAssist | null }`. `null` = no combat.
+`{ t:"assist", kind:"combat", combat: CombatAssist | null }`. `null` = no combat, or combat past
+its declare steps: it is a prediction, so from the damage steps on the board shows what happened.
 ```ts
 type CombatAssist = {
   attackers: { id: number; dies: boolean; damage: number }[]; // damage reaching its defender (unblocked, or trample)
