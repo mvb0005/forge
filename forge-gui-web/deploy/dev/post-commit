@@ -1,0 +1,8 @@
+#!/bin/sh
+# Installed by `node forge-gui-web/tools/dev.mjs setup`. A commit on a branch with a dev pod
+# (git config branch.<name>.devpod) is pushed to the dev mirror in the background; the pod picks it up.
+b=$(git symbolic-ref -q --short HEAD) || exit 0
+[ -n "$(git config --get "branch.$b.devpod")" ] || exit 0
+# dev.mjs starts the push detached, in a hidden console of its own (a background push from here opened a visible
+# console window for its wsl.exe once the commit's console was gone), and returns at once.
+exec node "$(git rev-parse --show-toplevel)/forge-gui-web/tools/dev.mjs" push-bg "$b"

@@ -1,2 +1,3 @@
 * text=auto
 *.sh text eol=lf
+forge-gui-web/deploy/dev/post-commit text eol=lf
