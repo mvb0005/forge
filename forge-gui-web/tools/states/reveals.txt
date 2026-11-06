@@ -1,0 +1,11 @@
+turn=3
+activeplayer=p0
+activephase=MAIN1
+p0life=20
+p0hand=Duress;Swamp
+p0library=Grizzly Bears;Swamp;Swamp;Swamp;Swamp;Swamp;Swamp;Swamp;Swamp;Swamp
+p0battlefield=Swamp;Swamp;Llanowar Elves
+p1life=20
+p1hand=Shock;Grizzly Bears;Giant Growth;Mountain
+p1library=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+p1battlefield=Goblin Guide;Mountain;Mountain;Forest

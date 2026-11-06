@@ -100,6 +100,16 @@ Pace setting: Cinematic / Brisk / Instant (AI turns follow it, Q-12).
   The engine's pacing isn't changed: the recap is the damage beat for now (Q-12).
 - All outcomes come from the engine (assist `combat`, `blockers`).
 
+## Reveals
+
+- A reveal fans its cards over the revealing player's part of the table for a few seconds (longer for more
+  cards; hover keeps them), then goes. Nothing pops up at the top, and there's nothing to dismiss.
+- It stays while the engine waits on you about it ("Looking at cards in …", OK), or asks you to pick from it.
+  Cards you must pick from another player's hand or a library show there the same way: a hand whole, with
+  what you can't pick dimmed. Click a card to choose it.
+- Every reveal is a Timeline entry, where it happened, with the cards as they were revealed. Clicking it
+  shows them again until you close it.
+
 ## Triggers and options
 
 - **Lane chips.** A filled ⚡ on a card means it will trigger with things as they stand; a hollow ⚡
