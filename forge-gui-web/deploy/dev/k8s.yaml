@@ -1,0 +1,89 @@
+# Dev pods (README "Dev pods"): the namespace, the git mirror they check out from, and the cleanup.
+# Applied by tools/dev.mjs; the dev pods themselves are made by it too.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: forge-dev
+---
+# The whole repo, on the minikube node's disk (/data survives restarts). Windows pushes every commit here
+# (`git push` through `kubectl exec`); dev pods mount it read-only and clone from it with --shared.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forge-git
+  namespace: forge-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: forge-git}
+  template:
+    metadata:
+      labels: {app: forge-git}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: own
+          image: alpine/git:v2.47.2
+          command: [sh, -c, "mkdir -p /dev-data/git /dev-data/npm && chown 10001:10001 /dev-data/git /dev-data/npm"]
+          securityContext: {runAsUser: 0}
+          volumeMounts: [{name: dev-data, mountPath: /dev-data}]
+      containers:
+        - name: git
+          image: alpine/git:v2.47.2
+          command: [sh, -c, "[ -f /git/HEAD ] || git init -q --bare /git; exec sleep infinity"]
+          securityContext: {runAsUser: 10001, runAsGroup: 10001, allowPrivilegeEscalation: false}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: "2", memory: 1Gi}
+          volumeMounts: [{name: git, mountPath: /git}]
+      volumes:
+        - {name: dev-data, hostPath: {path: /data/forge-dev, type: DirectoryOrCreate}}
+        - {name: git, hostPath: {path: /data/forge-dev/git}}
+---
+# A dev pod stops at its TTL (activeDeadlineSeconds) but stays listed as Failed; this deletes the stopped ones.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dev-cleanup
+  namespace: forge-dev
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dev-cleanup
+  namespace: forge-dev
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list", "delete", "deletecollection"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dev-cleanup
+  namespace: forge-dev
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: dev-cleanup}
+subjects: [{kind: ServiceAccount, name: dev-cleanup, namespace: forge-dev}]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: dev-cleanup
+  namespace: forge-dev
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 600
+      template:
+        spec:
+          serviceAccountName: dev-cleanup
+          restartPolicy: Never
+          containers:
+            - name: cleanup
+              image: registry.k8s.io/kubectl:v1.35.1
+              args: [delete, pods, -n, forge-dev, -l, app=forge-dev,
+                     "--field-selector=status.phase!=Running,status.phase!=Pending"]
