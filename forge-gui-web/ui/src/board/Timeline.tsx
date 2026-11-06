@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { usePeek } from '../popover/usePeek'
 import type { LogEntry, PlayerDto } from '../protocol'
-import { useForge } from '../store'
+import { useForge, type Reveal } from '../store'
+import { CardImage } from './CardImage'
+import { revealHeadline } from './RevealFlyout'
 import { stepWords } from '../look/phase'
 
 // The right-hand column: the game as a timeline. The engine's log, grouped by turn (its TURN entries), one
 // row per event with a mark for its kind (from the entry's type) and the cards in it hoverable. Mana and
-// phase lines are noise most of the time; "All" shows them. Only displays the log: nothing is inferred.
+// phase lines are noise most of the time; "All" shows them. Only displays the log (and the reveals, where they
+// came): nothing is inferred.
 
 type Kind = { mark: string; tone: string; quiet?: boolean }
 
@@ -36,11 +39,15 @@ const kindOf = (type: string) => {
   return CAPTIONS[t] ?? t.replace(/ /g, '_')
 }
 
-type Turn = { key: number; title: string; who: string | null; events: { i: number; e: LogEntry }[] }
+type Turn = { key: number; title: string; who: string | null; events: ({ i: number; e: LogEntry } | { i: string; r: Reveal })[] }
 
 /** The log split at its TURN entries ("Turn 9 (Krenko AI)"); events before the first turn are the opening. */
-function byTurn(log: LogEntry[], all: boolean): Turn[] {
+function byTurn(log: LogEntry[], all: boolean, reveals: Reveal[] = []): Turn[] {
   const turns: Turn[] = [{ key: -1, title: 'Opening', who: null, events: [] }]
+  // Each reveal goes after the log entry that was newest when it came (dropped once that entry scrolls off the log).
+  const after = new Map<LogEntry | null, Reveal[]>()
+  for (const r of reveals) after.set(r.after, [...(after.get(r.after) ?? []), r])
+  for (const r of after.get(null) ?? []) turns[0].events.push({ i: `r${r.key}`, r })
   log.forEach((e, i) => {
     const kind = kindOf(e.type)
     if (kind === 'TURN') {
@@ -49,6 +56,7 @@ function byTurn(log: LogEntry[], all: boolean): Turn[] {
     } else if (all || !(KINDS[kind] ?? OTHER).quiet) {
       turns[turns.length - 1].events.push({ i, e })
     }
+    for (const r of after.get(e) ?? []) turns[turns.length - 1].events.push({ i: `r${r.key}`, r })
   })
   return turns.filter((t) => t.key >= 0 || t.events.length)
 }
@@ -99,6 +107,36 @@ function withNames(text: string, names: string[], k: number): ReactNode[] {
   return text.split(re).map((s, i) => (i % 2 ? <b key={`${k}n${i}`} className="lk-title" style={{ color: 'var(--lk-parchment)' }}>{s}</b> : s))
 }
 
+/** A reveal in the timeline: who, and the cards as revealed; click to see them large again. */
+function RevealRow({ r }: { r: Reveal }) {
+  const players = useForge((s) => s.players)
+  const localIds = useForge((s) => s.game?.localPlayerIds ?? [])
+  const open = useForge((s) => s.revealOpen === r.key)
+  const openReveal = useForge((s) => s.openReveal)
+  return (
+    <button
+      type="button"
+      data-reveal-row={r.key}
+      onClick={() => openReveal(open ? null : r.key)}
+      title="Show these cards again"
+      style={{ display: 'grid', gridTemplateColumns: '14px 1fr', gap: 4, padding: '3px 0', width: '100%', textAlign: 'left', border: 0, background: 'none', cursor: 'pointer', color: 'inherit', font: 'inherit' }}
+    >
+      <span aria-hidden style={{ color: 'var(--lk-frost)', textAlign: 'center' }}>◉</span>
+      <span>
+        <span style={{ color: open ? 'var(--lk-parchment)' : undefined }}>{revealHeadline(r, players, localIds)}</span>
+        <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
+          {r.cards.slice(0, 8).map((c) => (
+            <span key={c.id} style={{ width: 34, borderRadius: 3, overflow: 'hidden', boxShadow: open ? '0 0 0 1px var(--lk-frost)' : '0 0 0 1px var(--lk-metal-line)' }}>
+              <CardImage card={{ ...c, hidden: false }} width={34} bare />
+            </span>
+          ))}
+          {r.cards.length > 8 && <span style={{ alignSelf: 'center', fontSize: 11.5, color: 'var(--lk-parchment-mute)' }}>+{r.cards.length - 8}</span>}
+        </span>
+      </span>
+    </button>
+  )
+}
+
 export function Timeline() {
   const log = useForge((s) => s.game?.log)
   const players = useForge((s) => s.players)
@@ -109,7 +147,8 @@ export function Timeline() {
   const ref = useRef<HTMLDivElement>(null)
   const stuck = useRef(true) // follow the newest event unless the reader scrolled back
   const names = useMemo(() => Object.values(players).map((p: PlayerDto) => p.name).filter(Boolean), [players])
-  const turns = useMemo(() => byTurn(log ?? [], all), [log, all])
+  const reveals = useForge((s) => s.reveals)
+  const turns = useMemo(() => byTurn(log ?? [], all, reveals), [log, all, reveals])
   useEffect(() => {
     const el = ref.current
     if (el && stuck.current) el.scrollTop = el.scrollHeight
@@ -135,7 +174,9 @@ export function Timeline() {
               <span style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--lk-parchment)' }}>{t.title}</span>
               {t.who && <span style={{ fontSize: 12.5, color: 'var(--lk-parchment-dim)' }}>{meIds?.some((id) => players[id]?.name === t.who) ? 'You' : t.who}</span>}
             </div>
-            {t.events.map(({ i, e }) => {
+            {t.events.map((ev) => {
+              if ('r' in ev) return <RevealRow key={ev.i} r={ev.r} />
+              const { i, e } = ev
               const k = KINDS[kindOf(e.type)] ?? OTHER
               return (
                 <div key={i} style={{ display: 'grid', gridTemplateColumns: '14px 1fr', gap: 4, padding: '2px 0' }}>
