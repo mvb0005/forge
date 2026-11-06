@@ -151,6 +151,7 @@ A client ignores caps it doesn't know and must not rely on a feature whose cap i
 | `assist.mana` | `assist` kind `mana` |
 | `card.basePT` | `CardDto.basePower` / `baseToughness` |
 | `card.keywordLabels` | `CardDto.keywordLabels`, and the keyword keys `shroud`, `protection`, `can't be blocked` |
+| `card.counts` | `CardDto.counts` |
 | `player.colorIdentity` | `PlayerDto.colorIdentity` |
 | `player.commander` | `PlayerDto.commanders` / `commanderDamage` |
 | `game.turnOrder` | `GameDto.turnOrder` |
@@ -263,6 +264,7 @@ type CardDto = {
   keywordLabels?: Record<string, string[]>; // key in keywords -> the engine's full titles, when they say more
                               // than the key: { ward: ["Ward {2}"], protection: ["Protection from red"],
                               // hexproof: ["Hexproof from black"] }. One entry per instance; absent when none
+  counts?: { text: string; name: string; value: number }[]; // the numbers its abilities count now; absent when none
   tapped: boolean;
   sick: boolean;              // summoning sick and not hasty
   phasedOut: boolean;
@@ -302,6 +304,12 @@ Notes on the optional fields:
   (layers 7a-7b), before counters, pumps and anthems (Forge's `Card.getCurrentPower`). Current above
   base is raised, below is lowered. Sent only when they differ, to keep one-card messages small; absent
   means "same as current" (or not known yet).
+- `counts`: what the card's abilities count, worked out by the engine ("for each card your opponents have
+  drawn this turn" = 3). `text` is the ability's text as it appears in `text` (a modal ability's first line
+  starts it), `name` the script's name for the number (`X`), `value` its value now. Only numbers the board
+  answers at any time: not X paid, targets, or anything bound to a resolving ability, nor counts over a
+  hand's or library's contents. Read at decision points (like `basePower`) for cards on the battlefield,
+  in hand, on the stack and in the command zone; sent only with the card's face.
 - `commanders[].tax` is the engine's commander tax, 2 x `casts` (casts from the command zone).
   Every player's commanders are always among the state's cards (hidden when not visible, e.g. in a
   library), so the ids in `commanders` and `commanderDamage` are always known.
