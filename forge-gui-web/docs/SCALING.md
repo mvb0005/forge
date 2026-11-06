@@ -80,6 +80,26 @@ Turn counts vary with the random decks, so read them roughly.
 - `CAPACITY` set from free memory (about 40 here);
 - two warm spares when more than a few games run.
 
+## JVM settings (A/B, 2026-11-06)
+
+Same decks in every game (Reign of Dragons against Neyali, Galea and Pantlaza), two pods per setting, each
+playing two games to the end, all with 2 CPUs:
+
+| Setting | Turns per minute | Peak RSS | Young-GC pause p99 |
+|---|---|---|---|
+| -Xmx3g, 4 GiB limit (the old template) | about 8.3 | about 1.7 GiB | 84 to 103 ms |
+| -Xmx768m -XX:+UseG1GC, 1.5 GiB limit | about 11.7 | about 1.08 GiB | 52 to 66 ms |
+| the same plus -XX:+UseStringDeduplication | about 11.6 | about 1.1 GiB | 68 to 87 ms |
+
+Full GCs come only from Forge's `System.gc()` as a game ends. The game speed differences are within the
+noise of the AI's choices. The smaller heap is clearly no slower, and saves about 0.6 GiB a table. String
+deduplication saves nothing measurable, so it's left out. Not used, by measurement:
+- class-data sharing (no change to the 9.6 s start);
+- `-XX:TieredStopAtLevel=1` (1 s faster start, but no C2 for long AI games).
+
+The table template uses -Xmx768m -XX:+UseG1GC, with requests of 250m CPU and 1200 MiB, and limits of 2 CPUs
+and 1536 MiB.
+
 ## Cloud cost per table (forecast)
 
 A table is about 1.1 GiB of memory and a little CPU, so the best value is memory-heavy shared-CPU machines. A

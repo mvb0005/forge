@@ -15,7 +15,7 @@
         "image": "forge-web:dev",
         "imagePullPolicy": "Never",
         "env": [
-          {"name": "JAVA_OPTS", "value": "-Xmx3g"},
+          {"name": "JAVA_OPTS", "value": "-Xmx768m -XX:+UseG1GC"},
           {"name": "FORGE_ARGS", "value": "--one-match"},
           {"name": "FORGE_CONTROL_SECRET", "valueFrom": {"secretKeyRef": {"name": "forge-control", "key": "secret"}}}
         ],
@@ -31,8 +31,8 @@
         "startupProbe": {"tcpSocket": {"port": "http"}, "periodSeconds": 2, "failureThreshold": 150},
         "readinessProbe": {"httpGet": {"path": "/healthz", "port": "control"}, "periodSeconds": 5},
         "resources": {
-          "requests": {"cpu": "500m", "memory": "2Gi"},
-          "limits": {"cpu": "2", "memory": "4Gi"}
+          "requests": {"cpu": "250m", "memory": "1200Mi"},
+          "limits": {"cpu": "2", "memory": "1536Mi"}
         }
       }
     ],
