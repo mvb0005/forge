@@ -134,7 +134,8 @@ const getPod = (name) => listPods().find((p) => p.metadata.name === name);
 // The pattern's [p] keeps pkill from matching its own command line.
 const unforward = (name) => wsl(["pkill", "-f", `[p]ort-forward pod/${name} `], { check: false });
 
-// The forward ends with the pod: at its TTL, or within 15 s of the pod stopping or being deleted.
+// The forward ends with the pod: at its TTL, or within 15 s of the pod stopping or being deleted. Hidden and not
+// detached (a detached wsl.exe has no console and would open a window of its own); it outlives this process.
 function forward(pod) {
   const name = pod.metadata.name;
   const [ui, http, control] = ports(pod);
@@ -143,9 +144,16 @@ function forward(pod) {
   const script = `kubectl -n ${NS} port-forward pod/${name} ${ui}:5173 ${http}:7777 ${control}:7790 >/dev/null 2>&1 & pf=$!
 trap 'kill $pf 2>/dev/null' EXIT
 while kill -0 $pf 2>/dev/null && [ "$(kubectl -n ${NS} get pod ${name} -o jsonpath='{.status.phase}' 2>/dev/null)" = Running ]; do sleep 15; done`;
-  const child = spawn("wsl.exe", ["-d", "Ubuntu", "-e", "timeout", String(left), "bash", "-c", script],
-    { detached: true, stdio: "ignore", windowsHide: true });
-  child.unref();
+  background(null, "wsl.exe", ["-d", "Ubuntu", "-e", "timeout", String(left), "bash", "-c", script]);
+}
+
+// Runs a command after this process exits, with no window. A detached runner (this script, `run-bg`) survives the
+// caller (git ends a hook's children when the hook returns) and opens no window; the command is its hidden,
+// attached child, so the console programs that command starts in turn (git, wsl.exe) share that hidden console
+// instead of each opening a visible one, as a detached process's children do on Windows.
+function background(log, bin, argv) {
+  spawn(process.execPath, [fileURLToPath(import.meta.url), "run-bg", log ?? "", bin, ...argv],
+    { detached: true, stdio: "ignore", windowsHide: true }).unref();
 }
 
 function status(name) {
@@ -256,9 +264,14 @@ async function main() {
       const branch = positional[0];
       const log = join(git(["rev-parse", "--absolute-git-dir"]), "dev-push.log");
       const script = `git push -q -f dev "refs/heads/${branch}:refs/heads/${branch}" && echo "pushed $(git rev-parse --short HEAD) $(date +%T)"`;
-      const out = openSync(log, "w");
-      spawn("sh", ["-c", script], { detached: true, stdio: ["ignore", out, out], windowsHide: true }).unref();
+      background(log, "sh", ["-c", script]);
       break;
+    }
+    case "run-bg": {
+      const [, log, bin, ...rest] = args;
+      const out = log ? openSync(log, "w") : "ignore";
+      const r = spawnSync(bin, rest, { stdio: ["ignore", out, out], windowsHide: true });
+      process.exit(r.status ?? 1);
     }
     case "ls": {
       const pods = listPods();
