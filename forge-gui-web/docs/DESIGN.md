@@ -92,6 +92,12 @@ Pace setting: Cinematic / Brisk / Instant (AI turns follow it, Q-12).
   buttons 0, 1 and X, where X is the fewest members that kill it (from the engine). To block one member of an
   attacking group, drop a blocker on the group's defend slot. One member animates out into its
   own lane with that blocker, and the group's count drops (D-11).
+- **Combat strip** (under the turn line in the dock, whenever there is combat). Attack › Block › Damage, the
+  current step lit. Below it, in words: who attacks whom with how many, how many are blocked, the engine's
+  life prediction ("You: 20 → 13 if unblocked", "· lethal"), and what it says would die. After damage it
+  recaps each player's life since combat began and the creatures that died. "Last combat" stays up until
+  the next combat with attackers, so a defender sees it on their own turn, and so does a watcher in a pod.
+  The engine's pacing isn't changed: the recap is the damage beat for now (Q-12).
 - All outcomes come from the engine (assist `combat`, `blockers`).
 
 ## Triggers and options
