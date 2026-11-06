@@ -13,6 +13,9 @@ host. Start with `forge-gui-web/README.md` (layout, build, run, test), then `doc
 - UI: `cd forge-gui-web/ui && npx tsc -p tsconfig.app.json --noEmit && npx vitest run && npm run build`
 - Game tests: start a local server, then `node tools/smoke.mjs` and `node tools/passahead.mjs [--three]`
   (each takes `--port` and `--control-port`). Use Windows node: WSL's node has no WebSocket.
+- To run a branch (a game server, the UI dev server), use a dev pod: `node forge-gui-web/tools/dev.mjs up`
+  (README "Dev pods", the `dev-pod` skill). It follows your commits and stops at its TTL. Don't leave
+  `java -jar` or `npx vite` running on Windows. Unit tests and builds still run locally.
 - Rules stay in the engine: the UI only displays what the server computes.
 
 ## Ship

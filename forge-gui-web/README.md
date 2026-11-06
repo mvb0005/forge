@@ -99,6 +99,32 @@ The server uses the normal Forge user profile (preferences, logs). To keep a dev
 away from your real profile, start it with `APPDATA` and `LOCALAPPDATA` pointing at a scratch
 folder.
 
+## Dev pods
+
+To run a branch, give it a dev pod rather than starting a server or Vite on Windows. Each branch gets its own pod
+in the `forge-dev` namespace, so several can run side by side, and each pod stops at its TTL.
+
+```
+node forge-gui-web/tools/dev.mjs up [--branch B] [--ttl 4h]   # prints the UI URL; default branch: the current one
+node forge-gui-web/tools/dev.mjs game [NAME] [start.mjs args]   # a match on the pod, with seat links into its Vite
+node forge-gui-web/tools/dev.mjs ls | status | logs [dev|build|server|vite] | down [--all]
+```
+
+You commit; the pod follows. Each commit on the branch is pushed to a mirror of the repo on the minikube node.
+The post-commit hook does this in the background; it writes `.git/dev-push.log`. The pod checks the commit out
+within 0.2 s. What happens next depends on what changed:
+
+- **UI** (`ui/`): Vite reloads the browser. About 1.2 s from `git commit`.
+- **Java**: the pod compiles the modules the branch changed since the deployed image's commit, and the ones after
+  them, against that image's jar. Then it restarts the game server. A `forge-gui-web` change takes about 17 s, a
+  `forge-game` change about 52 s. The server start is about 10 s of that.
+- **`res/`**: the server restarts and reads the checkout's card scripts.
+- **A commit that doesn't compile** leaves the last good server running; `dev logs build` shows why.
+
+`dev setup` (run by `up`) builds the `forge-dev` image (`deploy/dev/`) and applies `deploy/dev/k8s.yaml`. That
+file holds the namespace, the `forge-git` mirror and the cleanup CronJob. `setup` also adds the `dev` remote and
+the hook. A new pod is ready in about 30 s. Dev pods don't touch the `forge` namespace or its tables.
+
 ## Test
 
 ```
