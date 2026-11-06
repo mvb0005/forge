@@ -1,5 +1,7 @@
 import { create } from 'zustand'
-import type { AssistMessage, Ask, BlockersAssist, CardDto, CombatAssist, CombatDto, EntityRef, GameDto, LogEntry, ManaAssist, PlayerDto, ServerMessage, StackItemDto, YieldDto } from './protocol'
+import type { CombatMemo } from './board/combatStory'
+import { isCombat } from './look/phase'
+import type { AssistMessage, Ask, BlockersAssist, CardDto, CombatAssist, CombatDto, EntityRef, GameDto, GameWire, LogEntry, ManaAssist, PlayerDto, ServerMessage, StackItemDto, YieldDto } from './protocol'
 
 // Shared client state. net.ts feeds server messages into apply(); components only read.
 export type ForgeState = {
@@ -31,6 +33,7 @@ export type ForgeState = {
   autopass: { yield: YieldDto | null; hold: boolean; stopped: string | null; stackId: number | null } // pass until … (PassMenu)
   speaking: Set<string> // Discord user ids talking in the Activity's voice channel now (discord.ts)
   pip: boolean // Discord Activity is minimized into Picture-in-Picture
+  combatMemo: CombatMemo | null // this turn's combat: life when it began and who fought (combatStory's recap)
   setConnected: (c: boolean) => void
   dismissNotice: (id: number) => void
   clearReveal: () => void
@@ -75,6 +78,30 @@ function sameValue(a: unknown, b: unknown): boolean {
   return ka.every((k) => sameValue((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
 }
 
+// The last combat's memory for the recap (until the next combat begins): the life everyone had as combat began (before this state's changes), and every
+// creature that attacked or blocked, by name (a card that leaves for a hidden zone drops out of the store).
+function nextCombatMemo(
+  memo: CombatMemo | null, game: GameWire | null | undefined, before: Record<number, PlayerDto>,
+  players: Record<number, PlayerDto>, cards: Record<number, CardDto>, combat: CombatDto | null,
+): CombatMemo | null {
+  if (!game) return memo
+  if (!isCombat(game.phase)) return memo // kept until the next combat, so a defender sees it on their own turn too
+  const bands = combat?.bands ?? []
+  // A new turn's combat replaces the last one only once something attacks: a combat with no attacks keeps the recap.
+  if (memo && memo.turn !== game.turn && !bands.some((b) => b.attackerIds.length)) return memo
+  let next = memo?.turn === game.turn ? memo : null
+  if (!next) {
+    const life: Record<number, number> = {}
+    for (const p of Object.values(Object.keys(before).length ? before : players)) life[p.id] = p.life
+    next = { turn: game.turn, attackerId: game.activePlayerId, life, ids: [], names: {} }
+  }
+  const fresh = bands.flatMap((b) => [...b.attackerIds, ...b.blockerIds]).filter((id) => !next.ids.includes(id))
+  if (!fresh.length) return next
+  const names = { ...next.names }
+  for (const id of fresh) if (cards[id]) names[id] = cards[id].name
+  return { ...next, ids: [...next.ids, ...fresh], names }
+}
+
 let noticeSeq = 0
 
 export const useForge = create<ForgeState>()((set) => ({
@@ -106,6 +133,7 @@ export const useForge = create<ForgeState>()((set) => ({
   autopass: { yield: null, hold: false, stopped: null, stackId: null },
   speaking: new Set(),
   pip: false,
+  combatMemo: null,
   setConnected: (connected) => set({ connected }),
   dismissNotice: (id) => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })),
   clearReveal: () => set({ reveal: null }),
@@ -130,14 +158,16 @@ export const useForge = create<ForgeState>()((set) => ({
           const prevLog = s.game?.log ?? []
           const log = nextLog(prevLog, m)
           const base = m.game ?? s.game
+          const combat = m.combat !== undefined ? m.combat : m.full ? null : s.combat
           return {
+            combatMemo: nextCombatMemo(m.full ? null : s.combatMemo, base, m.full ? players : s.players, players, cards, combat),
             inMatch: true,
             gameOver: m.full ? null : s.gameOver,
             game: base && (m.game || log !== prevLog) ? { ...base, log } : s.game,
             players,
             cards,
             stack: m.stack ?? (m.full ? [] : s.stack),
-            combat: m.combat !== undefined ? m.combat : m.full ? null : s.combat,
+            combat,
           }
         }
         case 'prompt':

@@ -6,6 +6,7 @@ import { usePeek } from '../popover/usePeek'
 import { useBoardUi } from './uiStore'
 import { MoreTime } from './Callouts'
 import { abilityText, usePhaseLine, usePrompt, useRespondCountdown } from './situation'
+import { combatStory } from './combatStory'
 import { Face } from './Face'
 import { useSeatColors } from './Seat'
 
@@ -23,6 +24,7 @@ export function Dock() {
         <span style={{ fontWeight: 700, fontSize: 15 }}>{who}</span>
         {step && <span style={{ fontSize: 12.5, color: 'var(--lk-parchment-dim)' }}>{step}</span>}
       </div>
+      <CombatStrip />
       <div
         className="lk-text"
         style={{
@@ -43,6 +45,51 @@ export function Dock() {
         {stopped && <div style={{ marginTop: 3, fontSize: 12, color: 'var(--lk-ember-light)' }}>Stopped passing: {stopped}</div>}
       </div>
       <StackList />
+    </div>
+  )
+}
+
+/** Combat step by step: Attack, Block, Damage, and a few lines on what's happening or what just happened. */
+function CombatStrip() {
+  const game = useForge((s) => s.game)
+  const players = useForge((s) => s.players)
+  const cards = useForge((s) => s.cards)
+  const combat = useForge((s) => s.combat)
+  const assist = useForge((s) => s.combatAssist)
+  const memo = useForge((s) => s.combatMemo)
+  const story = combatStory({
+    phase: game?.phase ?? null, turn: game?.turn ?? 0, activeId: game?.activePlayerId ?? null, localIds: game?.localPlayerIds ?? [],
+    players, cards, combat, assist, memo,
+  })
+  if (!story) return null
+  const [head, ...rest] = story.lines
+  return (
+    <div
+      data-combat-strip=""
+      style={{ flex: 'none', padding: '7px 10px 8px', borderRadius: 5, background: story.over ? 'rgb(18 14 10 / .7)' : 'linear-gradient(rgb(226 112 64 / .16), rgb(226 112 64 / .05)), rgb(18 14 10 / .94)', boxShadow: `0 0 0 1px ${story.over ? 'var(--lk-metal-line)' : 'var(--lk-ember-line)'}` }}
+    >
+      <div className="lk-label" style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+        {story.steps.map((st, i) => (
+          <span key={st.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {i > 0 && <span aria-hidden style={{ color: 'var(--lk-parchment-mute)' }}>›</span>}
+            <span
+              data-step={st.state}
+              style={{
+                padding: '1px 6px', borderRadius: 99,
+                color: st.state === 'now' ? '#1a120c' : st.state === 'done' ? 'var(--lk-parchment-dim)' : 'var(--lk-parchment-mute)',
+                background: st.state === 'now' ? 'var(--lk-ember-light)' : 'transparent',
+                boxShadow: st.state === 'next' ? 'inset 0 0 0 1px var(--lk-metal-faint)' : undefined,
+              }}
+            >
+              {st.state === 'done' ? '✓ ' : ''}{st.label}
+            </span>
+          </span>
+        ))}
+      </div>
+      {head && <div className="lk-title" style={{ marginTop: 5, fontWeight: 700, fontSize: 14, lineHeight: 1.25, color: 'var(--lk-parchment)' }}>{head}</div>}
+      {rest.map((l) => (
+        <div key={l} style={{ marginTop: 2, fontSize: 12.5, lineHeight: 1.35, color: l.includes('lethal') ? 'var(--lk-ember-light)' : 'var(--lk-parchment-dim)', fontVariantNumeric: 'tabular-nums' }}>{l}</div>
+      ))}
     </div>
   )
 }
