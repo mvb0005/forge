@@ -25,7 +25,9 @@ export type ForgeState = {
   highlighted: Set<string> // entityKey()
   playable: Set<number>
   ask: Ask | null
-  reveal: { title: string; cardIds: number[] } | null
+  reveal: Reveal | null // the latest reveal, shown at the revealer's seat for a moment (RevealFlyout)
+  reveals: Reveal[] // this game's reveals, for the Timeline (after the log entry that came before each)
+  revealOpen: number | null // the reveal key someone reopened from the Timeline
   notices: { id: number; level: 'info' | 'error' | 'flash'; title: string; message: string; stackId?: number }[]
   gameOver: { winner: string | null; summary: string } | null
   respondBy: number | null // Date.now() ms when the server passes priority for you, if it's timing you
@@ -37,10 +39,25 @@ export type ForgeState = {
   setConnected: (c: boolean) => void
   dismissNotice: (id: number) => void
   clearReveal: () => void
+  openReveal: (key: number | null) => void
   clearAsk: () => void
   clearGameOver: () => void
   apply: (m: ServerMessage) => void
 }
+
+// A reveal as the client keeps it: the cards as they looked when revealed (a revealed hand card goes back to being
+// hidden), and who revealed them (a player named in the title, else the owner of most of the cards).
+export type Reveal = { key: number; title: string; cardIds: number[]; cards: CardDto[]; ownerId: number | null; after: LogEntry | null }
+
+function revealer(title: string, cards: CardDto[], players: Record<number, PlayerDto>): number | null {
+  const named = Object.values(players).filter((p) => p.name && title.includes(p.name))
+  if (named.length === 1) return named[0].id
+  const n = new Map<number, number>()
+  for (const c of cards) n.set(c.ownerId, (n.get(c.ownerId) ?? 0) + 1)
+  return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+}
+
+let revealSeq = 0
 
 export const entityKey = (e: EntityRef) => `${e.kind}:${e.id}`
 
@@ -126,6 +143,8 @@ export const useForge = create<ForgeState>()((set) => ({
   playable: new Set(),
   ask: null,
   reveal: null,
+  reveals: [],
+  revealOpen: null,
   notices: [],
   gameOver: null,
   respondBy: null,
@@ -137,6 +156,7 @@ export const useForge = create<ForgeState>()((set) => ({
   setConnected: (connected) => set({ connected }),
   dismissNotice: (id) => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })),
   clearReveal: () => set({ reveal: null }),
+  openReveal: (key) => set({ revealOpen: key }),
   clearAsk: () => set({ ask: null }),
   clearGameOver: () => set({ gameOver: null }),
   apply: (m) =>
@@ -188,8 +208,18 @@ export const useForge = create<ForgeState>()((set) => ({
           return { playable: new Set(m.cardIds) }
         case 'notice':
           return { notices: [...s.notices, { id: ++noticeSeq, level: m.level, title: m.title, message: m.message, stackId: m.stackId }] }
-        case 'reveal':
-          return { reveal: { title: m.title, cardIds: m.cardIds } }
+        case 'reveal': {
+          if (!m.cardIds.length) return { reveal: null }
+          const last = s.reveals[s.reveals.length - 1]
+          const log = s.game?.log
+          const anchor = log?.length ? log[log.length - 1] : null
+          // The same cards again is the same reveal: re-sent after a full state (a reconnect), or the engine's second
+          // word on it ("You reveal", then "Looking at cards in your library") before anything else happened.
+          if (last && last.cardIds.join() === m.cardIds.join() && (last.title === m.title || last.after === anchor)) return { reveal: last }
+          const cards = m.cardIds.map((id) => s.cards[id]).filter((c): c is CardDto => !!c)
+          const r: Reveal = { key: ++revealSeq, title: m.title, cardIds: m.cardIds, cards, ownerId: revealer(m.title, cards, s.players), after: anchor }
+          return { reveal: r, reveals: [...s.reveals.slice(-29), r] }
+        }
         case 'ask':
           return { ask: m }
         case 'assist':

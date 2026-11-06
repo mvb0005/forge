@@ -29,3 +29,28 @@ describe('combat memo', () => {
     expect(useForge.getState().combatMemo).toMatchObject({ turn: 6, life: { 1: 17 } })
   })
 })
+
+describe('reveals', () => {
+  beforeEach(() => {
+    useForge.getState().apply({ t: 'state', seq: ++seq, full: true, game: game(3, 'MAIN1'), players: players(20), logReset: true, logAppend: [{ type: 'LAND', message: 'AI 1 played Island' }],
+      cards: [{ id: 7, name: 'Hill Giant', zone: 'hand', ownerId: 2, hidden: false }, { id: 8, name: 'Island', zone: 'library', ownerId: 2, hidden: false }] as never } as ServerMessage)
+  })
+
+  it('keeps each reveal with its revealer, the cards as revealed, and the log entry before it', () => {
+    const { apply } = useForge.getState()
+    apply({ t: 'reveal', title: '', cardIds: [7, 8] })
+    const r = useForge.getState().reveal!
+    expect(r).toMatchObject({ ownerId: 2, cardIds: [7, 8], after: { message: 'AI 1 played Island' } })
+    expect(r.cards.map((c) => c.name)).toEqual(['Hill Giant', 'Island'])
+    state({ cards: [{ id: 7, name: '', zone: 'hand', ownerId: 2, hidden: true }] as never }) // back to a hidden hand
+    expect(useForge.getState().reveals.at(-1)!.cards[0].name).toBe('Hill Giant')
+
+    apply({ t: 'reveal', title: '', cardIds: [7, 8] }) // re-sent after a full state: not a second reveal
+    apply({ t: 'reveal', title: 'Looking at cards in AI 1 hand', cardIds: [7, 8] }) // the engine's second word on it
+    expect(useForge.getState().reveals.filter((x) => x.cardIds.join() === '7,8')).toHaveLength(1)
+    apply({ t: 'reveal', title: 'Matt reveals', cardIds: [8] })
+    expect(useForge.getState().reveal!.ownerId).toBe(1) // a player named in the title wins
+    apply({ t: 'reveal', title: '', cardIds: [] }) // hidden again
+    expect(useForge.getState().reveal).toBeNull()
+  })
+})
