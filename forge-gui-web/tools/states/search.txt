@@ -1,0 +1,11 @@
+turn=3
+activeplayer=p0
+activephase=MAIN1
+p0life=20
+p0hand=Rampant Growth;Impulse
+p0library=Grizzly Bears;Forest;Llanowar Elves;Island;Hill Giant;Shock;Forest;Serra Angel;Mountain;Giant Growth;Wind Drake;Plains;Duress;Swamp;Grizzly Bears;Forest
+p0battlefield=Forest;Forest;Island;Island
+p1life=20
+p1hand=
+p1library=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+p1battlefield=Mountain

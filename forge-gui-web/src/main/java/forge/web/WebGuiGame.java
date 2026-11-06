@@ -32,6 +32,7 @@ import forge.game.phase.PhaseType;
 import forge.game.player.DelayedReveal;
 import forge.game.player.IHasIcon;
 import forge.game.player.Player;
+import forge.game.zone.ZoneType;
 import forge.game.player.PlayerView;
 import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityView;
@@ -1490,11 +1491,28 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
         return new OrderResult<>(pick(items, got != null ? got : firstN(min)), false);
     }
 
+    /**
+     * The cards the engine shows the chooser before a choice (DelayedReveal): a hand, the top of a library. Not a
+     * whole library being searched: the choice already lists what can be found, and showing every card of the deck
+     * (fetching a land) says nothing more.
+     */
+    private void revealBeforeChoice(DelayedReveal r) {
+        if (r == null || r.getCards().isEmpty()) {
+            return;
+        }
+        if (r.getZone().contains(ZoneType.Library) && r.getOwner() != null) {
+            Game g = match.getGame();
+            Player owner = g == null ? null : g.getPlayer(r.getOwner());
+            if (owner != null && r.getCards().size() >= owner.getCardsIn(ZoneType.Library).size()) {
+                return;
+            }
+        }
+        sendReveal(r.getMessagePrefix(), r.getCards());
+    }
+
     @Override
     public GameEntityView chooseSingleEntityForEffect(String title, List<? extends GameEntityView> optionList, DelayedReveal delayedReveal, boolean isOptional) {
-        if (delayedReveal != null && !delayedReveal.getCards().isEmpty()) {
-            sendReveal(delayedReveal.getMessagePrefix(), delayedReveal.getCards());
-        }
+        revealBeforeChoice(delayedReveal);
         if (optionList == null || optionList.isEmpty()) {
             return null;
         }
@@ -1505,9 +1523,7 @@ public final class WebGuiGame extends AbstractGuiGame implements WebGameSession 
 
     @Override
     public List<GameEntityView> chooseEntitiesForEffect(String title, List<? extends GameEntityView> optionList, int min, int max, DelayedReveal delayedReveal) {
-        if (delayedReveal != null && !delayedReveal.getCards().isEmpty()) {
-            sendReveal(delayedReveal.getMessagePrefix(), delayedReveal.getCards());
-        }
+        revealBeforeChoice(delayedReveal);
         if (optionList == null || optionList.isEmpty()) {
             return new ArrayList<>();
         }
