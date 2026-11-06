@@ -10,9 +10,10 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
+    // A table's page is /<match id>/ (tools/start.mjs --ui), so its socket and images are under it too.
     proxy: {
-      '/ws': { target: `ws://${forge}`, ws: true },
-      '/img': `http://${forge}`,
+      '^/([0-9a-f]{16}/)?ws': { target: `ws://${forge}`, ws: true },
+      '^/([0-9a-f]{16}/)?img/': `http://${forge}`,
     },
   },
 })
