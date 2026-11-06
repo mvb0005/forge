@@ -1,0 +1,11 @@
+turn=3
+activeplayer=p0
+activephase=MAIN1
+p0life=20
+p0hand=Blasphemous Act;Fireball
+p0library=Plains;Plains;Plains
+p0battlefield=Heliod, the Radiant Dawn|Transformed;Serra Avatar;Grizzly Bears;Plains;Plains;Island
+p1life=20
+p1hand=Mountain;Mountain;Lightning Bolt
+p1library=Mountain;Mountain;Mountain
+p1battlefield=Maro;Hill Giant;Mountain;Forest
