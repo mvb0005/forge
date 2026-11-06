@@ -131,6 +131,27 @@ public class CardCountsTest {
         assertTrue(CardCounts.of(add("Fireball", me, ZoneType.Hand)).isEmpty()); // X is paid on casting
     }
 
+    /** A big board, 150 creatures of which every tenth counts the board: what one decision point's counts cost. */
+    @Test
+    public void bigBoardCost() {
+        Game game = game();
+        Player me = game.getPlayers().get(0);
+        List<Card> all = new ArrayList<>();
+        for (int i = 0; i < 150; i++) {
+            all.add(add(i % 10 == 0 ? "Goblin Piledriver" : i % 10 == 5 ? "Blasphemous Act" : "Goblin Piker", me, i % 10 == 5 ? ZoneType.Hand : ZoneType.Battlefield));
+        }
+        long best = Long.MAX_VALUE;
+        for (int round = 0; round < 20; round++) {
+            long t0 = System.nanoTime();
+            for (Card c : all) {
+                CardCounts.of(c);
+            }
+            best = Math.min(best, System.nanoTime() - t0);
+        }
+        System.out.printf("counts on 150 cards, 30 counting: %.2f ms%n", best / 1e6);
+        assertEquals(CardCounts.of(all.get(5)).get(0).value(), 135); // Blasphemous Act: the creatures on the battlefield
+    }
+
     /** Every card script: how many have counts, which fail, and whether each label is a line of the card's text. */
     @Test
     public void sweep() throws IOException {

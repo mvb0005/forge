@@ -220,6 +220,7 @@ sections), not the table's; the table keeps its own look.
 | Q-09 | Tab fan-out of four Commander boards | Needs a design pass; depends on token and land folding holding up at quarter size | M7 |
 | Q-10 | Touch support | Long-press must show everything a hover does; scope (tablet yes or no) undecided | M5 |
 | Q-11 | Planeswalkers and battles at rest and as attack targets | Loyalty/defense shields; needs a board | M2 |
+| Q-13 | Card counts (`CardDto.counts`, "for each card your opponents have drawn this turn" = 3) live only in the peek, but a cost reducer on a hand card changes what you can cast, and nothing needed for a decision should exist only in a hover | Show the engine's effective cost on hand cards at glance level (a cost chip), rather than the raw count. Also open: evaluating counts costs ~0.35 ms per `Count$Valid` on a 150-card board (11 ms with 30 counting cards), measured at a decision point; memoise identical expressions or skip unchanged boards if big boards feel it | |
 | Q-12 | AI turn pacing | Watchable at Brisk, skimmable at Instant; how stops interact with the AI's actions | M3 |
 
 ## Extension recipes
