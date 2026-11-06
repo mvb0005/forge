@@ -113,6 +113,7 @@ function RevealRow({ r }: { r: Reveal }) {
   const localIds = useForge((s) => s.game?.localPlayerIds ?? [])
   const open = useForge((s) => s.revealOpen === r.key)
   const openReveal = useForge((s) => s.openReveal)
+  const cards = useForge((s) => s.cards)
   return (
     <button
       type="button"
@@ -123,7 +124,7 @@ function RevealRow({ r }: { r: Reveal }) {
     >
       <span aria-hidden style={{ color: 'var(--lk-frost)', textAlign: 'center' }}>◉</span>
       <span>
-        <span style={{ color: open ? 'var(--lk-parchment)' : undefined }}>{revealHeadline(r, players, localIds)}</span>
+        <span style={{ color: open ? 'var(--lk-parchment)' : undefined }}>{revealHeadline(r, players, localIds, cards)}</span>
         <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
           {r.cards.slice(0, 8).map((c) => (
             <span key={c.id} style={{ width: 34, borderRadius: 3, overflow: 'hidden', boxShadow: open ? '0 0 0 1px var(--lk-frost)' : '0 0 0 1px var(--lk-metal-line)' }}>

@@ -15,9 +15,12 @@ const MAX_MS = 9000
 const LOOKING = /looking at|reveal/i
 
 /** Who revealed, in words: "AI 1 reveals", "You reveal". Forge's own title, when it has one, says more. */
-export function revealHeadline(r: Reveal, players: Record<number, { name: string }>, localIds: number[]) {
+export function revealHeadline(r: Reveal, players: Record<number, { name: string }>, localIds: number[], cards: Record<number, CardDto> = {}) {
   const t = r.title.trim().replace(/:$/, '')
   if (t) return t
+  // Face-down cards shown to you (Ixhel's exile) aren't revealed to anyone: you're looking at them.
+  // As the cards are now: the look comes as they go into exile, before they turn face down.
+  if (r.cards.length && r.cards.every((c) => (cards[c.id] ?? c).faceDown)) return `You look at ${r.cards.length === 1 ? 'a face-down card' : `${r.cards.length} face-down cards`}`
   if (r.ownerId == null) return 'Revealed'
   return localIds.includes(r.ownerId) ? 'You reveal' : `${players[r.ownerId]?.name ?? 'Someone'} reveals`
 }
@@ -69,6 +72,7 @@ export function RevealFlyout({ area }: { area: (ownerId: number | null) => Regio
   const players = useForge((s) => s.players)
   const localIds = useForge((s) => s.game?.localPlayerIds ?? [])
   const openReveal = useForge((s) => s.openReveal)
+  const liveCards = useForge((s) => s.cards)
   // The engine waiting on you about these cards ("Looking at cards in AI 1's hand", OK): they stay until you answer.
   // ... or to pick from them: they stay while any of them is selectable.
   const looking = useForge((s) => LOOKING.test(s.prompt?.message ?? '') || LOOKING.test((s.ask && 'title' in s.ask ? s.ask.title : '') ?? '')
@@ -102,7 +106,7 @@ export function RevealFlyout({ area }: { area: (ownerId: number | null) => Regio
   const box = area(r.ownerId)
   const n = r.cards.length
   const width = Math.max(70, Math.min(150, (box.w * 0.82) / n - 10, (box.h * 0.62) / 1.4))
-  const headline = revealHeadline(r, players, localIds)
+  const headline = revealHeadline(r, players, localIds, liveCards)
   return (
     <div
       data-reveal={r.key}

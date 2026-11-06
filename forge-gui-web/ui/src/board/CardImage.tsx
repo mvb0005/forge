@@ -25,6 +25,7 @@ export const CardImage = memo(function CardImage({ card, width, bare = false, mi
     >
       {miniFrame ? <MiniFrame card={card} width={width} height={h} /> : <TextFrame card={card} width={width} height={h} bare={bare} />}
       {card.img && <CardImg key={card.img} src={card.img} width={width} height={h} crop={small} name={card.name} />}
+      {card.faceDown && card.name && <FaceDownTag width={width} />}
     </div>
   )
 })
@@ -97,11 +98,26 @@ function MiniFrame({ card, width, height }: { card: CardDto; width: number; heig
           className="absolute inset-x-0 top-0 font-semibold leading-[1.1] text-ink"
           style={{ fontSize: fs, padding: `${fs * 0.3}px ${fs * 0.35}px ${fs * 0.5}px`, background: 'linear-gradient(rgb(6 9 12 / 0.92) 65%, transparent)' }}
         >
-          <span className="line-clamp-2 break-words">{card.faceDown ? 'Face-down' : card.name}</span>
+          <span className="line-clamp-2 break-words">{card.faceDown && !card.name ? 'Face-down' : card.name}</span>
         </div>
         {card.token && <TokenTag size={fs * 0.75} bottom />}
       </div>
     </div>
+  )
+}
+
+/** A face-down card you may look at (Ixhel's exile): you see its face, the other players a card back. */
+function FaceDownTag({ width }: { width: number }) {
+  const fs = Math.max(8, Math.min(12, width * 0.075))
+  return (
+    <span
+      data-face-down=""
+      title="Face down: only you can see this card"
+      className="absolute left-1/2 -translate-x-1/2 rounded-full font-semibold uppercase tracking-wider"
+      style={{ bottom: '6%', fontSize: fs, padding: `1px ${fs * 0.7}px`, color: '#e8eef7', background: 'rgb(20 28 40 / 0.86)', boxShadow: '0 0 0 1px rgb(143 180 227 / .7)', whiteSpace: 'nowrap' }}
+    >
+      Face down · only you
+    </span>
   )
 }
 
@@ -133,7 +149,7 @@ function TextFrame({ card, width, height, bare }: { card: CardDto; width: number
   }
   const stat = card.types.includes('Planeswalker') ? card.loyalty : card.types.includes('Battle') ? card.defense : null
   const showPT = !bare && card.power != null && card.toughness != null
-  const name = card.faceDown ? 'Face-down card' : card.name
+  const name = card.faceDown && !card.name ? 'Face-down card' : card.name
   return (
     <div className="absolute inset-0 flex flex-col" style={{ background: bg(card), padding: pad, gap: pad * 0.55 }}>
       <div className="flex items-center justify-between" style={{ ...bar, padding: `${nameFs * 0.22}px ${nameFs * 0.4}px`, gap: 4 }}>
