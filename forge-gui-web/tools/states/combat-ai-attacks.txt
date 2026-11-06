@@ -1,0 +1,11 @@
+turn=4
+activeplayer=p1
+activephase=MAIN1
+p0life=20
+p0hand=
+p0library=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest
+p0battlefield=Grizzly Bears;Llanowar Elves;Forest;Forest
+p1life=20
+p1hand=
+p1library=Island;Island;Island;Island;Island;Island;Island;Island;Island;Island
+p1battlefield=Serra Angel;Wind Drake;Hill Giant;Plains;Plains;Island

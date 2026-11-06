@@ -1,0 +1,11 @@
+turn=3
+activeplayer=p0
+activephase=MAIN1
+p0life=20
+p0hand=Giant Growth;Forest
+p0library=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest
+p0battlefield=Grizzly Bears;Hill Giant;Serra Angel;Llanowar Elves;Forest;Forest;Forest;Plains;Plains
+p1life=20
+p1hand=
+p1library=Island;Island;Island;Island;Island;Island;Island;Island
+p1battlefield=Giant Spider;Grizzly Bears;Boggart Brute;Wind Drake;Island;Island;Island
