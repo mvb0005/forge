@@ -121,7 +121,9 @@ function useConnection() {
         delay = Math.min(delay * 2, 8000)
       }
     }
-    connect()
+    // A tick later, so React's development double mount (StrictMode) cancels the first attempt before it opens a
+    // socket: two sockets for one seat raced, and the later one took the seat ("Opened in another window").
+    timer = setTimeout(connect, 0)
     return () => {
       disposed = true
       clearTimeout(timer)
