@@ -73,6 +73,11 @@ export function RevealFlyout({ area }: { area: (ownerId: number | null) => Regio
   // ... or to pick from them: they stay while any of them is selectable.
   const looking = useForge((s) => LOOKING.test(s.prompt?.message ?? '') || LOOKING.test((s.ask && 'title' in s.ask ? s.ask.title : '') ?? '')
     || !!s.reveal?.cardIds.some((id) => s.selectable.cardIds.has(id)))
+  // A choice open on exactly these cards (Impulse: pick one of the top four) already shows them: once is enough.
+  const covered = useForge((s) => {
+    const items = s.ask && 'items' in s.ask ? s.ask.items : null
+    return !!items && !!s.reveal?.cardIds.length && s.reveal.cardIds.every((id) => items.some((i) => i.ref?.kind === 'card' && i.ref.id === id))
+  })
   const [gone, setGone] = useState<number | null>(null) // the latest reveal's key once its time is up
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const wasLooking = useRef(false)
@@ -93,7 +98,7 @@ export function RevealFlyout({ area }: { area: (ownerId: number | null) => Regio
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latest?.key, held])
 
-  if (!r || !r.cards.length) return null
+  if (!r || !r.cards.length || (covered && !pinned && !picks)) return null
   const box = area(r.ownerId)
   const n = r.cards.length
   const width = Math.max(70, Math.min(150, (box.w * 0.82) / n - 10, (box.h * 0.62) / 1.4))
