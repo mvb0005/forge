@@ -26,7 +26,10 @@ final class BoardFacts {
     private static final ZoneType[] OWNED_ZONES = {ZoneType.Library, ZoneType.Hand, ZoneType.Battlefield, ZoneType.Graveyard,
             ZoneType.Exile, ZoneType.Command};
 
+    private static final ZoneType[] COUNTED_ZONES = {ZoneType.Battlefield, ZoneType.Hand, ZoneType.Stack, ZoneType.Command};
+
     private volatile Map<Integer, int[]> basePT = Map.of();
+    private volatile Map<Integer, List<CardCounts.Count>> counts = Map.of();
     private volatile Set<Integer> unblockable = Set.of();
     private volatile List<Integer> turnOrder = List.of();
     private final Map<Integer, String> colorIdentity = new ConcurrentHashMap<>();
@@ -67,8 +70,18 @@ final class BoardFacts {
                 }
             }
         }
+        Map<Integer, List<CardCounts.Count>> cc = new ConcurrentHashMap<>();
+        for (ZoneType z : COUNTED_ZONES) {
+            for (Card c : game.getCardsIn(z)) {
+                List<CardCounts.Count> n = CardCounts.of(c);
+                if (!n.isEmpty()) {
+                    cc.put(c.getId(), n);
+                }
+            }
+        }
         basePT = pt;
         unblockable = unbl;
+        counts = cc;
         turnOrder = List.copyOf(order);
         synchronized (times) {
             times.add(System.nanoTime() - t0);
@@ -101,6 +114,11 @@ final class BoardFacts {
     /** {power, toughness} before counters, pumps and anthems, for a creature on the battlefield; null if unknown. */
     int[] basePT(int cardId) {
         return basePT.get(cardId);
+    }
+
+    /** The live numbers the card's abilities count (CardCounts), empty if none. */
+    List<CardCounts.Count> counts(int cardId) {
+        return counts.getOrDefault(cardId, List.of());
     }
 
     boolean unblockable(int cardId) {
