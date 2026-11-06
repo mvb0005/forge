@@ -45,6 +45,10 @@ shows the same peek; touch uses long-press (Q-10).
 
 What each object reveals at each layer is tabulated on the canvas page "Hover & disclosure".
 
+A number a card's ability counts (Heliod's "for each card your opponents have drawn this turn") shows in the peek
+as a frost chip at the end of that ability's line ("= 3"). The engine works it out (`CardDto.counts`). A count whose
+ability isn't a line of the text gets its own "Counts now" section.
+
 ### Keywords at glance level
 
 | Tier | Keywords | Drawn as |
