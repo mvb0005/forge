@@ -8,7 +8,7 @@ import { advanceReplay, replaySource, beatMs, indexReplay, readReplay, seekRepla
 import { useForge } from '../store'
 import { ErrorBoundary } from '../ErrorBoundary'
 import { GameOverModal, Toasts } from './Global'
-import { AskHost, RevealPanel } from './Overlays'
+import { AskHost } from './Overlays'
 import { PromptBar } from './PromptBar'
 import '@fontsource/spectral/latin-700.css'
 import './landing.css'
@@ -168,7 +168,6 @@ function ReplayTable({ replay, idx }: Loaded) {
         <MatchTable centerSlot={<PromptBar />} />
       </ErrorBoundary>
       <PeekRoot />
-      <RevealPanel />
       <AskHost />
       <Toasts />
       <GameOverModal />

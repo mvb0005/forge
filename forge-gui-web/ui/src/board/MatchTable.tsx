@@ -11,6 +11,7 @@ import { Arena } from './Arena'
 import { BlockSlots } from './CombatArena'
 import { Face } from './Face'
 import { HandScroll } from './HandScroll'
+import { RevealFlyout } from './RevealFlyout'
 import { Scoreboard } from './Scoreboard'
 import { SidePanel } from './Preview'
 import { CommandSlots, Piles, PlayerBorder, Ribbon, SeatPlate, StripSeat, useSeatColors } from './Seat'
@@ -95,6 +96,17 @@ export function MatchTable({ centerSlot }: { centerSlot: ReactNode }) {
     .map(([k, half]) => ({ id: Number(k.slice(5)), half, seat: r[`seat:${k.slice(5)}`], ribbon: r[`ribbon:${k.slice(5)}`] }))
     .sort((a, b) => a.half.y - b.half.y || a.half.x - b.half.x)
   const meIsBand = meId != null && columns.some((c) => c.id === meId)
+  // Where a player's reveal shows: their column, their half, or the strips of the others (the whole table if unknown).
+  const revealArea = (id: number | null): Region => {
+    const split = r.split
+    const whole = { x: 0, y: 0, w: split?.w ?? W, h: H }
+    if (id == null || !split) return whole
+    const col = r[`half:${id}`]
+    if (col) return col
+    if (id === meId) return { x: 0, y: split.y, w: split.w, h: H - split.y }
+    if (id === focusId) return { x: 0, y: 0, w: split.w, h: split.y }
+    return r.strips ? { ...r.strips, h: Math.max(r.strips.h, split.y * 0.6) } : whole
+  }
   const halves = r.split && (
     <>
       {columns.length > 0 ? (
@@ -146,6 +158,7 @@ export function MatchTable({ centerSlot }: { centerSlot: ReactNode }) {
               )}
               <BlockSlots layout={layout} />
               <CommandSlots regions={r} />
+              <RevealFlyout area={revealArea} />
               <CardLayer layout={layout} />
               <HandScroll hand={layout.hand} row={r.hand} rootRef={rootRef} />
             </TableMat>

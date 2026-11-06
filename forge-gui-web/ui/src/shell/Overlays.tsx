@@ -7,14 +7,13 @@ import { ChooseAsk, OrderAsk } from './AskChoose'
 import { AmountAsk, DamageAsk } from './AskCombat'
 import { AbilityAsk, ConfirmAsk, InputAsk } from './AskSimple'
 import { MinimizeCtx } from './Frame'
-import { Btn, CardTile, IconBtn, Kbd } from './ui'
+import { Btn, Kbd } from './ui'
 
-// Everything drawn over the table during a match: ask dialogs, reveal, menu. (The log is the table's side column.)
+// Everything drawn over the table during a match: ask dialogs, menu. (Reveals show at the revealer's seat.) (The log is the table's side column.)
 export function Overlays() {
   return (
     <>
       <TopMenu />
-      <RevealPanel />
       <AskHost />
     </>
   )
@@ -65,27 +64,6 @@ function AskBody({ ask }: { ask: Ask }) {
       )
     }
   }
-}
-
-export function RevealPanel() {
-  const reveal = useForge((s) => s.reveal)
-  const cards = useForge((s) => s.cards)
-  const clear = useForge((s) => s.clearReveal)
-  if (!reveal) return null
-  return (
-    <div className="shell-in fixed left-1/2 top-4 z-30 max-w-[min(92vw,960px)] -translate-x-1/2 rounded-xl lk-plate">
-      <div className="flex items-center gap-3 border-b border-line px-4 py-2.5">
-        <span className="rounded bg-target/15 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wider text-target">Revealed</span>
-        <span className="flex-1 truncate text-sm font-medium">{reveal.title}</span>
-        <span className="text-xs text-ink-dim">{reveal.cardIds.length} card{reveal.cardIds.length === 1 ? '' : 's'}</span>
-        <IconBtn title="Dismiss" onClick={clear}>×</IconBtn>
-      </div>
-      <div className="shell-scroll flex gap-2 overflow-x-auto p-3">
-        {reveal.cardIds.map((id) => (cards[id] ? <CardTile key={id} card={cards[id]} width={118} /> : null))}
-        {reveal.cardIds.length === 0 && <span className="px-2 text-sm text-ink-dim">No cards</span>}
-      </div>
-    </div>
-  )
 }
 
 function TopMenu() {
