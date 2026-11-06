@@ -1,5 +1,11 @@
 import type { PeekProvider, PeekSection } from '../../table/peek'
+import { countLabel, countedLines } from '../counts'
 import { keywordsByTier } from '../keywords'
+
+/** A number the engine counted for the ability beside it, as it stands now. */
+const Chip = ({ children }: { children: string }) => (
+  <span className="whitespace-nowrap rounded bg-accent/15 px-1.5 font-semibold text-accent">= {children}</span>
+)
 
 const tierTone = { 1: 'text-danger', 2: 'text-accent', 3: 'text-ink', 4: 'text-ink-dim' } as const
 
@@ -45,7 +51,35 @@ export const cardPeek: PeekProvider = {
           </ul>
         ),
       })
-    if (c.text) out.push({ key: 'text', body: <p className="whitespace-pre-line text-xs leading-relaxed">{c.text}</p> })
+    const { lines, rest } = countedLines(c.text, c.counts)
+    if (c.text)
+      out.push({
+        key: 'text',
+        body: (
+          <div className="text-xs leading-relaxed">
+            {lines.map(({ line, counts }, i) => (
+              <p key={i} className="min-h-[1em]">
+                {line}
+                {counts.length > 0 && <> <Chip>{countLabel(counts)}</Chip></>}
+              </p>
+            ))}
+          </div>
+        ),
+      })
+    if (rest.length)
+      out.push({
+        key: 'counts',
+        title: 'Counts now',
+        body: (
+          <ul className="space-y-0.5 text-xs">
+            {rest.map((n, i) => (
+              <li key={i}>
+                <Chip>{countLabel([n])}</Chip> <span className="text-ink-dim">{n.text}</span>
+              </li>
+            ))}
+          </ul>
+        ),
+      })
     if (ctx.depth === 'inspect') {
       const facts = [
         c.tapped && 'Tapped',

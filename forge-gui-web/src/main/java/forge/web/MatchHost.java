@@ -172,7 +172,7 @@ public final class MatchHost {
     /** The optional features this server has (PROTOCOL.md "hello"). */
     private static JsonArray caps() {
         JsonArray caps = new JsonArray();
-        for (String c : new String[] {"log.append", "selectables.players", "match.commander", "card.basePT", "card.keywordLabels",
+        for (String c : new String[] {"log.append", "selectables.players", "match.commander", "card.basePT", "card.keywordLabels", "card.counts",
                 "player.colorIdentity", "player.commander", "game.turnOrder", "timer.respond", "autopass"}) {
             caps.add(c);
         }

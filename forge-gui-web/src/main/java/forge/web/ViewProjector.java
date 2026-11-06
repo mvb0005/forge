@@ -322,6 +322,19 @@ final class ViewProjector {
             }
         }
         o.addProperty("text", text == null ? "" : text);
+        // only with the face it belongs to: on a card the viewer can't see, which counts it has would say what it is
+        List<CardCounts.Count> counts = state != null && !looking ? gui.facts().counts(c.getId()) : List.of();
+        if (!counts.isEmpty()) {
+            JsonArray a = new JsonArray();
+            for (CardCounts.Count n : counts) {
+                JsonObject e = new JsonObject();
+                e.addProperty("text", n.text());
+                e.addProperty("name", n.name());
+                e.addProperty("value", n.value());
+                a.add(e);
+            }
+            o.add("counts", a);
+        }
         boolean creature = state != null && state.isCreature();
         o.addProperty("power", creature ? state.getPower() : null);
         o.addProperty("toughness", creature ? state.getToughness() : null);

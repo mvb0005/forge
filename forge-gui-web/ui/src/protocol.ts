@@ -46,6 +46,9 @@ export type PlayerDto = {
 
 export type ZoneName = 'hand' | 'library' | 'battlefield' | 'graveyard' | 'exile' | 'command' | 'stack' | 'other'
 
+/** A number one of the card's abilities counts now ("for each card your opponents have drawn this turn"). `text` is that ability's text, as in the card's rules text; `name` is the script's name for it (X). */
+export type CardCount = { text: string; name: string; value: number }
+
 export type CardDto = {
   id: number
   zone: ZoneName
@@ -70,6 +73,7 @@ export type CardDto = {
   counters: Record<string, number>
   keywords: string[]
   keywordLabels?: Record<string, string[]>
+  counts?: CardCount[] // the live numbers its abilities count, worked out by the engine; absent when none
   tapped: boolean
   sick: boolean
   phasedOut: boolean
