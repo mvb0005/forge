@@ -276,13 +276,19 @@ final class ViewProjector {
         o.add("ownerId", id(c.getOwner()));
         o.add("controllerId", id(c.getController()));
         o.addProperty("hidden", !visible);
-        CardStateView state = visible ? c.getCurrentState() : null;
+        // A face-down card off the battlefield and the stack (Ixhel's exile, a hidden-agenda card): whoever may look
+        // at it (Forge's canFaceDownBeShownTo) sees its face, the others a card back. In play, its face-down
+        // characteristics are what counts (a 2/2 morph), so there it keeps them and shows its face as the flip side.
+        ZoneType zone = c.getZone();
+        boolean looking = visible && c.isFaceDown() && zone != ZoneType.Battlefield && zone != ZoneType.Stack
+                && c.getAlternateState() != null && c.canFaceDownBeShownToAny(viewers);
+        CardStateView state = looking ? c.getAlternateState() : visible ? c.getCurrentState() : null;
         o.addProperty("name", state == null ? "" : state.getName());
         String img = null;
         String backImg = null;
         if (state != null) {
             img = imgUrl(state.getImageKey(viewers));
-            if (c.hasAlternateState() && flip) {
+            if (c.hasAlternateState() && flip && !looking) {
                 CardStateView alt = c.getAlternateState();
                 if (alt != null) {
                     backImg = imgUrl(alt.getImageKey(viewers));

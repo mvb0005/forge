@@ -1,0 +1,12 @@
+turn=3
+activeplayer=p0
+activephase=MAIN2
+p0life=20
+p0hand=
+p0library=Plains;Plains;Plains;Plains;Plains;Plains;Plains;Plains
+p0battlefield=Ixhel, Scion of Atraxa;Plains;Plains;Swamp;Swamp;Forest;Island
+p1life=20
+p1counters=POISON=3
+p1hand=
+p1library=Lightning Bolt;Hill Giant;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+p1battlefield=Mountain
