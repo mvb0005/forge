@@ -48,7 +48,7 @@ export function DevPeek() {
       <div className="mt-auto flex justify-between">
         <CardBox card={cards[MINE[0]]} />
         <div className="flex gap-3">{MINE.slice(1, 3).map((id) => <CardBox key={id} card={cards[id]} />)}</div>
-        <CardBox card={cards[MINE[3]]} />
+        <div className="flex gap-3">{MINE.slice(3).map((id) => <CardBox key={id} card={cards[id]} />)}</div>
       </div>
       <Peekable entity={{ kind: 'player', id: ME }} className="self-center rounded-lg bg-panel px-4 py-2">
         {players[ME].name} · {players[ME].life} life

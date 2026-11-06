@@ -20,7 +20,7 @@ const player = (id: number, name: string, life: number, battlefield: number[], h
 export const ME = 1
 export const OPP = 2
 export const ATTACKERS = [10, 11, 12]
-export const MINE = [20, 21, 22, 23]
+export const MINE = [20, 21, 22, 23, 24]
 export const HIDDEN = 30
 
 const opp = { ownerId: OPP }
@@ -32,6 +32,14 @@ const cards: CardDto[] = [
   card({ id: 21, name: 'Giant Spider', manaCost: '{3}{G}', colors: 'G', typeLine: 'Creature — Spider', power: 2, toughness: 4, keywords: ['reach'], text: 'Reach' }),
   card({ id: 22, name: 'Llanowar Elves', manaCost: '{G}', colors: 'G', typeLine: 'Creature — Elf Druid', power: 1, toughness: 1, sick: true, text: '{T}: Add {G}.' }),
   card({ id: 23, name: 'Wall of Wood', manaCost: '{G}', colors: 'G', typeLine: 'Creature — Wall', power: 0, toughness: 3, keywords: ['defender'], text: 'Defender', damage: 1 }),
+  card({
+    id: 24, name: 'Heliod, the Warped Eclipse', manaCost: '', colors: 'WU', typeLine: 'Legendary Enchantment Creature — Phyrexian God', types: ['Enchantment', 'Creature'], power: 4, toughness: 6,
+    text: 'You may cast spells as though they had flash.\nSpells you cast cost {1} less to cast for each card your opponents have drawn this turn.',
+    counts: [
+      { text: 'Spells you cast cost {1} less to cast for each card your opponents have drawn this turn.', name: 'X', value: 3 },
+      { text: 'A count whose ability is not a line of the text shows on its own.', name: 'Y', value: 1 },
+    ],
+  }),
   card({ id: HIDDEN, ...opp, zone: 'hand', name: '', hidden: true, types: [] }),
 ]
 
