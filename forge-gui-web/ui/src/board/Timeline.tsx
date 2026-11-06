@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { usePeek } from '../popover/usePeek'
 import type { LogEntry, PlayerDto } from '../protocol'
-import { useForge, type Reveal } from '../store'
+import { NO_IDS, useForge, type Reveal } from '../store'
 import { CardImage } from './CardImage'
 import { revealHeadline } from './RevealFlyout'
 import { stepWords } from '../look/phase'
@@ -110,7 +110,7 @@ function withNames(text: string, names: string[], k: number): ReactNode[] {
 /** A reveal in the timeline: who, and the cards as revealed; click to see them large again. */
 function RevealRow({ r }: { r: Reveal }) {
   const players = useForge((s) => s.players)
-  const localIds = useForge((s) => s.game?.localPlayerIds ?? [])
+  const localIds = useForge((s) => s.game?.localPlayerIds ?? NO_IDS)
   const open = useForge((s) => s.revealOpen === r.key)
   const openReveal = useForge((s) => s.openReveal)
   const cards = useForge((s) => s.cards)

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ClientMessage, PlayerDto } from '../protocol'
 import { send } from '../net'
 import { useBoardUi } from '../board/uiStore'
-import { useForge } from '../store'
+import { useForge, NO_IDS } from '../store'
 
 export type PassChoice = { label: string; msg: ClientMessage }
 
@@ -95,7 +95,7 @@ export function PassMenu() {
 
 function PassList({ onChoose, hold }: { onChoose: (m: ClientMessage) => void; hold: boolean }) {
   const players = useForge((s) => s.players)
-  const mine = useForge((s) => s.game?.localPlayerIds ?? [])
+  const mine = useForge((s) => s.game?.localPlayerIds ?? NO_IDS)
   const order = useForge((s) => s.game?.turnOrder)
   const stackSize = useForge((s) => s.stack.length)
   const choices = passChoices(players, mine, order, stackSize)

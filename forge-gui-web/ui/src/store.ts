@@ -59,6 +59,11 @@ function revealer(title: string, cards: CardDto[], players: Record<number, Playe
 
 let revealSeq = 0
 
+// A selector must return the same value for the same state: a fresh `[]` on every read (s.game?.x ?? []) makes
+// React see the store change each render and loop until it gives up (error #185), as it did for a spectator
+// before the first state. Fall back to this instead.
+export const NO_IDS: number[] = []
+
 export const entityKey = (e: EntityRef) => `${e.kind}:${e.id}`
 
 const LOG_LIMIT = 200

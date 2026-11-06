@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Region } from '../table/contract'
 import { usePeek } from '../popover/usePeek'
 import { send } from '../net'
-import { entityKey, useForge, type Reveal } from '../store'
+import { NO_IDS, entityKey, useForge, type Reveal } from '../store'
 import type { CardDto } from '../protocol'
 import { CardImage } from './CardImage'
 
@@ -52,7 +52,7 @@ const offTable = (c: CardDto, localIds: number[]) => c.zone === 'library' || (c.
 function usePicks(): Reveal | null {
   const ids = useForge((s) => s.selectable.cardIds)
   const cards = useForge((s) => s.cards)
-  const localIds = useForge((s) => s.game?.localPlayerIds ?? [])
+  const localIds = useForge((s) => s.game?.localPlayerIds ?? NO_IDS)
   const players = useForge((s) => s.players)
   const picks = [...ids].map((id) => cards[id]).filter((c): c is CardDto => !!c && offTable(c, localIds))
   if (!picks.length) return null
@@ -70,7 +70,7 @@ export function RevealFlyout({ area }: { area: (ownerId: number | null) => Regio
   const openKey = useForge((s) => s.revealOpen)
   const reopened = useForge((s) => (s.revealOpen == null ? null : s.reveals.find((r) => r.key === s.revealOpen) ?? null))
   const players = useForge((s) => s.players)
-  const localIds = useForge((s) => s.game?.localPlayerIds ?? [])
+  const localIds = useForge((s) => s.game?.localPlayerIds ?? NO_IDS)
   const openReveal = useForge((s) => s.openReveal)
   const liveCards = useForge((s) => s.cards)
   // The engine waiting on you about these cards ("Looking at cards in AI 1's hand", OK): they stay until you answer.
